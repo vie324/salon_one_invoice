@@ -3,6 +3,7 @@ import {
   computeNextBillingDate,
   effectiveStatus,
   nextInvoiceNumber,
+  subscriptionItems,
 } from "@/lib/domain/calculations";
 import { computeDashboardMetrics } from "@/lib/domain/metrics";
 import type {
@@ -133,6 +134,9 @@ export class DemoRepository implements Repository {
       billingCycle: "monthly",
       billingDay: input.billingDay,
       active: input.active ?? true,
+      initialFee: input.initialFee ?? 0,
+      term: input.term ?? "monthly",
+      options: input.options ?? [],
     };
     this.s.plans.push(plan);
     return plan;
@@ -154,6 +158,7 @@ export class DemoRepository implements Repository {
       nextBillingDate: computeNextBillingDate(input.startedOn, billingDay),
       billingDay,
       canceledOn: null,
+      optionKeys: input.optionKeys ?? [],
     };
     this.s.subscriptions.push(sub);
     const cus = this.s.customers.find((c) => c.id === input.customerId);
@@ -497,14 +502,7 @@ export class DemoRepository implements Repository {
         paymentMethod: customer?.paymentMethod ?? "direct_debit",
         billingPeriod: period,
         subscriptionId: sub.id,
-        items: [
-          {
-            description: `${plan.name}（${period}）`,
-            quantity: 1,
-            unitPrice: plan.amount,
-            taxRate: plan.taxRate,
-          },
-        ],
+        items: subscriptionItems(plan, sub.optionKeys ?? [], period),
         status: customer?.paymentMethod === "direct_debit" ? "awaiting_payment" : "sent",
       });
       created.push(inv);
@@ -542,6 +540,9 @@ export class DemoRepository implements Repository {
         billingCycle: "monthly",
         billingDay: 1,
         active: true,
+        initialFee: 0,
+        term: "monthly",
+        options: [],
       };
       this.s.plans.push(plan);
     }
@@ -555,6 +556,7 @@ export class DemoRepository implements Repository {
       nextBillingDate: computeNextBillingDate(today, plan.billingDay),
       billingDay: plan.billingDay,
       canceledOn: null,
+      optionKeys: [],
       stripeSubscriptionId: input.stripeSubscriptionId,
     };
     this.s.subscriptions.push(sub);

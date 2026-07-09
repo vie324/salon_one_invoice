@@ -1,4 +1,3 @@
-import { cookies } from "next/headers";
 import { isDemoMode } from "@/lib/config";
 import type { Role } from "@/lib/domain/types";
 
@@ -19,13 +18,11 @@ const DEMO_ROLE_COOKIE = "demo_role";
  */
 export async function getCurrentUser(): Promise<CurrentUser> {
   if (isDemoMode) {
-    const store = await cookies();
-    const role = (store.get(DEMO_ROLE_COOKIE)?.value as Role) || "owner";
     return {
       id: "demo-user",
-      name: role === "staff" ? "田村 彩（担当者）" : role === "admin" ? "管理者" : "佐々木 涼（経営者）",
+      name: "佐々木 涼",
       email: "demo@salon-one.example.jp",
-      role,
+      role: "admin",
       demo: true,
     };
   }

@@ -1,8 +1,11 @@
 import { Repeat, TrendingUp, Users } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { getRepository } from "@/lib/data";
+import { subscriptionMonthly } from "@/lib/domain/calculations";
+import type { Plan } from "@/lib/domain/types";
 import { formatJPY } from "@/lib/utils";
 import { SubscriptionsClient } from "./subscriptions-client";
 
@@ -17,15 +20,16 @@ export default async function SubscriptionsPage() {
     repo.getDashboardMetrics(),
   ]);
 
+  const planById = new Map(plans.map((p) => [p.id, p]));
   const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
   const rows = subscriptions
     .map((s) => {
-      const plan = plans.find((p) => p.id === s.planId);
+      const plan = planById.get(s.planId);
       return {
         ...s,
         customerName: customerName(s.customerId),
-        planName: plan?.name ?? "—",
-        planAmount: plan?.amount ?? 0,
+        planName: plan ? `${plan.name}（${plan.term === "annual" ? "年間" : "月額"}）` : "—",
+        monthlyTotal: plan ? subscriptionMonthly(plan, s.optionKeys) : 0,
       };
     })
     .sort((a, b) => (a.status === b.status ? 0 : a.status === "active" ? -1 : 1));
@@ -35,11 +39,14 @@ export default async function SubscriptionsPage() {
     planCounts.set(s.planId, (planCounts.get(s.planId) ?? 0) + 1);
   }
 
+  const monthlyPlans = plans.filter((p) => p.active && p.term === "monthly");
+  const annualPlans = plans.filter((p) => p.active && p.term === "annual");
+
   return (
     <div>
       <PageHeader
         title="定期請求"
-        description="サブスクリプション(月額)プランと定期請求を管理します。毎月の請求は自動生成できます。"
+        description="料金プラン（基本料金＋オプション）と定期請求を管理します。毎月の請求は自動生成できます。"
       />
 
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3">
@@ -63,29 +70,66 @@ export default async function SubscriptionsPage() {
         />
       </div>
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {plans.map((p) => (
-          <Card key={p.id}>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">{p.name}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="tabular text-2xl font-bold">{formatJPY(p.amount)}</div>
-              <div className="text-xs text-muted-foreground">/ 月（税抜）</div>
-              <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{p.description}</p>
-              <div className="mt-3 text-xs">
-                <span className="rounded-full bg-secondary px-2 py-0.5 text-secondary-foreground">
-                  加入 {planCounts.get(p.id) ?? 0}名
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <PlanGrid title="月額プラン" plans={monthlyPlans} counts={planCounts} />
+      <PlanGrid title="年間プラン" plans={annualPlans} counts={planCounts} />
 
-      <Card className="p-4">
+      <Card className="mt-6 p-4">
         <SubscriptionsClient rows={rows} customers={customers} plans={plans} />
       </Card>
     </div>
+  );
+}
+
+function PlanGrid({
+  title,
+  plans,
+  counts,
+}: {
+  title: string;
+  plans: Plan[];
+  counts: Map<string, number>;
+}) {
+  if (plans.length === 0) return null;
+  return (
+    <section className="mb-6">
+      <h2 className="mb-3 text-sm font-semibold text-muted-foreground">{title}</h2>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {plans.map((p) => {
+          const full = subscriptionMonthly(p, p.options.map((o) => o.key));
+          return (
+            <Card key={p.id} className="flex flex-col p-5">
+              <div className="flex items-start justify-between">
+                <div className="font-semibold">{p.name}</div>
+                <Badge tone="neutral">{p.term === "annual" ? "年間" : "月額"}</Badge>
+              </div>
+              <div className="mt-2 flex items-baseline gap-1">
+                <span className="tabular text-2xl font-bold">{formatJPY(p.amount)}</span>
+                <span className="text-xs text-muted-foreground">/ 月（基本）</span>
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                初期費用 {formatJPY(p.initialFee)}
+              </div>
+              <div className="mt-3 space-y-1 border-t border-border pt-3 text-xs">
+                {p.options.map((o) => (
+                  <div key={o.key} className="flex justify-between text-muted-foreground">
+                    <span>＋{o.name}</span>
+                    <span className="tabular">{formatJPY(o.monthly)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between pt-1 font-medium text-foreground">
+                  <span>フル導入時</span>
+                  <span className="tabular">{formatJPY(full)}/月</span>
+                </div>
+              </div>
+              <div className="mt-3">
+                <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
+                  加入 {counts.get(p.id) ?? 0}社
+                </span>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    </section>
   );
 }

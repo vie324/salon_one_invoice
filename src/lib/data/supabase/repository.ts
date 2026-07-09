@@ -4,6 +4,7 @@ import {
   computeNextBillingDate,
   effectiveStatus,
   nextInvoiceNumber,
+  subscriptionItems,
 } from "@/lib/domain/calculations";
 import { computeDashboardMetrics } from "@/lib/domain/metrics";
 import type {
@@ -108,6 +109,9 @@ function mapPlan(r: any): Plan {
     billingCycle: "monthly",
     billingDay: r.billing_day,
     active: r.active,
+    initialFee: Number(r.initial_fee ?? 0),
+    term: (r.term ?? "monthly") as Plan["term"],
+    options: Array.isArray(r.options) ? r.options : [],
   };
 }
 
@@ -121,6 +125,7 @@ function mapSubscription(r: any): Subscription {
     nextBillingDate: r.next_billing_date,
     billingDay: r.billing_day,
     canceledOn: r.canceled_on,
+    optionKeys: Array.isArray(r.option_keys) ? r.option_keys : [],
     stripeSubscriptionId: r.stripe_subscription_id ?? null,
   };
 }
@@ -356,6 +361,9 @@ export class SupabaseRepository implements Repository {
         billing_cycle: "monthly",
         billing_day: input.billingDay,
         active: input.active ?? true,
+        initial_fee: input.initialFee ?? 0,
+        term: input.term ?? "monthly",
+        options: input.options ?? [],
       })
       .select("*")
       .single();
@@ -381,6 +389,7 @@ export class SupabaseRepository implements Repository {
         started_on: input.startedOn,
         next_billing_date: computeNextBillingDate(input.startedOn, billingDay),
         billing_day: billingDay,
+        option_keys: input.optionKeys ?? [],
       })
       .select("*")
       .single();
@@ -832,14 +841,7 @@ export class SupabaseRepository implements Repository {
           paymentMethod: customer?.paymentMethod ?? "direct_debit",
           billingPeriod: period,
           subscriptionId: sub.id,
-          items: [
-            {
-              description: `${plan.name}（${period}）`,
-              quantity: 1,
-              unitPrice: plan.amount,
-              taxRate: plan.taxRate,
-            },
-          ],
+          items: subscriptionItems(plan, sub.optionKeys ?? [], period),
           status: customer?.paymentMethod === "direct_debit" ? "awaiting_payment" : "sent",
         });
         created.push(inv);
@@ -907,6 +909,9 @@ export class SupabaseRepository implements Repository {
           billing_cycle: "monthly",
           billing_day: 1,
           active: true,
+          initial_fee: 0,
+          term: "monthly",
+          options: [],
         })
         .select("*")
         .single();
@@ -922,6 +927,7 @@ export class SupabaseRepository implements Repository {
         started_on: today,
         next_billing_date: computeNextBillingDate(today, planRow.billing_day),
         billing_day: planRow.billing_day,
+        option_keys: [],
         stripe_subscription_id: input.stripeSubscriptionId,
       })
       .select("*")

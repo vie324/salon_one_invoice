@@ -17,7 +17,10 @@
 1. `0001_init.sql` … テーブル・インデックス
 2. `0002_rls.sql` … Row Level Security ポリシー
 3. `0003_functions.sql` … サインアップ時の profiles 自動作成ほか
-4. （任意）`seed.sql` … 初期サンプルデータ
+4. `0004_stripe.sql` … Stripe 連携カラム
+5. `0005_stripe_unique.sql` … Stripe サブスクの一意制約
+6. `0006_plan_options.sql` … 料金プランのオプション/初期費用/期間区分
+7. （任意）`seed.sql` … 初期サンプルデータ
 
 > Supabase CLI を使う場合:
 > ```bash

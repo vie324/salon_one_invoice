@@ -9,27 +9,48 @@ import {
 } from "@/app/actions/billing";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Field, Input } from "@/components/ui/input";
+import { Field, Label, Select } from "@/components/ui/input";
+import { selectedOptions, subscriptionMonthly } from "@/lib/domain/calculations";
+import type { Plan } from "@/lib/domain/types";
 import { formatJPY } from "@/lib/utils";
+
+const termLabel = (t: Plan["term"]) => (t === "annual" ? "年間" : "月額");
 
 export function BillingButton({
   customerId,
   stripeConfigured,
-  defaultPlanName,
-  defaultMonthly,
+  plans,
 }: {
   customerId: string;
   stripeConfigured: boolean;
-  defaultPlanName: string;
-  defaultMonthly: number;
+  plans: Plan[];
 }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [pending, start] = React.useTransition();
   const [flash, setFlash] = React.useState<string | null>(null);
-  const [planName, setPlanName] = React.useState(defaultPlanName);
-  const [monthly, setMonthly] = React.useState(defaultMonthly || 12000);
-  const [initialFee, setInitialFee] = React.useState(100000);
+
+  const activePlans = plans.filter((p) => p.active);
+  const [planId, setPlanId] = React.useState(activePlans[0]?.id ?? "");
+  const [optKeys, setOptKeys] = React.useState<string[]>(
+    activePlans[0]?.options.map((o) => o.key) ?? [],
+  );
+
+  const plan = activePlans.find((p) => p.id === planId);
+
+  // プラン変更時はオプションを全選択に初期化
+  const onPlanChange = (id: string) => {
+    setPlanId(id);
+    const p = activePlans.find((x) => x.id === id);
+    setOptKeys(p?.options.map((o) => o.key) ?? []);
+  };
+
+  const toggleOpt = (key: string) =>
+    setOptKeys((k) => (k.includes(key) ? k.filter((x) => x !== key) : [...k, key]));
+
+  const monthly = plan ? subscriptionMonthly(plan, optKeys) : 0;
+  const initialFee = plan?.initialFee ?? 0;
+  const planName = plan ? `${plan.name}（${termLabel(plan.term)}）` : "月額プラン";
 
   const opts = () => ({ planName, monthlyAmount: monthly, initialFee });
 
@@ -61,34 +82,73 @@ export function BillingButton({
         open={open}
         onClose={() => setOpen(false)}
         title="Stripe 課金の開始"
-        description="初期費用（単発）＋ 月額（サブスク）を Stripe でまとめて登録します。"
+        description="プランとオプションを選ぶと、初期費用＋月額を Stripe でまとめて登録します。"
       >
         <div className="space-y-4">
-          <Field label="プラン名">
-            <Input value={planName} onChange={(e) => setPlanName(e.target.value)} />
+          <Field label="プラン">
+            <Select value={planId} onChange={(e) => onPlanChange(e.target.value)}>
+              <optgroup label="月額プラン">
+                {activePlans.filter((p) => p.term === "monthly").map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}（基本 {formatJPY(p.amount)}／初期 {formatJPY(p.initialFee)}）
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="年間プラン">
+                {activePlans.filter((p) => p.term === "annual").map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}（基本 {formatJPY(p.amount)}／初期 {formatJPY(p.initialFee)}）
+                  </option>
+                ))}
+              </optgroup>
+            </Select>
           </Field>
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="初期費用（税込）" hint="単発・初回請求に加算">
-              <Input
-                type="number"
-                value={initialFee}
-                onChange={(e) => setInitialFee(Number(e.target.value))}
-              />
-            </Field>
-            <Field label="月額（税込）" hint="毎月自動課金">
-              <Input
-                type="number"
-                value={monthly}
-                onChange={(e) => setMonthly(Number(e.target.value))}
-              />
-            </Field>
-          </div>
 
-          <div className="rounded-md bg-secondary px-3 py-2.5 text-sm text-secondary-foreground">
-            初回請求: <strong className="tabular">{formatJPY(initialFee + monthly)}</strong>
-            <span className="text-xs">（初期費用 {formatJPY(initialFee)} ＋ 初月 {formatJPY(monthly)}）</span>
-            <br />
-            <span className="text-xs">2ヶ月目以降: 毎月 {formatJPY(monthly)}</span>
+          {plan && plan.options.length > 0 && (
+            <div>
+              <Label>オプション</Label>
+              <div className="space-y-1.5">
+                {plan.options.map((o) => (
+                  <label
+                    key={o.key}
+                    className="flex cursor-pointer items-center justify-between rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50"
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <input
+                        type="checkbox"
+                        checked={optKeys.includes(o.key)}
+                        onChange={() => toggleOpt(o.key)}
+                        className="h-4 w-4 accent-[hsl(var(--primary))]"
+                      />
+                      {o.name}
+                    </span>
+                    <span className="tabular text-muted-foreground">+{formatJPY(o.monthly)}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-1 rounded-md bg-secondary px-3 py-2.5 text-sm text-secondary-foreground">
+            <div className="flex justify-between">
+              <span>基本料金</span>
+              <span className="tabular">{formatJPY(plan?.amount ?? 0)}</span>
+            </div>
+            {plan &&
+              selectedOptions(plan, optKeys).map((o) => (
+                <div key={o.key} className="flex justify-between text-xs">
+                  <span>＋{o.name}</span>
+                  <span className="tabular">{formatJPY(o.monthly)}</span>
+                </div>
+              ))}
+            <div className="flex justify-between border-t border-border/60 pt-1 font-semibold">
+              <span>月額合計</span>
+              <span className="tabular">{formatJPY(monthly)}</span>
+            </div>
+            <div className="flex justify-between pt-1 text-xs">
+              <span>初回請求（初期費用 {formatJPY(initialFee)} ＋ 初月 {formatJPY(monthly)}）</span>
+              <span className="tabular font-semibold">{formatJPY(initialFee + monthly)}</span>
+            </div>
           </div>
 
           {flash && <p className="text-sm text-destructive">{flash}</p>}
@@ -97,13 +157,18 @@ export function BillingButton({
             <Button
               className="w-full"
               onClick={checkout}
-              disabled={pending || !stripeConfigured}
+              disabled={pending || !stripeConfigured || !plan}
               title={stripeConfigured ? undefined : "STRIPE_SECRET_KEY を設定すると有効になります"}
             >
               <CreditCard className="h-4 w-4" />
               Stripe Checkout へ進む
             </Button>
-            <Button variant="outline" className="w-full" onClick={simulate} disabled={pending}>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={simulate}
+              disabled={pending || !plan}
+            >
               <FlaskConical className="h-4 w-4" />
               テスト決済をシミュレート（Stripeキー不要）
             </Button>

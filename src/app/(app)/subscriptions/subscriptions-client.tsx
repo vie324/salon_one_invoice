@@ -13,15 +13,15 @@ import { runRecurringBillingAction } from "@/app/actions/invoices";
 import { SubscriptionStatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Field, Input, Select } from "@/components/ui/input";
+import { Field, Input, Label, Select } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import type { Customer, Plan, Subscription } from "@/lib/domain/types";
+import type { Customer, Plan, PlanTerm, Subscription } from "@/lib/domain/types";
 import { formatDate, formatJPY, toISODate } from "@/lib/utils";
 
 interface Row extends Subscription {
   customerName: string;
   planName: string;
-  planAmount: number;
+  monthlyTotal: number;
 }
 
 export function SubscriptionsClient({
@@ -86,7 +86,7 @@ export function SubscriptionsClient({
           <TR className="hover:bg-transparent">
             <TH>顧客</TH>
             <TH>プラン</TH>
-            <TH className="text-right">月額(税抜)</TH>
+            <TH className="text-right">月額合計</TH>
             <TH>次回請求日</TH>
             <TH>状態</TH>
             <TH className="text-right">操作</TH>
@@ -100,8 +100,13 @@ export function SubscriptionsClient({
                   {r.customerName}
                 </Link>
               </TD>
-              <TD className="text-muted-foreground">{r.planName}</TD>
-              <TD className="tabular text-right">{formatJPY(r.planAmount)}</TD>
+              <TD className="text-muted-foreground">
+                {r.planName}
+                {r.optionKeys.length > 0 && (
+                  <span className="ml-1 text-xs">＋オプション{r.optionKeys.length}</span>
+                )}
+              </TD>
+              <TD className="tabular text-right font-medium">{formatJPY(r.monthlyTotal)}</TD>
               <TD className="text-muted-foreground">{formatDate(r.nextBillingDate)}</TD>
               <TD>
                 <SubscriptionStatusBadge status={r.status} />
@@ -134,7 +139,7 @@ export function SubscriptionsClient({
         open={subOpen}
         onClose={() => setSubOpen(false)}
         customers={customers}
-        plans={plans}
+        plans={plans.filter((p) => p.active)}
         pending={pending}
         onSubmit={(input) =>
           start(async () => {
@@ -195,12 +200,27 @@ function NewSubscriptionDialog({
   onClose: () => void;
   customers: Customer[];
   plans: Plan[];
-  onSubmit: (input: { customerId: string; planId: string; startedOn: string }) => void;
+  onSubmit: (input: {
+    customerId: string;
+    planId: string;
+    startedOn: string;
+    optionKeys: string[];
+  }) => void;
   pending: boolean;
 }) {
   const [customerId, setCustomerId] = React.useState(customers[0]?.id ?? "");
   const [planId, setPlanId] = React.useState(plans[0]?.id ?? "");
+  const [optKeys, setOptKeys] = React.useState<string[]>(plans[0]?.options.map((o) => o.key) ?? []);
   const [startedOn, setStartedOn] = React.useState(toISODate(new Date()));
+
+  const plan = plans.find((p) => p.id === planId);
+  const onPlan = (id: string) => {
+    setPlanId(id);
+    setOptKeys(plans.find((p) => p.id === id)?.options.map((o) => o.key) ?? []);
+  };
+  const toggle = (k: string) =>
+    setOptKeys((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]));
+
   return (
     <Dialog open={open} onClose={onClose} title="新規定期契約">
       <div className="space-y-4">
@@ -214,14 +234,38 @@ function NewSubscriptionDialog({
           </Select>
         </Field>
         <Field label="プラン">
-          <Select value={planId} onChange={(e) => setPlanId(e.target.value)}>
+          <Select value={planId} onChange={(e) => onPlan(e.target.value)}>
             {plans.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name}（{formatJPY(p.amount)}/月）
+                {p.name}（{p.term === "annual" ? "年間" : "月額"}・基本 {formatJPY(p.amount)}）
               </option>
             ))}
           </Select>
         </Field>
+        {plan && plan.options.length > 0 && (
+          <div>
+            <Label>オプション</Label>
+            <div className="space-y-1.5">
+              {plan.options.map((o) => (
+                <label
+                  key={o.key}
+                  className="flex cursor-pointer items-center justify-between rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={optKeys.includes(o.key)}
+                      onChange={() => toggle(o.key)}
+                      className="h-4 w-4 accent-[hsl(var(--primary))]"
+                    />
+                    {o.name}
+                  </span>
+                  <span className="tabular text-muted-foreground">+{formatJPY(o.monthly)}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
         <Field label="契約開始日">
           <Input type="date" value={startedOn} onChange={(e) => setStartedOn(e.target.value)} />
         </Field>
@@ -230,7 +274,7 @@ function NewSubscriptionDialog({
             キャンセル
           </Button>
           <Button
-            onClick={() => onSubmit({ customerId, planId, startedOn })}
+            onClick={() => onSubmit({ customerId, planId, startedOn, optionKeys: optKeys })}
             disabled={pending || !customerId || !planId}
           >
             契約を作成
@@ -255,25 +299,28 @@ function NewPlanDialog({
     amount: number;
     taxRate: number;
     billingDay: number;
+    initialFee: number;
+    term: PlanTerm;
   }) => void;
   pending: boolean;
 }) {
   const [name, setName] = React.useState("");
-  const [description, setDescription] = React.useState("");
-  const [amount, setAmount] = React.useState(10000);
+  const [amount, setAmount] = React.useState(30000);
+  const [initialFee, setInitialFee] = React.useState(200000);
+  const [term, setTerm] = React.useState<PlanTerm>("monthly");
   const [billingDay, setBillingDay] = React.useState(27);
   return (
     <Dialog open={open} onClose={onClose} title="新規プラン">
       <div className="space-y-4">
         <Field label="プラン名">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="スタンダード会員" />
-        </Field>
-        <Field label="説明">
-          <Input value={description} onChange={(e) => setDescription(e.target.value)} />
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="定価 / まとめパック 等" />
         </Field>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="月額(税抜)">
-            <Input type="number" value={amount} onChange={(e) => setAmount(Number(e.target.value))} />
+          <Field label="契約区分">
+            <Select value={term} onChange={(e) => setTerm(e.target.value as PlanTerm)}>
+              <option value="monthly">月額</option>
+              <option value="annual">年間</option>
+            </Select>
           </Field>
           <Field label="請求日(毎月)">
             <Input
@@ -285,12 +332,25 @@ function NewPlanDialog({
             />
           </Field>
         </div>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="初期費用">
+            <Input type="number" value={initialFee} onChange={(e) => setInitialFee(Number(e.target.value))} />
+          </Field>
+          <Field label="基本料金(月額)">
+            <Input type="number" value={amount} onChange={(e) => setAmount(Number(e.target.value))} />
+          </Field>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          オプション（HPB・ミニモ／LINE 等）は作成後にシード/DBで設定できます。
+        </p>
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose} disabled={pending}>
             キャンセル
           </Button>
           <Button
-            onClick={() => onSubmit({ name, description, amount, taxRate: 0.1, billingDay })}
+            onClick={() =>
+              onSubmit({ name, description: "", amount, taxRate: 0, billingDay, initialFee, term })
+            }
             disabled={pending || !name.trim()}
           >
             プランを作成

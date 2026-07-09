@@ -1,4 +1,4 @@
-import { calcInvoiceTotals } from "@/lib/domain/calculations";
+import { calcInvoiceTotals, subscriptionItems } from "@/lib/domain/calculations";
 import type {
   Activity,
   BankTransaction,
@@ -11,6 +11,7 @@ import type {
   Organization,
   Payment,
   Plan,
+  PlanOption,
   Subscription,
 } from "@/lib/domain/types";
 import { toISODate } from "@/lib/utils";
@@ -37,24 +38,20 @@ const dayOfMonth = (base: Date, monthsAgo: number, day: number) => {
   return toISODate(new Date(d.getFullYear(), d.getMonth(), Math.min(day, last)));
 };
 
-function buildItems(raw: Omit<InvoiceItem, "id" | "amount">[], prefix: string): InvoiceItem[] {
-  return raw.map((r, i) => ({
-    ...r,
-    id: `${prefix}_it${i + 1}`,
-    amount: Math.round(r.quantity * r.unitPrice),
-  }));
-}
+const opt = (key: string, name: string, monthly: number): PlanOption => ({ key, name, monthly });
+const HPB = (m: number) => opt("hpb", "HPB・ミニモ連携", m);
+const LINE = (m: number) => opt("line", "LINE連携", m);
 
 /**
- * デモ用のサンプルデータを構築する。
- * 実行時の「今日」を基準に直近6ヶ月ぶんを生成するため、いつ見ても賑わって見える。
+ * デモ用のサンプルデータ。実行時の「今日」を基準に直近6ヶ月ぶんを生成する。
+ * 料金体系: 基本料金(初期費用＋月額) ＋ オプション(HPB・ミニモ / LINE)。月額/年間の2区分。
  */
 export function buildSeed(now = new Date()): DataStore {
   const organization: Organization = {
     id: "org_salon_one",
-    name: "サロン・ワン株式会社",
+    name: "SalonOne株式会社",
     postalCode: "150-0001",
-    address: "東京都渋谷区神宮前1-2-3 サロンワンビル 4F",
+    address: "東京都渋谷区神宮前1-2-3 SalonOneビル 4F",
     tel: "03-1234-5678",
     email: "billing@salon-one.example.jp",
     registrationNumber: "T1234567890123",
@@ -68,66 +65,60 @@ export function buildSeed(now = new Date()): DataStore {
     logoText: "S1",
   };
 
+  // 料金プラン(基本料金＋オプション / 月額・年間) — 添付の料金表に準拠
+  const P = (
+    id: string,
+    name: string,
+    term: "monthly" | "annual",
+    initialFee: number,
+    amount: number,
+    options: PlanOption[],
+    description: string,
+  ): Plan => ({
+    id,
+    name,
+    description,
+    amount,
+    taxRate: 0,
+    billingCycle: "monthly",
+    billingDay: 27,
+    active: true,
+    initialFee,
+    term,
+    options,
+  });
+
   const plans: Plan[] = [
-    {
-      id: "plan_basic",
-      name: "ベーシック会員",
-      description: "月1回のメンテナンス施術＋ホームケア相談",
-      amount: 8000,
-      taxRate: 0.1,
-      billingCycle: "monthly",
-      billingDay: 27,
-      active: true,
-    },
-    {
-      id: "plan_standard",
-      name: "スタンダード会員",
-      description: "月2回の施術＋トリートメント込み",
-      amount: 12000,
-      taxRate: 0.1,
-      billingCycle: "monthly",
-      billingDay: 27,
-      active: true,
-    },
-    {
-      id: "plan_premium",
-      name: "プレミアム会員",
-      description: "通い放題＋指名料無料＋店販10%OFF",
-      amount: 20000,
-      taxRate: 0.1,
-      billingCycle: "monthly",
-      billingDay: 27,
-      active: true,
-    },
-    {
-      id: "plan_homecare",
-      name: "ホームケア定期便",
-      description: "毎月おすすめ店販品をお届け",
-      amount: 5000,
-      taxRate: 0.1,
-      billingCycle: "monthly",
-      billingDay: 27,
-      active: true,
-    },
+    // 月額プラン
+    P("plan_teika_m", "定価", "monthly", 200000, 30000, [HPB(10000), LINE(10000)], "標準プラン（月額）"),
+    P("plan_pack_m", "まとめパック", "monthly", 200000, 30000, [HPB(7500), LINE(7500)], "オプションまとめ割（月額）"),
+    P("plan_special_m", "特別期間限定", "monthly", 50000, 5000, [HPB(5000), LINE(5000)], "期間限定キャンペーン（月額）"),
+    P("plan_agency_m", "代理店版 特別", "monthly", 100000, 20000, [HPB(5000), LINE(5000)], "代理店向け特別（月額）"),
+    // 年間プラン
+    P("plan_teika_a", "定価", "annual", 100000, 20000, [HPB(5000), LINE(5000)], "標準プラン（年間）"),
+    P("plan_pack_a", "まとめパック", "annual", 100000, 20000, [HPB(2500), LINE(2500)], "オプションまとめ割（年間）"),
+    P("plan_special_a", "特別期間限定", "annual", 50000, 5000, [HPB(2500), LINE(2500)], "期間限定キャンペーン（年間）"),
+    P("plan_agency_a", "代理店版", "annual", 50000, 15000, [HPB(2500), LINE(2500)], "代理店向け（年間）"),
   ];
   const planById = new Map(plans.map((p) => [p.id, p]));
 
-  // 顧客定義 (planId は定期契約の紐付け用の作業データ)
+  // 顧客(=導入サロン)。planId/optionKeys で契約プランとオプションを紐付け。
   const customerDefs: (Omit<Customer, "createdAt"> & {
     planId: string | null;
+    optionKeys: string[];
     mandateStatus: DirectDebitMandate["status"] | null;
   })[] = [
-    { id: "cus_yamada", code: "M-0001", name: "山田 花子", kana: "ヤマダ ハナコ", contactName: "山田 花子", email: "hanako.y@example.com", phone: "090-1111-0001", postalCode: "150-0002", address: "東京都渋谷区渋谷2-1-1", paymentMethod: "direct_debit", status: "active", assignee: "佐々木 涼", notes: "指名: 涼。敏感肌。", planId: "plan_premium", mandateStatus: "active" },
-    { id: "cus_sato", code: "M-0002", name: "佐藤 美咲", kana: "サトウ ミサキ", contactName: "佐藤 美咲", email: "misaki.s@example.com", phone: "090-1111-0002", postalCode: "153-0051", address: "東京都目黒区上目黒3-4-5", paymentMethod: "direct_debit", status: "active", assignee: "田村 彩", notes: "", planId: "plan_standard", mandateStatus: "active" },
-    { id: "cus_suzuki", code: "M-0003", name: "鈴木 陽菜", kana: "スズキ ヒナ", contactName: "鈴木 陽菜", email: "hina.s@example.com", phone: "090-1111-0003", postalCode: "154-0004", address: "東京都世田谷区太子堂1-2-3", paymentMethod: "direct_debit", status: "active", assignee: "佐々木 涼", notes: "", planId: "plan_basic", mandateStatus: "active" },
-    { id: "cus_tanaka", code: "M-0004", name: "田中 健一", kana: "タナカ ケンイチ", contactName: "田中 健一", email: "kenichi.t@example.com", phone: "090-1111-0004", postalCode: "141-0031", address: "東京都品川区西五反田2-3-4", paymentMethod: "direct_debit", status: "active", assignee: "田村 彩", notes: "メンズ。朝の来店希望。", planId: "plan_standard", mandateStatus: "active" },
-    { id: "cus_takahashi", code: "M-0005", name: "高橋 由美", kana: "タカハシ ユミ", contactName: "高橋 由美", email: "yumi.t@example.com", phone: "090-1111-0005", postalCode: "158-0094", address: "東京都世田谷区玉川3-5-6", paymentMethod: "bank_transfer", status: "active", assignee: "佐々木 涼", notes: "振込希望(口座振替への切替案内中)。", planId: "plan_premium", mandateStatus: null },
-    { id: "cus_ito", code: "M-0006", name: "伊藤 さくら", kana: "イトウ サクラ", contactName: "伊藤 さくら", email: "sakura.i@example.com", phone: "090-1111-0006", postalCode: "150-0043", address: "東京都渋谷区道玄坂1-1-1", paymentMethod: "direct_debit", status: "active", assignee: "田村 彩", notes: "", planId: "plan_basic", mandateStatus: "active" },
-    { id: "cus_watanabe", code: "M-0007", name: "渡辺 真理", kana: "ワタナベ マリ", contactName: "渡辺 真理", email: "mari.w@example.com", phone: "090-1111-0007", postalCode: "151-0053", address: "東京都渋谷区代々木2-2-2", paymentMethod: "direct_debit", status: "active", assignee: "佐々木 涼", notes: "口座振替の登録手続き中。", planId: "plan_homecare", mandateStatus: "pending" },
-    { id: "cus_nakamura", code: "M-0008", name: "中村 大輔", kana: "ナカムラ ダイスケ", contactName: "中村 大輔", email: "daisuke.n@example.com", phone: "090-1111-0008", postalCode: "160-0022", address: "東京都新宿区新宿5-6-7", paymentMethod: "credit_card", status: "active", assignee: "田村 彩", notes: "カード決済。", planId: "plan_standard", mandateStatus: null },
-    { id: "cus_kobayashi", code: "M-0009", name: "小林 あさひ", kana: "コバヤシ アサヒ", contactName: "小林 あさひ", email: "asahi.k@example.com", phone: "090-1111-0009", postalCode: "170-0013", address: "東京都豊島区東池袋1-3-5", paymentMethod: "direct_debit", status: "active", assignee: "佐々木 涼", notes: "先月の口座振替が残高不足で失敗。要フォロー。", planId: "plan_basic", mandateStatus: "failed" },
-    { id: "cus_kato", code: "M-0010", name: "加藤 麻衣", kana: "カトウ マイ", contactName: "加藤 麻衣", email: "mai.k@example.com", phone: "090-1111-0010", postalCode: "150-0021", address: "東京都渋谷区恵比寿西1-2-3", paymentMethod: "direct_debit", status: "active", assignee: "田村 彩", notes: "", planId: "plan_premium", mandateStatus: "active" },
-    { id: "cus_beauty", code: "C-0001", name: "株式会社ビューティラボ", kana: "カブシキガイシャビューティラボ", contactName: "経理部 三浦", email: "keiri@beautylab.example.co.jp", phone: "03-9876-5432", postalCode: "104-0061", address: "東京都中央区銀座4-5-6", paymentMethod: "bank_transfer", status: "active", assignee: "佐々木 涼", notes: "法人契約(社員向け福利厚生プラン)。月末締め翌月末払い。", planId: null, mandateStatus: null },
+    { id: "cus_yamada", code: "S-0001", name: "Hair & Spa LUCE", kana: "ヘアアンドスパルーチェ", contactName: "山田 花子", email: "luce@example.com", phone: "03-1111-0001", postalCode: "150-0002", address: "東京都渋谷区渋谷2-1-1", paymentMethod: "direct_debit", status: "active", assignee: "佐々木 涼", notes: "定価プラン。オプション全部。", planId: "plan_teika_m", optionKeys: ["hpb", "line"], mandateStatus: "active" },
+    { id: "cus_sato", code: "S-0002", name: "beauty room clover", kana: "ビューティルームクローバー", contactName: "佐藤 美咲", email: "clover@example.com", phone: "03-1111-0002", postalCode: "153-0051", address: "東京都目黒区上目黒3-4-5", paymentMethod: "direct_debit", status: "active", assignee: "田村 彩", notes: "", planId: "plan_pack_m", optionKeys: ["hpb", "line"], mandateStatus: "active" },
+    { id: "cus_suzuki", code: "S-0003", name: "nail atelier Miel", kana: "ネイルアトリエミエル", contactName: "鈴木 陽菜", email: "miel@example.com", phone: "03-1111-0003", postalCode: "154-0004", address: "東京都世田谷区太子堂1-2-3", paymentMethod: "direct_debit", status: "active", assignee: "佐々木 涼", notes: "特別期間限定。HPBのみ。", planId: "plan_special_m", optionKeys: ["hpb"], mandateStatus: "active" },
+    { id: "cus_tanaka", code: "S-0004", name: "barber shop SHIRO", kana: "バーバーショップシロ", contactName: "田中 健一", email: "shiro@example.com", phone: "03-1111-0004", postalCode: "141-0031", address: "東京都品川区西五反田2-3-4", paymentMethod: "direct_debit", status: "active", assignee: "田村 彩", notes: "代理店経由。", planId: "plan_agency_m", optionKeys: ["hpb", "line"], mandateStatus: "active" },
+    { id: "cus_takahashi", code: "S-0005", name: "salon de Fleur", kana: "サロンドフルール", contactName: "高橋 由美", email: "fleur@example.com", phone: "03-1111-0005", postalCode: "158-0094", address: "東京都世田谷区玉川3-5-6", paymentMethod: "bank_transfer", status: "active", assignee: "佐々木 涼", notes: "振込希望（口座振替へ切替案内中）。年間プラン。", planId: "plan_teika_a", optionKeys: ["hpb", "line"], mandateStatus: null },
+    { id: "cus_ito", code: "S-0006", name: "Relaxation Aoi", kana: "リラクゼーションアオイ", contactName: "伊藤 さくら", email: "aoi@example.com", phone: "03-1111-0006", postalCode: "150-0043", address: "東京都渋谷区道玄坂1-1-1", paymentMethod: "direct_debit", status: "active", assignee: "田村 彩", notes: "年間・LINEのみ。", planId: "plan_special_a", optionKeys: ["line"], mandateStatus: "active" },
+    { id: "cus_watanabe", code: "S-0007", name: "Total Beauty NOA", kana: "トータルビューティノア", contactName: "渡辺 真理", email: "noa@example.com", phone: "03-1111-0007", postalCode: "151-0053", address: "東京都渋谷区代々木2-2-2", paymentMethod: "direct_debit", status: "active", assignee: "佐々木 涼", notes: "口座振替の登録手続き中。導入直後。", planId: "plan_pack_a", optionKeys: ["hpb", "line"], mandateStatus: "pending" },
+    { id: "cus_nakamura", code: "S-0008", name: "men's grooming AXIS", kana: "メンズグルーミングアクシス", contactName: "中村 大輔", email: "axis@example.com", phone: "03-1111-0008", postalCode: "160-0022", address: "東京都新宿区新宿5-6-7", paymentMethod: "credit_card", status: "active", assignee: "田村 彩", notes: "カード決済。年間・代理店版。", planId: "plan_agency_a", optionKeys: ["hpb", "line"], mandateStatus: null },
+    { id: "cus_kobayashi", code: "S-0009", name: "eyelash studio Lien", kana: "アイラッシュスタジオリアン", contactName: "小林 あさひ", email: "lien@example.com", phone: "03-1111-0009", postalCode: "170-0013", address: "東京都豊島区東池袋1-3-5", paymentMethod: "direct_debit", status: "active", assignee: "佐々木 涼", notes: "先月の口座振替が残高不足で失敗。要フォロー。", planId: "plan_special_m", optionKeys: ["hpb", "line"], mandateStatus: "failed" },
+    { id: "cus_kato", code: "S-0010", name: "hair design Grace", kana: "ヘアデザイングレース", contactName: "加藤 麻衣", email: "grace@example.com", phone: "03-1111-0010", postalCode: "150-0021", address: "東京都渋谷区恵比寿西1-2-3", paymentMethod: "direct_debit", status: "active", assignee: "田村 彩", notes: "定価プラン。", planId: "plan_teika_m", optionKeys: ["hpb", "line"], mandateStatus: "active" },
+    { id: "cus_beauty", code: "A-0001", name: "株式会社ビューティ・パートナーズ", kana: "カブシキガイシャビューティパートナーズ", contactName: "経理部 三浦", email: "keiri@beautypartners.example.co.jp", phone: "03-9876-5432", postalCode: "104-0061", address: "東京都中央区銀座4-5-6", paymentMethod: "bank_transfer", status: "active", assignee: "佐々木 涼", notes: "代理店（複数サロンを取りまとめ）。月末締め翌月末払い。", planId: null, optionKeys: [], mandateStatus: null },
   ];
 
   const customers: Customer[] = customerDefs.map((c, i) => ({
@@ -164,7 +155,6 @@ export function buildSeed(now = new Date()): DataStore {
         c.mandateStatus === "pending" ? null : toISODate(firstOfMonth(now, 6)),
     }));
 
-  // 定期契約
   const subscriptions: Subscription[] = customerDefs
     .filter((c) => c.planId)
     .map((c) => ({
@@ -173,12 +163,13 @@ export function buildSeed(now = new Date()): DataStore {
       planId: c.planId!,
       status: "active",
       startedOn: toISODate(firstOfMonth(now, 6)),
-      nextBillingDate: dayOfMonth(now, -1, 27), // 翌月27日
+      nextBillingDate: dayOfMonth(now, -1, 27),
       billingDay: 27,
       canceledOn: null,
+      optionKeys: c.optionKeys,
     }));
 
-  // --- 請求書 + 入金 + 活動 生成 ---
+  // --- 請求書 + 入金 + 活動 ---
   const invoices: Invoice[] = [];
   const payments: Payment[] = [];
   const activities: Activity[] = [];
@@ -190,13 +181,15 @@ export function buildSeed(now = new Date()): DataStore {
     seqByMonth.set(key, n);
     return `INV-${key}-${String(n).padStart(4, "0")}`;
   };
+  const withIds = (raw: Omit<InvoiceItem, "id">[], prefix: string): InvoiceItem[] =>
+    raw.map((r, i) => ({ ...r, id: `${prefix}_it${i + 1}` }));
 
   function pushInvoice(inv: Invoice, payment?: Payment) {
     invoices.push(inv);
     if (payment) payments.push(payment);
   }
 
-  // 6ヶ月分の定期請求 (5ヶ月前〜当月)。当月は入金待ち。
+  // 6ヶ月分の定期請求(基本料金＋オプション)。当月は入金待ち。
   for (let m = 5; m >= 0; m--) {
     const period = ym(firstOfMonth(now, m));
     const issueDate = dayOfMonth(now, m, 1);
@@ -204,73 +197,61 @@ export function buildSeed(now = new Date()): DataStore {
     for (const sub of subscriptions) {
       const plan = planById.get(sub.planId)!;
       const cus = customerDefs.find((c) => c.id === sub.customerId)!;
-      const items = buildItems(
-        [
-          {
-            description: `${plan.name}（${period}）`,
-            quantity: 1,
-            unitPrice: plan.amount,
-            taxRate: plan.taxRate,
-          },
-        ],
+      const items = withIds(
+        subscriptionItems(plan, sub.optionKeys, period),
         `inv_${sub.customerId}_${period}`,
       );
       const totals = calcInvoiceTotals(items);
       const id = `inv_${sub.customerId}_${period}`;
       const number = invNo(issueDate);
 
-      // 既定は過去月=入金済 / 当月=入金待ち
       let status: Invoice["status"] = m === 0 ? "awaiting_payment" : "paid";
       let amountPaid = m === 0 ? 0 : totals.total;
       let paidAt: string | null = m === 0 ? null : dayOfMonth(now, m, 27);
 
-      // クレジットカードは発行時に即時決済(当月の入金として計上)
       if (cus.paymentMethod === "credit_card" && m === 0) {
         status = "paid";
         amountPaid = totals.total;
         paidAt = dayOfMonth(now, 0, 2);
       }
-
-      // 例外シナリオ
       if (cus.id === "cus_kobayashi" && m === 0) {
-        status = "failed"; // 当月の口座振替が失敗
+        status = "failed";
         amountPaid = 0;
         paidAt = null;
       }
       if (cus.id === "cus_takahashi" && m === 1) {
-        status = "overdue"; // 振込顧客が前月分未入金 → 期限超過
+        status = "overdue";
         amountPaid = 0;
         paidAt = null;
       }
       if (cus.id === "cus_watanabe" && m === 0) {
-        status = "sent"; // 口座振替登録中のため当月は請求書送付(振込案内)
+        status = "sent";
         amountPaid = 0;
         paidAt = null;
       }
 
-      const inv: Invoice = {
-        id,
-        invoiceNumber: number,
-        customerId: sub.customerId,
-        subscriptionId: sub.id,
-        type: "recurring",
-        status,
-        issueDate,
-        dueDate,
-        billingPeriod: period,
-        paymentMethod: cus.paymentMethod,
-        items,
-        subtotal: totals.subtotal,
-        taxTotal: totals.taxTotal,
-        total: totals.total,
-        amountPaid,
-        notes: "",
-        sentAt: dayOfMonth(now, m, 1),
-        paidAt,
-        createdAt: issueDate,
-      };
-
-      const payment: Payment | undefined =
+      pushInvoice(
+        {
+          id,
+          invoiceNumber: number,
+          customerId: sub.customerId,
+          subscriptionId: sub.id,
+          type: "recurring",
+          status,
+          issueDate,
+          dueDate,
+          billingPeriod: period,
+          paymentMethod: cus.paymentMethod,
+          items,
+          subtotal: totals.subtotal,
+          taxTotal: totals.taxTotal,
+          total: totals.total,
+          amountPaid,
+          notes: "",
+          sentAt: dayOfMonth(now, m, 1),
+          paidAt,
+          createdAt: issueDate,
+        },
         status === "paid"
           ? {
               id: `pay_${id}`,
@@ -290,53 +271,53 @@ export function buildSeed(now = new Date()): DataStore {
               memo: "",
               createdAt: paidAt!,
             }
-          : undefined;
-      pushInvoice(inv, payment);
+          : undefined,
+      );
     }
   }
 
-  // 初期費用(入会金)の単発請求 — 振込。入金消込のデモに使う。
+  // 初期費用の単発請求(導入時) — プランの initialFee。振込で入金消込のデモにも使う。
   const initialDefs = [
-    { cus: "cus_watanabe", m: 0, paid: false }, // 未入金(消込前) → 銀行明細に振込あり
+    { cus: "cus_watanabe", m: 0, paid: false },
     { cus: "cus_kato", m: 2, paid: true },
     { cus: "cus_tanaka", m: 4, paid: true },
   ];
   for (const def of initialDefs) {
     const cus = customerDefs.find((c) => c.id === def.cus)!;
+    const plan = cus.planId ? planById.get(cus.planId)! : null;
+    const fee = plan?.initialFee ?? 100000;
     const issueDate = dayOfMonth(now, def.m, 3);
     const dueDate = dayOfMonth(now, def.m, 20);
-    const items = buildItems(
+    const items = withIds(
       [
-        { description: "入会金", quantity: 1, unitPrice: 11000, taxRate: 0.1 },
-        { description: "初回カウンセリング・カルテ作成", quantity: 1, unitPrice: 5000, taxRate: 0.1 },
+        { description: "初期費用（初期設定・導入サポート）", quantity: 1, unitPrice: fee, taxRate: 0, amount: fee },
       ],
       `ini_${def.cus}`,
     );
     const totals = calcInvoiceTotals(items);
     const id = `ini_${def.cus}`;
-    const inv: Invoice = {
-      id,
-      invoiceNumber: invNo(issueDate),
-      customerId: def.cus,
-      subscriptionId: null,
-      type: "initial",
-      status: def.paid ? "paid" : "sent",
-      issueDate,
-      dueDate,
-      billingPeriod: null,
-      paymentMethod: "bank_transfer",
-      items,
-      subtotal: totals.subtotal,
-      taxTotal: totals.taxTotal,
-      total: totals.total,
-      amountPaid: def.paid ? totals.total : 0,
-      notes: "初期費用は銀行振込にてお願いいたします。",
-      sentAt: issueDate,
-      paidAt: def.paid ? dayOfMonth(now, def.m, 12) : null,
-      createdAt: issueDate,
-    };
     pushInvoice(
-      inv,
+      {
+        id,
+        invoiceNumber: invNo(issueDate),
+        customerId: def.cus,
+        subscriptionId: null,
+        type: "initial",
+        status: def.paid ? "paid" : "sent",
+        issueDate,
+        dueDate,
+        billingPeriod: null,
+        paymentMethod: "bank_transfer",
+        items,
+        subtotal: totals.subtotal,
+        taxTotal: totals.taxTotal,
+        total: totals.total,
+        amountPaid: def.paid ? totals.total : 0,
+        notes: "初期費用は銀行振込にてお願いいたします。",
+        sentAt: issueDate,
+        paidAt: def.paid ? dayOfMonth(now, def.m, 12) : null,
+        createdAt: issueDate,
+      },
       def.paid
         ? {
             id: `pay_${id}`,
@@ -355,16 +336,14 @@ export function buildSeed(now = new Date()): DataStore {
     );
   }
 
-  // 法人向け(ビューティラボ)の単発請求 — 福利厚生施術まとめ
+  // 代理店(ビューティ・パートナーズ)への単発請求 — スポット導入支援
   for (let m = 2; m >= 1; m--) {
     const period = ym(firstOfMonth(now, m));
     const issueDate = dayOfMonth(now, m, 25);
     const dueDate = dayOfMonth(now, m - 1, 27);
-    const qty = m === 1 ? 12 : 9;
-    const items = buildItems(
-      [
-        { description: `社員向け施術チケット（${period}利用分）`, quantity: qty, unitPrice: 6000, taxRate: 0.1 },
-      ],
+    const qty = m === 1 ? 3 : 2;
+    const items = withIds(
+      [{ description: `スポット導入支援（${period}・${qty}店舗分）`, quantity: qty, unitPrice: 30000, taxRate: 0.1, amount: qty * 30000 }],
       `inv_beauty_${period}`,
     );
     const totals = calcInvoiceTotals(items);
@@ -401,7 +380,7 @@ export function buildSeed(now = new Date()): DataStore {
             method: "bank_transfer",
             status: "confirmed",
             paidAt: dayOfMonth(now, m - 1, 27),
-            reference: "カ)ビューティラボ",
+            reference: "カ)ビューティパートナーズ",
             matchedBy: "csv",
             memo: "",
             createdAt: dayOfMonth(now, m - 1, 27),
@@ -412,8 +391,6 @@ export function buildSeed(now = new Date()): DataStore {
 
   // --- 引き落としバッチ ---
   const batches: DirectDebitBatch[] = [];
-
-  // 先月分: 完了済みバッチ
   const lastMonthDdInvoices = invoices.filter(
     (inv) =>
       inv.paymentMethod === "direct_debit" &&
@@ -439,7 +416,6 @@ export function buildSeed(now = new Date()): DataStore {
     items: lastBatchItems,
   });
 
-  // 当月分: 送信待ちバッチ(入金待ちの口座振替請求をまとめる)
   const thisMonthDdInvoices = invoices.filter(
     (inv) =>
       inv.paymentMethod === "direct_debit" &&
@@ -465,7 +441,6 @@ export function buildSeed(now = new Date()): DataStore {
   });
 
   // --- 銀行明細(入金消込) ---
-  // 消込前の振込を含める(渡辺さんの入会金など)。
   const bankTransactions: BankTransaction[] = [];
   const watanabeInitial = invoices.find((i) => i.id === "ini_cus_watanabe");
   if (watanabeInitial) {
@@ -473,14 +448,13 @@ export function buildSeed(now = new Date()): DataStore {
       id: "bt_watanabe",
       transactionDate: dayOfMonth(now, 0, 5),
       amount: watanabeInitial.total,
-      payerName: "ワタナベ マリ",
-      description: "振込 ワタナベ マリ",
+      payerName: "トータルビューティノア",
+      description: "振込 トータルビューティノア",
       matchedInvoiceId: null,
       matchedPaymentId: null,
       importedAt: dayOfMonth(now, 0, 6),
     });
   }
-  // 高橋さん(振込・定期)の当月分入金 → 未消込
   const takahashiThis = invoices.find(
     (i) => i.customerId === "cus_takahashi" && i.billingPeriod === ym(firstOfMonth(now, 0)),
   );
@@ -489,14 +463,13 @@ export function buildSeed(now = new Date()): DataStore {
       id: "bt_takahashi",
       transactionDate: dayOfMonth(now, 0, 8),
       amount: takahashiThis.total,
-      payerName: "タカハシ ユミ",
-      description: "振込 タカハシ ユミ",
+      payerName: "サロンドフルール",
+      description: "振込 サロンドフルール",
       matchedInvoiceId: null,
       matchedPaymentId: null,
       importedAt: dayOfMonth(now, 0, 8),
     });
   }
-  // 用途不明の入金(照合対象外・少額) — 実運用の「よくある未照合」
   bankTransactions.push({
     id: "bt_unknown",
     transactionDate: dayOfMonth(now, 0, 4),
@@ -508,7 +481,7 @@ export function buildSeed(now = new Date()): DataStore {
     importedAt: dayOfMonth(now, 0, 6),
   });
 
-  // --- 活動ログ(最近の動き) ---
+  // --- 活動ログ ---
   const recent = [...invoices].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   const custName = (id: string) => customers.find((c) => c.id === id)?.name ?? id;
   activities.push(
@@ -524,16 +497,16 @@ export function buildSeed(now = new Date()): DataStore {
     {
       id: "act_2",
       kind: "payment_confirmed",
-      message: `${custName("cus_kato")} 様の入会金を入金確認`,
+      message: `${custName("cus_kato")} の初期費用を入金確認`,
       actor: "田村 彩",
       createdAt: dayOfMonth(now, 2, 12) + "T11:20:00",
-      amount: 17600,
+      amount: 200000,
       linkInvoiceId: "ini_cus_kato",
     },
     {
       id: "act_3",
       kind: "invoice_sent",
-      message: `${custName("cus_beauty")} 様へ請求書を送付`,
+      message: `${custName("cus_beauty")} へ請求書を送付`,
       actor: "佐々木 涼",
       createdAt: dayOfMonth(now, 1, 25) + "T15:00:00",
       amount: null,
@@ -542,7 +515,7 @@ export function buildSeed(now = new Date()): DataStore {
     {
       id: "act_4",
       kind: "customer_created",
-      message: `新規会員 ${custName("cus_watanabe")} 様を登録`,
+      message: `新規導入 ${custName("cus_watanabe")} を登録`,
       actor: "佐々木 涼",
       createdAt: dayOfMonth(now, 0, 3) + "T10:10:00",
       amount: null,

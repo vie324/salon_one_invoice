@@ -45,7 +45,6 @@ export default async function DashboardPage() {
     repo.listBankTransactions(),
   ]);
 
-  const isOwner = user.role === "owner" || user.role === "admin";
   const drafts = invoices.filter((i) => i.status === "draft");
   const awaiting = invoices.filter((i) => i.status === "awaiting_payment");
   const needsFollow = invoices.filter((i) => i.status === "overdue" || i.status === "failed");
@@ -67,9 +66,7 @@ export default async function DashboardPage() {
             こんにちは、{user.name.replace(/（.*/, "")} さん
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {isOwner
-              ? "全体の売上・入金状況の概況です。"
-              : "本日の要対応タスクをまとめました。"}
+            売上・入金の状況と、本日の要対応をまとめました。
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -111,23 +108,13 @@ export default async function DashboardPage() {
           icon={<Clock className="h-5 w-5" />}
           accent="warning"
         />
-        {isOwner ? (
-          <StatCard
-            label="MRR（月次経常収益）"
-            value={formatJPY(metrics.mrr)}
-            sub={`定期契約 ${metrics.activeSubscriptions}件`}
-            icon={<TrendingUp className="h-5 w-5" />}
-            accent="primary"
-          />
-        ) : (
-          <StatCard
-            label="要フォロー"
-            value={`${metrics.overdueCount}件`}
-            sub={formatJPY(metrics.overdueAmount)}
-            icon={<AlertTriangle className="h-5 w-5" />}
-            accent="danger"
-          />
-        )}
+        <StatCard
+          label="MRR（月次経常収益）"
+          value={formatJPY(metrics.mrr)}
+          sub={`定期契約 ${metrics.activeSubscriptions}件`}
+          icon={<TrendingUp className="h-5 w-5" />}
+          accent="primary"
+        />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -235,17 +222,15 @@ export default async function DashboardPage() {
             </CardContent>
           </Card>
 
-          {isOwner && (
-            <Card>
-              <CardHeader>
-                <CardTitle>顧客・契約</CardTitle>
-              </CardHeader>
-              <CardContent className="grid grid-cols-2 gap-3">
-                <MiniStat icon={<Users className="h-4 w-4" />} label="稼働顧客" value={`${metrics.activeCustomers}`} />
-                <MiniStat icon={<Repeat className="h-4 w-4" />} label="定期契約" value={`${metrics.activeSubscriptions}`} />
-              </CardContent>
-            </Card>
-          )}
+          <Card>
+            <CardHeader>
+              <CardTitle>顧客・契約</CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-2 gap-3">
+              <MiniStat icon={<Users className="h-4 w-4" />} label="稼働顧客" value={`${metrics.activeCustomers}`} />
+              <MiniStat icon={<Repeat className="h-4 w-4" />} label="定期契約" value={`${metrics.activeSubscriptions}`} />
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

@@ -79,6 +79,9 @@ export interface PlanInput {
   taxRate: number;
   billingDay: number;
   active?: boolean;
+  initialFee?: number;
+  term?: import("@/lib/domain/types").PlanTerm;
+  options?: import("@/lib/domain/types").PlanOption[];
 }
 
 export interface SubscriptionInput {
@@ -86,6 +89,7 @@ export interface SubscriptionInput {
   planId: string;
   startedOn: string;
   billingDay?: number;
+  optionKeys?: string[];
 }
 
 export interface BankRowInput {
