@@ -95,6 +95,28 @@ export interface BankRowInput {
   description: string;
 }
 
+/** Stripe から同期する請求書(外部請求書)の入力 */
+export interface StripeInvoiceInput {
+  externalId: string;
+  stripeCustomerId: string;
+  status: "paid" | "failed";
+  type: InvoiceType;
+  billingPeriod?: string | null;
+  issueDate: string;
+  lines: { description: string; amount: number }[];
+  total: number;
+  paidAt?: string | null;
+}
+
+export interface StripeSubscriptionInput {
+  customerId: string;
+  stripeSubscriptionId: string;
+  planName: string;
+  /** 月額(税込・JPY) */
+  amount: number;
+  status: import("@/lib/domain/types").SubscriptionStatus;
+}
+
 /**
  * データアクセス契約。デモ(インメモリ) / Supabase の双方が実装する。
  * サーバーコンポーネント・サーバーアクションからのみ呼び出す。
@@ -149,6 +171,14 @@ export interface Repository {
 
   // --- 定期請求バッチ生成 ---
   runRecurringBilling(asOf?: string): Promise<{ created: Invoice[] }>;
+
+  // --- Stripe 連携 ---
+  linkStripeCustomer(customerId: string, stripeCustomerId: string): Promise<void>;
+  findCustomerByStripeCustomerId(stripeCustomerId: string): Promise<Customer | null>;
+  upsertStripeSubscription(input: StripeSubscriptionInput): Promise<Subscription>;
+  markStripeSubscriptionCanceled(stripeSubscriptionId: string): Promise<void>;
+  /** Stripe請求書を同期(externalId で冪等)。作成した Invoice、既存なら null */
+  recordStripeInvoice(input: StripeInvoiceInput): Promise<Invoice | null>;
 }
 
 // re-export で利用側の import を簡潔に

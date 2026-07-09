@@ -33,9 +33,9 @@ export function invoiceEmailHtml(params: {
       : "";
 
   return `
-  <div style="font-family:'Hiragino Sans','Noto Sans JP',sans-serif;max-width:600px;margin:0 auto;color:#1a1a2e">
-    <div style="background:#5b21b6;color:#fff;padding:20px 24px;border-radius:12px 12px 0 0">
-      <div style="font-size:13px;opacity:.85">${escapeHtml(org.name)}</div>
+  <div style="font-family:'Hiragino Sans','Noto Sans JP',sans-serif;max-width:600px;margin:0 auto;color:#152a26">
+    <div style="background:#0d3b33;color:#fff;padding:20px 24px;border-radius:12px 12px 0 0;border-bottom:3px solid #c2a15c">
+      <div style="font-size:13px;color:#c2a15c">${escapeHtml(org.name)}</div>
       <div style="font-size:20px;font-weight:700;margin-top:2px">請求書のご案内</div>
     </div>
     <div style="border:1px solid #eee;border-top:none;padding:24px;border-radius:0 0 12px 12px">
@@ -52,7 +52,7 @@ export function invoiceEmailHtml(params: {
         <div style="color:#666;font-size:13px">小計 ${formatJPY(invoice.subtotal)} / 消費税 ${formatJPY(invoice.taxTotal)}</div>
         <div style="font-size:22px;font-weight:700;margin-top:4px">合計 ${formatJPY(invoice.total)}</div>
       </div>
-      <div style="background:#f5f3ff;border-radius:8px;padding:12px 16px;margin-top:16px;font-size:14px">
+      <div style="background:#f1f6f4;border-radius:8px;padding:12px 16px;margin-top:16px;font-size:14px;border-left:3px solid #c2a15c">
         <div>請求書番号: ${invoice.invoiceNumber}</div>
         <div>発行日: ${formatDate(invoice.issueDate)} / 支払期限: ${formatDate(invoice.dueDate)}</div>
         <p style="margin:8px 0 0">${payLine}</p>
@@ -60,7 +60,7 @@ export function invoiceEmailHtml(params: {
       </div>
       ${
         viewUrl
-          ? `<div style="text-align:center;margin-top:20px"><a href="${viewUrl}" style="background:#5b21b6;color:#fff;text-decoration:none;padding:10px 24px;border-radius:8px;display:inline-block">請求書を表示</a></div>`
+          ? `<div style="text-align:center;margin-top:20px"><a href="${viewUrl}" style="background:#0d3b33;color:#fff;text-decoration:none;padding:10px 24px;border-radius:8px;display:inline-block">請求書を表示</a></div>`
           : ""
       }
       <p style="color:#999;font-size:12px;margin-top:24px">${escapeHtml(org.name)}　${escapeHtml(org.address)}　${org.tel}</p>

@@ -15,7 +15,7 @@ export const isSupabaseConfigured =
 /** デモモード（Supabase 未設定） */
 export const isDemoMode = !isSupabaseConfigured;
 
-export const appName = process.env.NEXT_PUBLIC_APP_NAME ?? "salon_one_invoice";
+export const appName = process.env.NEXT_PUBLIC_APP_NAME ?? "SalonOne";
 
 /** 決済プロバイダ: manual(手動/CSV) | stripe */
 export const paymentProvider = (process.env.PAYMENT_PROVIDER ?? "manual") as

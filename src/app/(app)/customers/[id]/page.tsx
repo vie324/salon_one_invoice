@@ -6,9 +6,11 @@ import { MandateStatusBadge, SubscriptionStatusBadge } from "@/components/status
 import { Badge } from "@/components/ui/badge";
 import { buttonClasses } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { isStripeConfigured } from "@/lib/payments/stripe-client";
 import { getRepository } from "@/lib/data";
 import { paymentMethodLabels } from "@/lib/domain/constants";
 import { formatDate, formatJPY, maskAccount } from "@/lib/utils";
+import { BillingButton } from "./billing-button";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -67,13 +69,21 @@ export default async function CustomerDetailPage({
             </div>
           </div>
         </div>
-        <Link
-          href={`/invoices/new?customer=${customer.id}`}
-          className={buttonClasses({ size: "sm" })}
-        >
-          <Plus className="h-4 w-4" />
-          請求書を作成
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <BillingButton
+            customerId={customer.id}
+            stripeConfigured={isStripeConfigured()}
+            defaultPlanName={plan?.name ?? "月額プラン"}
+            defaultMonthly={plan ? Math.round(plan.amount * (1 + plan.taxRate)) : 12000}
+          />
+          <Link
+            href={`/invoices/new?customer=${customer.id}`}
+            className={buttonClasses({ size: "sm" })}
+          >
+            <Plus className="h-4 w-4" />
+            請求書を作成
+          </Link>
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">

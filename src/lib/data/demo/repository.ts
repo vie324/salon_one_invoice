@@ -31,6 +31,8 @@ import type {
   PaymentInput,
   PlanInput,
   Repository,
+  StripeInvoiceInput,
+  StripeSubscriptionInput,
   SubscriptionInput,
 } from "../repository";
 import { getStore } from "./store";
@@ -507,6 +509,145 @@ export class DemoRepository implements Repository {
       sub.nextBillingDate = computeNextBillingDate(sub.nextBillingDate, sub.billingDay);
     }
     return { created };
+  }
+
+  async linkStripeCustomer(customerId: string, stripeCustomerId: string): Promise<void> {
+    const c = this.s.customers.find((x) => x.id === customerId);
+    if (c) c.stripeCustomerId = stripeCustomerId;
+  }
+
+  async findCustomerByStripeCustomerId(stripeCustomerId: string): Promise<Customer | null> {
+    return this.s.customers.find((c) => c.stripeCustomerId === stripeCustomerId) ?? null;
+  }
+
+  async upsertStripeSubscription(input: StripeSubscriptionInput): Promise<Subscription> {
+    const existing = this.s.subscriptions.find(
+      (s) => s.stripeSubscriptionId === input.stripeSubscriptionId,
+    );
+    if (existing) {
+      existing.status = input.status;
+      if (input.status === "canceled") existing.canceledOn = toISODate(new Date());
+      return existing;
+    }
+    let plan = this.s.plans.find((p) => p.name === input.planName);
+    if (!plan) {
+      plan = {
+        id: genId("plan"),
+        name: input.planName,
+        description: "Stripe連携プラン",
+        amount: input.amount,
+        taxRate: 0,
+        billingCycle: "monthly",
+        billingDay: 1,
+        active: true,
+      };
+      this.s.plans.push(plan);
+    }
+    const today = toISODate(new Date());
+    const sub: Subscription = {
+      id: genId("sub"),
+      customerId: input.customerId,
+      planId: plan.id,
+      status: input.status,
+      startedOn: today,
+      nextBillingDate: computeNextBillingDate(today, plan.billingDay),
+      billingDay: plan.billingDay,
+      canceledOn: null,
+      stripeSubscriptionId: input.stripeSubscriptionId,
+    };
+    this.s.subscriptions.push(sub);
+    const c = this.s.customers.find((x) => x.id === input.customerId);
+    if (c) c.paymentMethod = "credit_card";
+    this.addActivity({
+      kind: "subscription_created",
+      message: `${c?.name ?? ""} 様のStripe定期課金（${input.planName}）を開始`,
+      actor: "Stripe",
+    });
+    return sub;
+  }
+
+  async markStripeSubscriptionCanceled(stripeSubscriptionId: string): Promise<void> {
+    const sub = this.s.subscriptions.find(
+      (s) => s.stripeSubscriptionId === stripeSubscriptionId,
+    );
+    if (sub) {
+      sub.status = "canceled";
+      sub.canceledOn = toISODate(new Date());
+    }
+  }
+
+  async recordStripeInvoice(input: StripeInvoiceInput): Promise<Invoice | null> {
+    if (this.s.invoices.some((i) => i.externalId === input.externalId)) return null;
+    const customer = this.s.customers.find(
+      (c) => c.stripeCustomerId === input.stripeCustomerId,
+    );
+    if (!customer) return null;
+
+    const items: InvoiceItem[] = input.lines.map((l) => ({
+      id: genId("it"),
+      description: l.description,
+      quantity: 1,
+      unitPrice: l.amount,
+      taxRate: 0,
+      amount: l.amount,
+    }));
+    const paid = input.status === "paid";
+    const inv: Invoice = {
+      id: genId("inv"),
+      invoiceNumber: nextInvoiceNumber(
+        this.s.organization.invoicePrefix,
+        input.issueDate,
+        this.s.invoices.map((i) => i.invoiceNumber),
+      ),
+      customerId: customer.id,
+      subscriptionId:
+        this.s.subscriptions.find(
+          (s) => s.customerId === customer.id && s.stripeSubscriptionId,
+        )?.id ?? null,
+      type: input.type,
+      status: paid ? "paid" : "failed",
+      issueDate: input.issueDate,
+      dueDate: input.issueDate,
+      billingPeriod: input.billingPeriod ?? null,
+      paymentMethod: "credit_card",
+      items,
+      subtotal: input.total,
+      taxTotal: 0,
+      total: input.total,
+      amountPaid: paid ? input.total : 0,
+      notes: "Stripe決済",
+      sentAt: input.issueDate,
+      paidAt: paid ? input.paidAt ?? input.issueDate : null,
+      createdAt: toISODate(new Date()),
+      externalId: input.externalId,
+    };
+    this.s.invoices.push(inv);
+
+    if (paid) {
+      this.s.payments.push({
+        id: genId("pay"),
+        invoiceId: inv.id,
+        customerId: customer.id,
+        amount: input.total,
+        method: "credit_card",
+        status: "confirmed",
+        paidAt: input.paidAt ?? input.issueDate,
+        reference: "Stripe",
+        matchedBy: "auto",
+        memo: input.type === "initial" ? "初期費用＋初月" : "",
+        createdAt: toISODate(new Date()),
+      });
+    }
+    this.addActivity({
+      kind: "payment_confirmed",
+      message: paid
+        ? `${customer.name} 様のStripe決済を確認`
+        : `${customer.name} 様のStripe決済が失敗`,
+      actor: "Stripe",
+      amount: input.total,
+      linkInvoiceId: inv.id,
+    });
+    return inv;
   }
 
   private addActivity(a: {

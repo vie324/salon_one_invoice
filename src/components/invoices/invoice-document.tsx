@@ -1,3 +1,4 @@
+import { LogoMark } from "@/components/brand/logo";
 import { calcInvoiceTotals, formatBillingPeriod } from "@/lib/domain/calculations";
 import { invoiceTypeLabels, paymentMethodLabels } from "@/lib/domain/constants";
 import type { Customer, Invoice, Organization } from "@/lib/domain/types";
@@ -55,9 +56,7 @@ export function InvoiceDocument({
         {/* 発行元 */}
         <div className="text-neutral-700 sm:text-right">
           <div className="flex items-center gap-2 sm:justify-end">
-            <span className="flex h-8 w-8 items-center justify-center rounded bg-primary text-xs font-bold text-white">
-              {org.logoText}
-            </span>
+            <LogoMark size={34} />
             <span className="font-semibold text-neutral-900">{org.name}</span>
           </div>
           <div className="mt-2 text-xs leading-relaxed">
