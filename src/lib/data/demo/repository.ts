@@ -577,11 +577,52 @@ export class DemoRepository implements Repository {
   }
 
   async recordStripeInvoice(input: StripeInvoiceInput): Promise<Invoice | null> {
-    if (this.s.invoices.some((i) => i.externalId === input.externalId)) return null;
     const customer = this.s.customers.find(
       (c) => c.stripeCustomerId === input.stripeCustomerId,
     );
     if (!customer) return null;
+
+    // 冪等化: 同一 externalId は再作成しない。ただし「失敗→成功」の遷移は反映する
+    const existing = this.s.invoices.find((i) => i.externalId === input.externalId);
+    if (existing) {
+      if (existing.status === "failed" && input.status === "paid") {
+        existing.status = "paid";
+        existing.total = input.total;
+        existing.subtotal = input.total;
+        existing.amountPaid = input.total;
+        existing.paidAt = input.paidAt ?? input.issueDate;
+        existing.items = input.lines.map((l) => ({
+          id: genId("it"),
+          description: l.description,
+          quantity: 1,
+          unitPrice: l.amount,
+          taxRate: 0,
+          amount: l.amount,
+        }));
+        this.s.payments.push({
+          id: genId("pay"),
+          invoiceId: existing.id,
+          customerId: customer.id,
+          amount: input.total,
+          method: "credit_card",
+          status: "confirmed",
+          paidAt: input.paidAt ?? input.issueDate,
+          reference: "Stripe",
+          matchedBy: "auto",
+          memo: "",
+          createdAt: toISODate(new Date()),
+        });
+        this.addActivity({
+          kind: "payment_confirmed",
+          message: `${customer.name} 様のStripe決済（再試行）を確認`,
+          actor: "Stripe",
+          amount: input.total,
+          linkInvoiceId: existing.id,
+        });
+        return existing;
+      }
+      return null;
+    }
 
     const items: InvoiceItem[] = input.lines.map((l) => ({
       id: genId("it"),

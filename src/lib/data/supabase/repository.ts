@@ -869,11 +869,14 @@ export class SupabaseRepository implements Repository {
   }
 
   async upsertStripeSubscription(input: StripeSubscriptionInput): Promise<Subscription> {
-    const { data: existing } = await this.db
+    // limit(1) で複数行時の maybeSingle エラーを回避
+    const { data: existingRows } = await this.db
       .from("subscriptions")
       .select("*")
       .eq("stripe_subscription_id", input.stripeSubscriptionId)
-      .maybeSingle();
+      .order("created_at")
+      .limit(1);
+    const existing = existingRows?.[0];
     if (existing) {
       const patch: Record<string, unknown> = { status: input.status };
       if (input.status === "canceled") patch.canceled_on = toISODate(new Date());
@@ -886,11 +889,12 @@ export class SupabaseRepository implements Repository {
       return mapSubscription(data);
     }
     // プランを名称で検索、無ければ作成
-    let { data: planRow } = await this.db
+    const { data: planRows } = await this.db
       .from("plans")
       .select("*")
       .eq("name", input.planName)
-      .maybeSingle();
+      .limit(1);
+    let planRow = planRows?.[0];
     if (!planRow) {
       const created = await this.db
         .from("plans")
@@ -921,7 +925,18 @@ export class SupabaseRepository implements Repository {
       })
       .select("*")
       .single();
-    if (error) throw error;
+    if (error) {
+      // 並行再送による一意制約違反なら既存を返す（重複行を作らない）
+      if ((error as any).code === "23505") {
+        const { data: again } = await this.db
+          .from("subscriptions")
+          .select("*")
+          .eq("stripe_subscription_id", input.stripeSubscriptionId)
+          .limit(1);
+        if (again?.[0]) return mapSubscription(again[0]);
+      }
+      throw error;
+    }
     await this.db
       .from("customers")
       .update({ payment_method: "credit_card" })
@@ -937,15 +952,67 @@ export class SupabaseRepository implements Repository {
   }
 
   async recordStripeInvoice(input: StripeInvoiceInput): Promise<Invoice | null> {
-    const { data: dup } = await this.db
-      .from("invoices")
-      .select("id")
-      .eq("external_id", input.externalId)
-      .maybeSingle();
-    if (dup) return null;
-
     const customer = await this.findCustomerByStripeCustomerId(input.stripeCustomerId);
     if (!customer) return null;
+
+    // 冪等化 + 失敗→成功の状態遷移
+    const { data: existRows } = await this.db
+      .from("invoices")
+      .select("*")
+      .eq("external_id", input.externalId)
+      .limit(1);
+    const existing = existRows?.[0];
+    if (existing) {
+      if (existing.status === "failed" && input.status === "paid") {
+        await this.db
+          .from("invoices")
+          .update({
+            status: "paid",
+            subtotal: input.total,
+            total: input.total,
+            amount_paid: input.total,
+            paid_at: input.paidAt ?? input.issueDate,
+          })
+          .eq("id", existing.id);
+        await this.db.from("invoice_items").delete().eq("invoice_id", existing.id);
+        await this.db.from("invoice_items").insert(
+          input.lines.map((l, idx) => ({
+            invoice_id: existing.id,
+            description: l.description,
+            quantity: 1,
+            unit_price: l.amount,
+            tax_rate: 0,
+            amount: l.amount,
+            position: idx,
+          })),
+        );
+        await this.db.from("payments").insert({
+          invoice_id: existing.id,
+          customer_id: customer.id,
+          amount: input.total,
+          method: "credit_card",
+          status: "confirmed",
+          paid_at: input.paidAt ?? input.issueDate,
+          reference: "Stripe",
+          matched_by: "auto",
+          memo: "",
+        });
+        await this.logActivity({
+          kind: "payment_confirmed",
+          message: `${customer.name} 様のStripe決済（再試行）を確認`,
+          actor: "Stripe",
+          amount: input.total,
+          linkInvoiceId: existing.id,
+        });
+        const { data: fresh } = await this.db
+          .from("invoices")
+          .select(INVOICE_SELECT)
+          .eq("id", existing.id)
+          .single();
+        return fresh ? mapInvoice(fresh) : null;
+      }
+      return null;
+    }
 
     const org = await this.getOrganization();
     const { data: existingNums } = await this.db.from("invoices").select("invoice_number");
@@ -954,12 +1021,14 @@ export class SupabaseRepository implements Repository {
       input.issueDate,
       (existingNums ?? []).map((r: any) => r.invoice_number),
     );
-    const { data: subRow } = await this.db
+    const { data: subRows } = await this.db
       .from("subscriptions")
       .select("id")
       .eq("customer_id", customer.id)
       .not("stripe_subscription_id", "is", null)
-      .maybeSingle();
+      .order("created_at", { ascending: false })
+      .limit(1);
+    const subId = subRows?.[0]?.id ?? null;
 
     const paid = input.status === "paid";
     const { data: invRow, error } = await this.db
@@ -967,7 +1036,7 @@ export class SupabaseRepository implements Repository {
       .insert({
         invoice_number: number,
         customer_id: customer.id,
-        subscription_id: subRow?.id ?? null,
+        subscription_id: subId,
         type: input.type,
         status: paid ? "paid" : "failed",
         issue_date: input.issueDate,
@@ -985,9 +1054,14 @@ export class SupabaseRepository implements Repository {
       })
       .select("*")
       .single();
-    if (error) throw error;
+    if (error) {
+      // 並行挿入の一意制約違反は冪等スキップ
+      if ((error as any).code === "23505") return null;
+      throw error;
+    }
 
-    await this.db.from("invoice_items").insert(
+    // 明細・入金の書き込み。失敗したら請求書を補償削除して再送で作り直させる
+    const { error: itemsErr } = await this.db.from("invoice_items").insert(
       input.lines.map((l, idx) => ({
         invoice_id: invRow.id,
         description: l.description,
@@ -998,9 +1072,9 @@ export class SupabaseRepository implements Repository {
         position: idx,
       })),
     );
-
+    let payErr: unknown = null;
     if (paid) {
-      await this.db.from("payments").insert({
+      const r = await this.db.from("payments").insert({
         invoice_id: invRow.id,
         customer_id: customer.id,
         amount: input.total,
@@ -1011,7 +1085,13 @@ export class SupabaseRepository implements Repository {
         matched_by: "auto",
         memo: input.type === "initial" ? "初期費用＋初月" : "",
       });
+      payErr = r.error;
     }
+    if (itemsErr || payErr) {
+      await this.db.from("invoices").delete().eq("id", invRow.id);
+      throw itemsErr || payErr;
+    }
+
     await this.logActivity({
       kind: "payment_confirmed",
       message: paid
