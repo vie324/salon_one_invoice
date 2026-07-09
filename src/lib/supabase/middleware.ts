@@ -1,0 +1,53 @@
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
+
+type CookieToSet = { name: string; value: string; options: CookieOptions };
+import { isSupabaseConfigured, supabaseAnonKey, supabaseUrl } from "@/lib/config";
+
+/**
+ * セッション更新 + 認証ガード。
+ * デモモード(Supabase未設定)では素通しし、誰でもアプリを閲覧できる。
+ */
+export async function updateSession(request: NextRequest) {
+  let response = NextResponse.next({ request });
+
+  // デモモードは認証不要
+  if (!isSupabaseConfigured) return response;
+
+  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet: CookieToSet[]) {
+        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        response = NextResponse.next({ request });
+        cookiesToSet.forEach(({ name, value, options }) =>
+          response.cookies.set(name, value, options),
+        );
+      },
+    },
+  });
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const path = request.nextUrl.pathname;
+  const isAuthRoute = path.startsWith("/login") || path.startsWith("/auth");
+  const isPublic = isAuthRoute || path.startsWith("/print");
+
+  if (!user && !isPublic) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    url.searchParams.set("redirect", path);
+    return NextResponse.redirect(url);
+  }
+  if (user && isAuthRoute) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/dashboard";
+    return NextResponse.redirect(url);
+  }
+
+  return response;
+}

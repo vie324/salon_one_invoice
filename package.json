@@ -1,0 +1,35 @@
+{
+  "name": "salon-one-invoice",
+  "version": "0.1.0",
+  "private": true,
+  "description": "サロン向け請求書 作成・送付・管理アプリ (Vercel + Supabase / 引き落とし・入金確認対応)",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.5.2",
+    "@supabase/supabase-js": "^2.47.10",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "lucide-react": "^0.469.0",
+    "next": "^15.1.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^2.6.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.0.4",
+    "@types/react-dom": "^19.0.2",
+    "eslint": "^9.18.0",
+    "eslint-config-next": "^15.1.4",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.3"
+  }
+}
