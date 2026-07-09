@@ -8,7 +8,12 @@ import { buttonClasses } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { isStripeConfigured } from "@/lib/payments/stripe-client";
 import { getRepository } from "@/lib/data";
-import { selectedOptions, subscriptionMonthly } from "@/lib/domain/calculations";
+import {
+  selectedOptions,
+  subscriptionMonthly,
+  taxAmount,
+  withTax,
+} from "@/lib/domain/calculations";
 import { paymentMethodLabels } from "@/lib/domain/constants";
 import { formatDate, formatJPY, maskAccount } from "@/lib/utils";
 import { BillingButton } from "./billing-button";
@@ -200,14 +205,26 @@ export default async function CustomerDetailPage({
                       </div>
                     ))}
                   </div>
-                  <div className="flex justify-between border-t border-border pt-1.5 font-semibold">
-                    <span>月額合計</span>
+                  <div className="flex justify-between border-t border-border pt-1.5 text-xs text-muted-foreground">
+                    <span>小計（税抜）</span>
                     <span className="tabular">
                       {formatJPY(subscriptionMonthly(plan, subscription.optionKeys))}
                     </span>
                   </div>
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>消費税（{Math.round(plan.taxRate * 100)}%）</span>
+                    <span className="tabular">
+                      {formatJPY(taxAmount(subscriptionMonthly(plan, subscription.optionKeys), plan.taxRate))}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-t border-border pt-1.5 font-semibold">
+                    <span>月額合計（税込）</span>
+                    <span className="tabular">
+                      {formatJPY(withTax(subscriptionMonthly(plan, subscription.optionKeys), plan.taxRate))}
+                    </span>
+                  </div>
                   <div className="text-xs text-muted-foreground">
-                    初期費用 {formatJPY(plan.initialFee)} ・ 次回請求 {formatDate(subscription.nextBillingDate)}
+                    初期費用 {formatJPY(plan.initialFee)}（税抜）・ 次回請求 {formatDate(subscription.nextBillingDate)}
                   </div>
                 </div>
               ) : (

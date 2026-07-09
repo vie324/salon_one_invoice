@@ -140,6 +140,7 @@ export interface Repository {
   listPlans(): Promise<Plan[]>;
   getPlan(id: string): Promise<Plan | null>;
   createPlan(input: PlanInput): Promise<Plan>;
+  updatePlan(id: string, input: Partial<PlanInput>): Promise<Plan>;
   listSubscriptions(): Promise<Subscription[]>;
   createSubscription(input: SubscriptionInput): Promise<Subscription>;
   updateSubscriptionStatus(

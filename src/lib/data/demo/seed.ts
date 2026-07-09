@@ -79,7 +79,7 @@ export function buildSeed(now = new Date()): DataStore {
     name,
     description,
     amount,
-    taxRate: 0,
+    taxRate: 0.1, // 金額は税抜。消費税10%を加算して請求。
     billingCycle: "monthly",
     billingDay: 27,
     active: true,
@@ -290,7 +290,7 @@ export function buildSeed(now = new Date()): DataStore {
     const dueDate = dayOfMonth(now, def.m, 20);
     const items = withIds(
       [
-        { description: "初期費用（初期設定・導入サポート）", quantity: 1, unitPrice: fee, taxRate: 0, amount: fee },
+        { description: "初期費用（初期設定・導入サポート）", quantity: 1, unitPrice: fee, taxRate: 0.1, amount: fee },
       ],
       `ini_${def.cus}`,
     );

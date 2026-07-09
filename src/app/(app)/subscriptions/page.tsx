@@ -4,10 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { getRepository } from "@/lib/data";
-import { subscriptionMonthly } from "@/lib/domain/calculations";
+import { subscriptionMonthly, withTax } from "@/lib/domain/calculations";
 import type { Plan } from "@/lib/domain/types";
 import { formatJPY } from "@/lib/utils";
 import { SubscriptionsClient } from "./subscriptions-client";
+import { PlanEditButton } from "./plan-dialog";
 
 export const metadata = { title: "定期請求" };
 
@@ -25,11 +26,13 @@ export default async function SubscriptionsPage() {
   const rows = subscriptions
     .map((s) => {
       const plan = planById.get(s.planId);
+      const monthlyExcl = plan ? subscriptionMonthly(plan, s.optionKeys) : 0;
       return {
         ...s,
         customerName: customerName(s.customerId),
         planName: plan ? `${plan.name}（${plan.term === "annual" ? "年間" : "月額"}）` : "—",
-        monthlyTotal: plan ? subscriptionMonthly(plan, s.optionKeys) : 0,
+        monthlyTotal: monthlyExcl,
+        monthlyInclTotal: plan ? withTax(monthlyExcl, plan.taxRate) : 0,
       };
     })
     .sort((a, b) => (a.status === b.status ? 0 : a.status === "active" ? -1 : 1));
@@ -104,10 +107,10 @@ function PlanGrid({
               </div>
               <div className="mt-2 flex items-baseline gap-1">
                 <span className="tabular text-2xl font-bold">{formatJPY(p.amount)}</span>
-                <span className="text-xs text-muted-foreground">/ 月（基本）</span>
+                <span className="text-xs text-muted-foreground">/ 月（基本・税抜）</span>
               </div>
               <div className="mt-1 text-xs text-muted-foreground">
-                初期費用 {formatJPY(p.initialFee)}
+                初期費用 {formatJPY(p.initialFee)}（税抜）
               </div>
               <div className="mt-3 space-y-1 border-t border-border pt-3 text-xs">
                 {p.options.map((o) => (
@@ -117,14 +120,19 @@ function PlanGrid({
                   </div>
                 ))}
                 <div className="flex justify-between pt-1 font-medium text-foreground">
-                  <span>フル導入時</span>
+                  <span>フル導入時（税抜）</span>
                   <span className="tabular">{formatJPY(full)}/月</span>
                 </div>
+                <div className="flex justify-between text-muted-foreground">
+                  <span>税込</span>
+                  <span className="tabular">{formatJPY(withTax(full, p.taxRate))}/月</span>
+                </div>
               </div>
-              <div className="mt-3">
+              <div className="mt-3 flex items-center justify-between">
                 <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
                   加入 {counts.get(p.id) ?? 0}社
                 </span>
+                <PlanEditButton plan={p} />
               </div>
             </Card>
           );

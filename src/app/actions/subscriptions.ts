@@ -42,3 +42,15 @@ export async function createPlanAction(input: PlanInput) {
     return { ok: false as const, error: (e as Error).message };
   }
 }
+
+export async function updatePlanAction(id: string, input: Partial<PlanInput>) {
+  try {
+    const repo = await getRepository();
+    await repo.updatePlan(id, input);
+    revalidatePath("/subscriptions");
+    revalidatePath("/dashboard");
+    return { ok: true as const };
+  } catch (e) {
+    return { ok: false as const, error: (e as Error).message };
+  }
+}

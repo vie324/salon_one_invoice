@@ -371,6 +371,27 @@ export class SupabaseRepository implements Repository {
     return mapPlan(data);
   }
 
+  async updatePlan(id: string, input: Partial<PlanInput>): Promise<Plan> {
+    const patch: Record<string, unknown> = {};
+    if (input.name !== undefined) patch.name = input.name;
+    if (input.description !== undefined) patch.description = input.description;
+    if (input.amount !== undefined) patch.amount = input.amount;
+    if (input.taxRate !== undefined) patch.tax_rate = input.taxRate;
+    if (input.billingDay !== undefined) patch.billing_day = input.billingDay;
+    if (input.active !== undefined) patch.active = input.active;
+    if (input.initialFee !== undefined) patch.initial_fee = input.initialFee;
+    if (input.term !== undefined) patch.term = input.term;
+    if (input.options !== undefined) patch.options = input.options;
+    const { data, error } = await this.db
+      .from("plans")
+      .update(patch)
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapPlan(data);
+  }
+
   async listSubscriptions(): Promise<Subscription[]> {
     const { data, error } = await this.db.from("subscriptions").select("*");
     if (error) throw error;
