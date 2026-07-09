@@ -78,6 +78,8 @@ export interface Customer {
   assignee: string;
   notes: string;
   createdAt: string;
+  /** Stripe 顧客ID（決済連携時） */
+  stripeCustomerId?: string | null;
 }
 
 export interface DirectDebitMandate {
@@ -116,6 +118,8 @@ export interface Subscription {
   nextBillingDate: string;
   billingDay: number;
   canceledOn: string | null;
+  /** Stripe サブスクリプションID（決済連携時） */
+  stripeSubscriptionId?: string | null;
 }
 
 export interface InvoiceItem {
@@ -148,6 +152,8 @@ export interface Invoice {
   sentAt: string | null;
   paidAt: string | null;
   createdAt: string;
+  /** 外部システム(Stripe請求書など)のID。冪等化に使用 */
+  externalId?: string | null;
 }
 
 export interface Payment {

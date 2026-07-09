@@ -32,6 +32,8 @@ import type {
   PaymentInput,
   PlanInput,
   Repository,
+  StripeInvoiceInput,
+  StripeSubscriptionInput,
   SubscriptionInput,
 } from "../repository";
 
@@ -77,6 +79,7 @@ function mapCustomer(r: any): Customer {
     assignee: r.assignee ?? "",
     notes: r.notes ?? "",
     createdAt: r.created_at,
+    stripeCustomerId: r.stripe_customer_id ?? null,
   };
 }
 
@@ -118,6 +121,7 @@ function mapSubscription(r: any): Subscription {
     nextBillingDate: r.next_billing_date,
     billingDay: r.billing_day,
     canceledOn: r.canceled_on,
+    stripeSubscriptionId: r.stripe_subscription_id ?? null,
   };
 }
 
@@ -157,6 +161,7 @@ function mapInvoice(r: any): Invoice {
     sentAt: r.sent_at,
     paidAt: r.paid_at,
     createdAt: r.created_at,
+    externalId: r.external_id ?? null,
   };
 }
 
@@ -844,5 +849,178 @@ export class SupabaseRepository implements Repository {
         .eq("id", sub.id);
     }
     return { created };
+  }
+
+  // --- Stripe 連携 ---
+  async linkStripeCustomer(customerId: string, stripeCustomerId: string): Promise<void> {
+    await this.db
+      .from("customers")
+      .update({ stripe_customer_id: stripeCustomerId })
+      .eq("id", customerId);
+  }
+
+  async findCustomerByStripeCustomerId(stripeCustomerId: string): Promise<Customer | null> {
+    const { data } = await this.db
+      .from("customers")
+      .select("*")
+      .eq("stripe_customer_id", stripeCustomerId)
+      .maybeSingle();
+    return data ? mapCustomer(data) : null;
+  }
+
+  async upsertStripeSubscription(input: StripeSubscriptionInput): Promise<Subscription> {
+    const { data: existing } = await this.db
+      .from("subscriptions")
+      .select("*")
+      .eq("stripe_subscription_id", input.stripeSubscriptionId)
+      .maybeSingle();
+    if (existing) {
+      const patch: Record<string, unknown> = { status: input.status };
+      if (input.status === "canceled") patch.canceled_on = toISODate(new Date());
+      const { data } = await this.db
+        .from("subscriptions")
+        .update(patch)
+        .eq("id", existing.id)
+        .select("*")
+        .single();
+      return mapSubscription(data);
+    }
+    // プランを名称で検索、無ければ作成
+    let { data: planRow } = await this.db
+      .from("plans")
+      .select("*")
+      .eq("name", input.planName)
+      .maybeSingle();
+    if (!planRow) {
+      const created = await this.db
+        .from("plans")
+        .insert({
+          name: input.planName,
+          description: "Stripe連携プラン",
+          amount: input.amount,
+          tax_rate: 0,
+          billing_cycle: "monthly",
+          billing_day: 1,
+          active: true,
+        })
+        .select("*")
+        .single();
+      planRow = created.data;
+    }
+    const today = toISODate(new Date());
+    const { data, error } = await this.db
+      .from("subscriptions")
+      .insert({
+        customer_id: input.customerId,
+        plan_id: planRow.id,
+        status: input.status,
+        started_on: today,
+        next_billing_date: computeNextBillingDate(today, planRow.billing_day),
+        billing_day: planRow.billing_day,
+        stripe_subscription_id: input.stripeSubscriptionId,
+      })
+      .select("*")
+      .single();
+    if (error) throw error;
+    await this.db
+      .from("customers")
+      .update({ payment_method: "credit_card" })
+      .eq("id", input.customerId);
+    return mapSubscription(data);
+  }
+
+  async markStripeSubscriptionCanceled(stripeSubscriptionId: string): Promise<void> {
+    await this.db
+      .from("subscriptions")
+      .update({ status: "canceled", canceled_on: toISODate(new Date()) })
+      .eq("stripe_subscription_id", stripeSubscriptionId);
+  }
+
+  async recordStripeInvoice(input: StripeInvoiceInput): Promise<Invoice | null> {
+    const { data: dup } = await this.db
+      .from("invoices")
+      .select("id")
+      .eq("external_id", input.externalId)
+      .maybeSingle();
+    if (dup) return null;
+
+    const customer = await this.findCustomerByStripeCustomerId(input.stripeCustomerId);
+    if (!customer) return null;
+
+    const org = await this.getOrganization();
+    const { data: existingNums } = await this.db.from("invoices").select("invoice_number");
+    const number = nextInvoiceNumber(
+      org.invoicePrefix,
+      input.issueDate,
+      (existingNums ?? []).map((r: any) => r.invoice_number),
+    );
+    const { data: subRow } = await this.db
+      .from("subscriptions")
+      .select("id")
+      .eq("customer_id", customer.id)
+      .not("stripe_subscription_id", "is", null)
+      .maybeSingle();
+
+    const paid = input.status === "paid";
+    const { data: invRow, error } = await this.db
+      .from("invoices")
+      .insert({
+        invoice_number: number,
+        customer_id: customer.id,
+        subscription_id: subRow?.id ?? null,
+        type: input.type,
+        status: paid ? "paid" : "failed",
+        issue_date: input.issueDate,
+        due_date: input.issueDate,
+        billing_period: input.billingPeriod ?? null,
+        payment_method: "credit_card",
+        subtotal: input.total,
+        tax_total: 0,
+        total: input.total,
+        amount_paid: paid ? input.total : 0,
+        notes: "Stripe決済",
+        sent_at: new Date().toISOString(),
+        paid_at: paid ? input.paidAt ?? input.issueDate : null,
+        external_id: input.externalId,
+      })
+      .select("*")
+      .single();
+    if (error) throw error;
+
+    await this.db.from("invoice_items").insert(
+      input.lines.map((l, idx) => ({
+        invoice_id: invRow.id,
+        description: l.description,
+        quantity: 1,
+        unit_price: l.amount,
+        tax_rate: 0,
+        amount: l.amount,
+        position: idx,
+      })),
+    );
+
+    if (paid) {
+      await this.db.from("payments").insert({
+        invoice_id: invRow.id,
+        customer_id: customer.id,
+        amount: input.total,
+        method: "credit_card",
+        status: "confirmed",
+        paid_at: input.paidAt ?? input.issueDate,
+        reference: "Stripe",
+        matched_by: "auto",
+        memo: input.type === "initial" ? "初期費用＋初月" : "",
+      });
+    }
+    await this.logActivity({
+      kind: "payment_confirmed",
+      message: paid
+        ? `${customer.name} 様のStripe決済を確認`
+        : `${customer.name} 様のStripe決済が失敗`,
+      actor: "Stripe",
+      amount: input.total,
+      linkInvoiceId: invRow.id,
+    });
+    return mapInvoice(invRow);
   }
 }

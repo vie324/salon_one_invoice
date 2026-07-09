@@ -41,7 +41,7 @@ export function RevenueChart({ data }: { data: MonthlyRevenuePoint[] }) {
           <span className="h-2.5 w-2.5 rounded-sm bg-chart-1" /> 請求額
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-chart-5" /> 入金額
+          <span className="h-2.5 w-2.5 rounded-full bg-chart-2" /> 入金額
         </span>
       </div>
 
@@ -104,14 +104,14 @@ export function RevenueChart({ data }: { data: MonthlyRevenuePoint[] }) {
           })}
 
           {/* 入金額の折れ線 + マーカー */}
-          <path d={linePath} fill="none" className="stroke-chart-5" strokeWidth={2} />
+          <path d={linePath} fill="none" className="stroke-chart-2" strokeWidth={2} />
           {data.map((d, i) => (
             <circle
               key={i}
               cx={cx(i)}
               cy={y(d.collected)}
               r={4}
-              className="fill-chart-5 stroke-background"
+              className="fill-chart-2 stroke-background"
               strokeWidth={2}
             />
           ))}
@@ -151,7 +151,7 @@ export function RevenueChart({ data }: { data: MonthlyRevenuePoint[] }) {
             <span className="h-2 w-2 rounded-sm bg-chart-1" />請求 {formatJPY(data[hover].invoiced)}
           </div>
           <div className="flex items-center gap-1.5 text-muted-foreground">
-            <span className="h-2 w-2 rounded-full bg-chart-5" />入金 {formatJPY(data[hover].collected)}
+            <span className="h-2 w-2 rounded-full bg-chart-2" />入金 {formatJPY(data[hover].collected)}
           </div>
         </div>
       )}

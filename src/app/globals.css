@@ -8,110 +8,111 @@
    ライト/ダーク両対応。担当者(密度高い一覧)も経営者(俯瞰)も見やすい配色。
    ========================================================================= */
 :root {
-  --background: 250 33% 99%;
-  --foreground: 240 18% 14%;
+  --background: 168 24% 99%;
+  --foreground: 180 20% 12%;
 
   --card: 0 0% 100%;
-  --card-foreground: 240 18% 14%;
+  --card-foreground: 180 20% 12%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 240 18% 14%;
+  --popover-foreground: 180 20% 12%;
 
-  /* プライマリ: 上品なプラム/インディゴ */
-  --primary: 258 62% 52%;
-  --primary-foreground: 0 0% 100%;
+  /* プライマリ: SalonOne のディープ・ティール（松葉緑） */
+  --primary: 170 62% 15%;
+  --primary-foreground: 40 30% 97%;
 
-  --secondary: 255 30% 96%;
-  --secondary-foreground: 258 40% 30%;
+  --secondary: 168 36% 95%;
+  --secondary-foreground: 170 45% 20%;
 
-  --muted: 250 20% 96%;
-  --muted-foreground: 240 8% 46%;
+  --muted: 170 16% 95%;
+  --muted-foreground: 190 8% 42%;
 
-  --accent: 330 72% 62%;
-  --accent-foreground: 0 0% 100%;
+  /* アクセント: SalonOne のゴールド */
+  --accent: 40 47% 55%;
+  --accent-foreground: 172 45% 12%;
 
-  --destructive: 0 72% 51%;
+  --destructive: 0 72% 48%;
   --destructive-foreground: 0 0% 100%;
 
-  --success: 152 58% 40%;
+  --success: 152 55% 37%;
   --success-foreground: 0 0% 100%;
 
-  --warning: 38 92% 50%;
+  --warning: 36 90% 46%;
   --warning-foreground: 40 90% 12%;
 
-  --info: 210 80% 52%;
+  --info: 200 72% 40%;
   --info-foreground: 0 0% 100%;
 
-  --border: 250 18% 90%;
-  --input: 250 18% 90%;
-  --ring: 258 62% 52%;
+  --border: 170 16% 89%;
+  --input: 170 16% 89%;
+  --ring: 170 55% 22%;
 
-  /* グラフ配色 (dataviz スクリプトで検証済み・カテゴリ順) */
-  --chart-1: #6a3fce;
-  --chart-2: #cf3f8a;
-  --chart-3: #1391a8;
-  --chart-4: #bd7a0c;
-  --chart-5: #2c9b64;
+  /* グラフ配色 (dataviz スクリプトで検証済み・ブランド調カテゴリ順) */
+  --chart-1: #0f9b86;
+  --chart-2: #b5882c;
+  --chart-3: #2f6dae;
+  --chart-4: #b0466f;
+  --chart-5: #7a4fb5;
 
-  /* サイドバー */
-  --sidebar: 256 30% 15%;
-  --sidebar-foreground: 250 20% 88%;
-  --sidebar-muted: 255 15% 62%;
-  --sidebar-accent: 258 62% 60%;
-  --sidebar-border: 256 25% 24%;
+  /* サイドバー: ディープ・ティール + ゴールドのアクセント */
+  --sidebar: 173 52% 11%;
+  --sidebar-foreground: 160 22% 86%;
+  --sidebar-muted: 165 14% 60%;
+  --sidebar-accent: 40 50% 60%;
+  --sidebar-border: 173 30% 20%;
 
-  --radius: 0.75rem;
+  --radius: 0.6rem;
 }
 
 .dark {
-  --background: 250 24% 8%;
-  --foreground: 250 20% 92%;
+  --background: 180 20% 8%;
+  --foreground: 160 16% 90%;
 
-  --card: 252 22% 12%;
-  --card-foreground: 250 20% 92%;
+  --card: 182 20% 11%;
+  --card-foreground: 160 16% 90%;
 
-  --popover: 252 22% 12%;
-  --popover-foreground: 250 20% 92%;
+  --popover: 182 20% 11%;
+  --popover-foreground: 160 16% 90%;
 
-  --primary: 258 70% 66%;
-  --primary-foreground: 255 40% 10%;
+  --primary: 168 46% 52%;
+  --primary-foreground: 172 45% 8%;
 
-  --secondary: 255 18% 20%;
-  --secondary-foreground: 250 20% 90%;
+  --secondary: 176 15% 18%;
+  --secondary-foreground: 160 16% 88%;
 
-  --muted: 252 16% 18%;
-  --muted-foreground: 250 10% 62%;
+  --muted: 180 14% 16%;
+  --muted-foreground: 170 10% 60%;
 
-  --accent: 330 68% 64%;
-  --accent-foreground: 255 40% 10%;
+  --accent: 40 52% 60%;
+  --accent-foreground: 172 45% 8%;
 
   --destructive: 0 62% 55%;
   --destructive-foreground: 0 0% 100%;
 
-  --success: 152 52% 48%;
+  --success: 152 50% 46%;
   --success-foreground: 150 40% 8%;
 
   --warning: 38 88% 56%;
   --warning-foreground: 40 90% 10%;
 
-  --info: 210 78% 60%;
-  --info-foreground: 210 40% 8%;
+  --info: 200 72% 58%;
+  --info-foreground: 200 40% 8%;
 
-  --border: 252 16% 22%;
-  --input: 252 16% 24%;
-  --ring: 258 70% 66%;
+  --border: 180 14% 20%;
+  --input: 180 14% 22%;
+  --ring: 168 46% 52%;
 
-  --chart-1: #8560d8;
-  --chart-2: #d1548f;
-  --chart-3: #1f97b0;
-  --chart-4: #c1841a;
-  --chart-5: #2f9d6c;
+  --chart-1: #1c9482;
+  --chart-2: #a97f22;
+  --chart-3: #3f72bd;
+  --chart-4: #c05683;
+  --chart-5: #8663c9;
 
-  --sidebar: 252 26% 10%;
-  --sidebar-foreground: 250 20% 88%;
-  --sidebar-muted: 255 12% 58%;
-  --sidebar-accent: 258 70% 68%;
-  --sidebar-border: 252 20% 18%;
+  --sidebar: 183 42% 7%;
+  --sidebar-foreground: 160 20% 85%;
+  --sidebar-muted: 165 12% 56%;
+  --sidebar-accent: 40 52% 62%;
+  --sidebar-border: 182 24% 16%;
 }
 
 @theme inline {

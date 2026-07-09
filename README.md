@@ -1,7 +1,7 @@
-# salon_one_invoice
+# SalonOne — One Platform. One Management.
 
 サロン向けの **請求書 作成・送付・管理** アプリケーション。
-**Vercel + Supabase** で動くフルスタック構成。**口座振替（引き落とし）を軸に、入金確認機能**も備えます。担当者の日次オペレーションと、経営者の売上・入金俯瞰の両方に最適化した UI です。
+**Vercel + Supabase** で動くフルスタック構成。**口座振替（引き落とし）** と **Stripe（初期費用＋月額サブスク）** の両方に対応し、**入金確認機能**も備えます。担当者の日次オペレーションと、経営者の売上・入金俯瞰の両方に最適化した UI（ディープ・ティール × ゴールドのブランドカラー）です。
 
 > **すぐ試せます。** Supabase を設定しなくても、`npm install && npm run dev` で **デモモード**（サンプルデータ入り）が起動します。
 
@@ -75,6 +75,34 @@ npm run dev
 環境変数の全項目は [`.env.example`](.env.example) を参照してください。
 
 ---
+
+## Stripe で初期費用＋月額を管理する
+
+高額の初期費用（例: 100,000円・単発）と月額（例: 5,000〜30,000円・継続）を **Stripe Checkout 1 回でまとめて登録**し、以降は自動で月額課金します（初期費用は初回請求書に加算）。顧客詳細ページの **「Stripeで課金開始」** から実行します。
+
+### すぐ試す（Stripe キー不要）
+「Stripeで課金開始」ダイアログの **「テスト決済をシミュレート」** で、初期費用＋初月の決済成功を再現し、定期契約・請求・入金の管理フローを即座に確認できます（価格帯の検証用）。
+
+### 本番/テストモードの Stripe を接続する
+1. `.env.local` を設定:
+   ```env
+   PAYMENT_PROVIDER=stripe
+   STRIPE_SECRET_KEY=sk_test_xxx          # Stripe テストキー
+   STRIPE_WEBHOOK_SECRET=whsec_xxx        # 下記 stripe listen が発行
+   ```
+2. ローカルで Webhook を受ける（[Stripe CLI](https://docs.stripe.com/stripe-cli)）:
+   ```bash
+   stripe listen --forward-to localhost:3000/api/stripe/webhook
+   # 表示された whsec_... を STRIPE_WEBHOOK_SECRET に設定
+   ```
+3. `npm run dev` → 顧客詳細で「Stripeで課金開始」→ **Stripe Checkout へ進む** →
+   テストカード `4242 4242 4242 4242`（有効期限は未来、CVC任意）で決済。
+4. Webhook（`checkout.session.completed` / `invoice.paid` ほか）がアプリに同期し、
+   初期費用＋初月の入金・定期契約・ダッシュボードが更新されます。
+
+> 本番 Vercel では、Stripe ダッシュボードで Webhook エンドポイント
+> `https://<your-app>/api/stripe/webhook` を登録し、その署名シークレットを
+> `STRIPE_WEBHOOK_SECRET` に設定してください。
 
 ## 定期請求の自動生成（Cron）
 

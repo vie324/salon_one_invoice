@@ -6,7 +6,6 @@ import {
   LayoutDashboard,
   Landmark,
   Menu,
-  Receipt,
   Repeat,
   Settings,
   Users,
@@ -17,9 +16,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as React from "react";
 import { switchDemoRole } from "@/app/actions/session";
+import { Logo } from "@/components/brand/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { CurrentUser } from "@/lib/auth";
-import { appName } from "@/lib/config";
 import { roleLabels } from "@/lib/domain/constants";
 import type { Role } from "@/lib/domain/types";
 import { cn } from "@/lib/utils";
@@ -53,14 +52,9 @@ export function AppShell({
 
   const sidebar = (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
-      <div className="flex items-center gap-2.5 px-5 py-5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sidebar-accent text-white shadow">
-          <Receipt className="h-5 w-5" />
-        </div>
-        <div className="leading-tight">
-          <div className="text-sm font-semibold text-white">{appName}</div>
-          <div className="text-[11px] text-sidebar-muted">請求・入金管理</div>
-        </div>
+      <div className="px-5 py-5">
+        <Logo onDark markSize={34} />
+        <div className="mt-1.5 pl-[44px] text-[11px] text-sidebar-muted">請求・入金管理</div>
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-2">

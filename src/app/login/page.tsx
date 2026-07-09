@@ -1,7 +1,7 @@
-import { Receipt } from "lucide-react";
 import Link from "next/link";
+import { LogoStacked } from "@/components/brand/logo";
 import { buttonClasses } from "@/components/ui/button";
-import { appName, isDemoMode } from "@/lib/config";
+import { isDemoMode } from "@/lib/config";
 import { LoginForm } from "./login-form";
 
 export const metadata = { title: "ログイン" };
@@ -10,12 +10,9 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-secondary via-background to-background p-4">
       <div className="w-full max-w-md">
-        <div className="mb-6 flex flex-col items-center gap-2 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lg">
-            <Receipt className="h-6 w-6" />
-          </div>
-          <h1 className="text-xl font-bold">{appName}</h1>
-          <p className="text-sm text-muted-foreground">サロン請求・入金管理</p>
+        <div className="mb-6">
+          <LogoStacked />
+          <p className="mt-2 text-center text-sm text-muted-foreground">サロン請求・入金管理</p>
         </div>
 
         <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
