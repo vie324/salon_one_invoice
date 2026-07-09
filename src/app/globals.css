@@ -1,0 +1,215 @@
+@import "tailwindcss";
+
+/* クラスベースのダークモード切替 (.dark を html に付与) */
+@custom-variant dark (&:is(.dark *));
+
+/* =========================================================================
+   デザイントークン — サロン向け請求管理 / 上品・高視認性
+   ライト/ダーク両対応。担当者(密度高い一覧)も経営者(俯瞰)も見やすい配色。
+   ========================================================================= */
+:root {
+  --background: 250 33% 99%;
+  --foreground: 240 18% 14%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 240 18% 14%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 18% 14%;
+
+  /* プライマリ: 上品なプラム/インディゴ */
+  --primary: 258 62% 52%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 255 30% 96%;
+  --secondary-foreground: 258 40% 30%;
+
+  --muted: 250 20% 96%;
+  --muted-foreground: 240 8% 46%;
+
+  --accent: 330 72% 62%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+
+  --success: 152 58% 40%;
+  --success-foreground: 0 0% 100%;
+
+  --warning: 38 92% 50%;
+  --warning-foreground: 40 90% 12%;
+
+  --info: 210 80% 52%;
+  --info-foreground: 0 0% 100%;
+
+  --border: 250 18% 90%;
+  --input: 250 18% 90%;
+  --ring: 258 62% 52%;
+
+  /* グラフ配色 (dataviz スクリプトで検証済み・カテゴリ順) */
+  --chart-1: #6a3fce;
+  --chart-2: #cf3f8a;
+  --chart-3: #1391a8;
+  --chart-4: #bd7a0c;
+  --chart-5: #2c9b64;
+
+  /* サイドバー */
+  --sidebar: 256 30% 15%;
+  --sidebar-foreground: 250 20% 88%;
+  --sidebar-muted: 255 15% 62%;
+  --sidebar-accent: 258 62% 60%;
+  --sidebar-border: 256 25% 24%;
+
+  --radius: 0.75rem;
+}
+
+.dark {
+  --background: 250 24% 8%;
+  --foreground: 250 20% 92%;
+
+  --card: 252 22% 12%;
+  --card-foreground: 250 20% 92%;
+
+  --popover: 252 22% 12%;
+  --popover-foreground: 250 20% 92%;
+
+  --primary: 258 70% 66%;
+  --primary-foreground: 255 40% 10%;
+
+  --secondary: 255 18% 20%;
+  --secondary-foreground: 250 20% 90%;
+
+  --muted: 252 16% 18%;
+  --muted-foreground: 250 10% 62%;
+
+  --accent: 330 68% 64%;
+  --accent-foreground: 255 40% 10%;
+
+  --destructive: 0 62% 55%;
+  --destructive-foreground: 0 0% 100%;
+
+  --success: 152 52% 48%;
+  --success-foreground: 150 40% 8%;
+
+  --warning: 38 88% 56%;
+  --warning-foreground: 40 90% 10%;
+
+  --info: 210 78% 60%;
+  --info-foreground: 210 40% 8%;
+
+  --border: 252 16% 22%;
+  --input: 252 16% 24%;
+  --ring: 258 70% 66%;
+
+  --chart-1: #8560d8;
+  --chart-2: #d1548f;
+  --chart-3: #1f97b0;
+  --chart-4: #c1841a;
+  --chart-5: #2f9d6c;
+
+  --sidebar: 252 26% 10%;
+  --sidebar-foreground: 250 20% 88%;
+  --sidebar-muted: 255 12% 58%;
+  --sidebar-accent: 258 70% 68%;
+  --sidebar-border: 252 20% 18%;
+}
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+  --color-info: hsl(var(--info));
+  --color-info-foreground: hsl(var(--info-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-muted: hsl(var(--sidebar-muted));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 0.25rem);
+  --radius-sm: calc(var(--radius) - 0.4rem);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Hiragino Sans",
+    "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", Meiryo, sans-serif;
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "palt";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  /* 数値を等幅で揃える (金額列の視認性) */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+}
+
+/* スクロールバー(控えめ) */
+@layer utilities {
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 9999px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* 印刷(請求書PDF)用: 画面装飾を除去し用紙に最適化 */
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-container {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+}
