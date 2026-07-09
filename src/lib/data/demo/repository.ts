@@ -474,6 +474,8 @@ export class DemoRepository implements Repository {
     const created: Invoice[] = [];
     for (const sub of this.s.subscriptions) {
       if (sub.status !== "active") continue;
+      // Stripe 管理の契約は Stripe 側が課金するため自前生成しない
+      if (sub.stripeSubscriptionId) continue;
       if (sub.nextBillingDate > asOfDate) continue;
       const plan = this.s.plans.find((p) => p.id === sub.planId);
       if (!plan) continue;
@@ -556,8 +558,9 @@ export class DemoRepository implements Repository {
       stripeSubscriptionId: input.stripeSubscriptionId,
     };
     this.s.subscriptions.push(sub);
+    // 注: 顧客の payment_method は変更しない。
+    // (他の口座振替契約の請求方法を壊さないため。Stripe請求は各請求書側で credit_card を明示)
     const c = this.s.customers.find((x) => x.id === input.customerId);
-    if (c) c.paymentMethod = "credit_card";
     this.addActivity({
       kind: "subscription_created",
       message: `${c?.name ?? ""} 様のStripe定期課金（${input.planName}）を開始`,

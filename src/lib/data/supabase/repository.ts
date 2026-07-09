@@ -808,6 +808,7 @@ export class SupabaseRepository implements Repository {
       .from("subscriptions")
       .select("*")
       .eq("status", "active")
+      .is("stripe_subscription_id", null) // Stripe 管理の契約は除外(Stripe が課金)
       .lte("next_billing_date", asOfDate);
     const created: Invoice[] = [];
     for (const subRow of subs ?? []) {
@@ -937,10 +938,7 @@ export class SupabaseRepository implements Repository {
       }
       throw error;
     }
-    await this.db
-      .from("customers")
-      .update({ payment_method: "credit_card" })
-      .eq("id", input.customerId);
+    // 注: 顧客の payment_method は変更しない（他の口座振替契約の請求方法を壊さないため）。
     return mapSubscription(data);
   }
 
