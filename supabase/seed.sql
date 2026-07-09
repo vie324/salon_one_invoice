@@ -33,21 +33,21 @@ begin
 
   -- 料金プラン(基本料金＋オプション / 月額・年間) — 添付の料金表に準拠
   insert into plans (id, name, description, amount, tax_rate, billing_day, initial_fee, term, options) values
-    ('c0000000-0000-0000-0000-000000000001','定価','標準プラン（月額）',30000,0,27,200000,'monthly',
+    ('c0000000-0000-0000-0000-000000000001','定価','標準プラン（月額）',30000,0.1,27,200000,'monthly',
       '[{"key":"hpb","name":"HPB・ミニモ連携","monthly":10000},{"key":"line","name":"LINE連携","monthly":10000}]'::jsonb),
-    ('c0000000-0000-0000-0000-000000000002','まとめパック','オプションまとめ割（月額）',30000,0,27,200000,'monthly',
+    ('c0000000-0000-0000-0000-000000000002','まとめパック','オプションまとめ割（月額）',30000,0.1,27,200000,'monthly',
       '[{"key":"hpb","name":"HPB・ミニモ連携","monthly":7500},{"key":"line","name":"LINE連携","monthly":7500}]'::jsonb),
-    ('c0000000-0000-0000-0000-000000000003','特別期間限定','期間限定キャンペーン（月額）',5000,0,27,50000,'monthly',
+    ('c0000000-0000-0000-0000-000000000003','特別期間限定','期間限定キャンペーン（月額）',5000,0.1,27,50000,'monthly',
       '[{"key":"hpb","name":"HPB・ミニモ連携","monthly":5000},{"key":"line","name":"LINE連携","monthly":5000}]'::jsonb),
-    ('c0000000-0000-0000-0000-000000000004','代理店版 特別','代理店向け特別（月額）',20000,0,27,100000,'monthly',
+    ('c0000000-0000-0000-0000-000000000004','代理店版 特別','代理店向け特別（月額）',20000,0.1,27,100000,'monthly',
       '[{"key":"hpb","name":"HPB・ミニモ連携","monthly":5000},{"key":"line","name":"LINE連携","monthly":5000}]'::jsonb),
-    ('c0000000-0000-0000-0000-000000000005','定価','標準プラン（年間）',20000,0,27,100000,'annual',
+    ('c0000000-0000-0000-0000-000000000005','定価','標準プラン（年間）',20000,0.1,27,100000,'annual',
       '[{"key":"hpb","name":"HPB・ミニモ連携","monthly":5000},{"key":"line","name":"LINE連携","monthly":5000}]'::jsonb),
-    ('c0000000-0000-0000-0000-000000000006','まとめパック','オプションまとめ割（年間）',20000,0,27,100000,'annual',
+    ('c0000000-0000-0000-0000-000000000006','まとめパック','オプションまとめ割（年間）',20000,0.1,27,100000,'annual',
       '[{"key":"hpb","name":"HPB・ミニモ連携","monthly":2500},{"key":"line","name":"LINE連携","monthly":2500}]'::jsonb),
-    ('c0000000-0000-0000-0000-000000000007','特別期間限定','期間限定キャンペーン（年間）',5000,0,27,50000,'annual',
+    ('c0000000-0000-0000-0000-000000000007','特別期間限定','期間限定キャンペーン（年間）',5000,0.1,27,50000,'annual',
       '[{"key":"hpb","name":"HPB・ミニモ連携","monthly":2500},{"key":"line","name":"LINE連携","monthly":2500}]'::jsonb),
-    ('c0000000-0000-0000-0000-000000000008','代理店版','代理店向け（年間）',15000,0,27,50000,'annual',
+    ('c0000000-0000-0000-0000-000000000008','代理店版','代理店向け（年間）',15000,0.1,27,50000,'annual',
       '[{"key":"hpb","name":"HPB・ミニモ連携","monthly":2500},{"key":"line","name":"LINE連携","monthly":2500}]'::jsonb);
 
   -- 顧客(=導入サロン)
@@ -75,25 +75,25 @@ begin
   values
     (inv1, 'INV-'||ym_last||'-0001','d0000000-0000-0000-0000-000000000001',
       (select id from subscriptions where customer_id='d0000000-0000-0000-0000-000000000001'),
-      'recurring','paid', date_trunc('month', current_date - interval '1 month')::date, this_month_27 - interval '1 month', last_period,'direct_debit',50000,0,50000,50000, current_date - interval '35 days', (this_month_27 - interval '1 month')::date),
+      'recurring','paid', date_trunc('month', current_date - interval '1 month')::date, this_month_27 - interval '1 month', last_period,'direct_debit',50000,5000,55000,55000, current_date - interval '35 days', (this_month_27 - interval '1 month')::date),
     (inv2, 'INV-'||ym_this||'-0001','d0000000-0000-0000-0000-000000000001',
       (select id from subscriptions where customer_id='d0000000-0000-0000-0000-000000000001'),
-      'recurring','awaiting_payment', date_trunc('month', current_date)::date, this_month_27, this_period,'direct_debit',50000,0,50000,0, current_date - interval '5 days', null);
+      'recurring','awaiting_payment', date_trunc('month', current_date)::date, this_month_27, this_period,'direct_debit',50000,5000,55000,0, current_date - interval '5 days', null);
 
   insert into invoice_items (invoice_id, description, quantity, unit_price, tax_rate, amount, position) values
-    (inv1, '定価（'||last_period||'）',1,30000,0,30000,0),
-    (inv1, 'オプション: HPB・ミニモ連携',1,10000,0,10000,1),
-    (inv1, 'オプション: LINE連携',1,10000,0,10000,2),
-    (inv2, '定価（'||this_period||'）',1,30000,0,30000,0),
-    (inv2, 'オプション: HPB・ミニモ連携',1,10000,0,10000,1),
-    (inv2, 'オプション: LINE連携',1,10000,0,10000,2);
+    (inv1, '定価（'||last_period||'）',1,30000,0.1,30000,0),
+    (inv1, 'オプション: HPB・ミニモ連携',1,10000,0.1,10000,1),
+    (inv1, 'オプション: LINE連携',1,10000,0.1,10000,2),
+    (inv2, '定価（'||this_period||'）',1,30000,0.1,30000,0),
+    (inv2, 'オプション: HPB・ミニモ連携',1,10000,0.1,10000,1),
+    (inv2, 'オプション: LINE連携',1,10000,0.1,10000,2);
 
   -- 入金(先月分)
   insert into payments (invoice_id, customer_id, amount, method, paid_at, reference, matched_by) values
-    (inv1,'d0000000-0000-0000-0000-000000000001',50000,'direct_debit',(this_month_27 - interval '1 month')::date,'口座振替','auto');
+    (inv1,'d0000000-0000-0000-0000-000000000001',55000,'direct_debit',(this_month_27 - interval '1 month')::date,'口座振替','auto');
 
   -- 活動
   insert into activities (kind, message, actor, amount, link_invoice_id) values
-    ('payment_confirmed','Hair & Spa LUCE の口座振替を確認','システム',50000,inv1),
-    ('invoice_sent','Hair & Spa LUCE へ請求書を送付','佐々木 涼',50000,inv2);
+    ('payment_confirmed','Hair & Spa LUCE の口座振替を確認','システム',55000,inv1),
+    ('invoice_sent','Hair & Spa LUCE へ請求書を送付','佐々木 涼',55000,inv2);
 end $$;

@@ -82,9 +82,19 @@ export function selectedOptions(plan: Plan, optionKeys: string[] = []) {
   return plan.options.filter((o) => optionKeys.includes(o.key));
 }
 
-/** 基本料金 + 選択オプションの月額合計 */
+/** 基本料金 + 選択オプションの月額合計(税抜) */
 export function subscriptionMonthly(plan: Plan, optionKeys: string[] = []): number {
   return plan.amount + selectedOptions(plan, optionKeys).reduce((s, o) => s + o.monthly, 0);
+}
+
+/** 消費税額 (税抜 × 税率、四捨五入) */
+export function taxAmount(exclusive: number, rate: number): number {
+  return Math.round(exclusive * rate);
+}
+
+/** 税込金額 (税抜 + 消費税) */
+export function withTax(exclusive: number, rate: number): number {
+  return exclusive + taxAmount(exclusive, rate);
 }
 
 /** 定期プラン(基本料金＋オプション)から請求明細を生成 */

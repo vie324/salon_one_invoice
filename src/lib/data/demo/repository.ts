@@ -142,6 +142,21 @@ export class DemoRepository implements Repository {
     return plan;
   }
 
+  async updatePlan(id: string, input: Partial<PlanInput>): Promise<Plan> {
+    const p = this.s.plans.find((x) => x.id === id);
+    if (!p) throw new Error("プランが見つかりません");
+    if (input.name !== undefined) p.name = input.name;
+    if (input.description !== undefined) p.description = input.description;
+    if (input.amount !== undefined) p.amount = input.amount;
+    if (input.taxRate !== undefined) p.taxRate = input.taxRate;
+    if (input.billingDay !== undefined) p.billingDay = input.billingDay;
+    if (input.active !== undefined) p.active = input.active;
+    if (input.initialFee !== undefined) p.initialFee = input.initialFee;
+    if (input.term !== undefined) p.term = input.term;
+    if (input.options !== undefined) p.options = input.options;
+    return p;
+  }
+
   async listSubscriptions(): Promise<Subscription[]> {
     return [...this.s.subscriptions];
   }

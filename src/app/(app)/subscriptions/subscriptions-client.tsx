@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import * as React from "react";
 import {
-  createPlanAction,
   createSubscriptionAction,
   updateSubscriptionStatusAction,
 } from "@/app/actions/subscriptions";
@@ -15,13 +14,15 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Label, Select } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import type { Customer, Plan, PlanTerm, Subscription } from "@/lib/domain/types";
+import type { Customer, Plan, Subscription } from "@/lib/domain/types";
 import { formatDate, formatJPY, toISODate } from "@/lib/utils";
+import { NewPlanButton } from "./plan-dialog";
 
 interface Row extends Subscription {
   customerName: string;
   planName: string;
   monthlyTotal: number;
+  monthlyInclTotal: number;
 }
 
 export function SubscriptionsClient({
@@ -37,7 +38,6 @@ export function SubscriptionsClient({
   const [pending, start] = React.useTransition();
   const [flash, setFlash] = React.useState<string | null>(null);
   const [subOpen, setSubOpen] = React.useState(false);
-  const [planOpen, setPlanOpen] = React.useState(false);
 
   const changeStatus = (id: string, status: Subscription["status"]) =>
     start(async () => {
@@ -69,10 +69,7 @@ export function SubscriptionsClient({
           <Plus className="h-4 w-4" />
           新規契約
         </Button>
-        <Button variant="outline" onClick={() => setPlanOpen(true)}>
-          <Plus className="h-4 w-4" />
-          新規プラン
-        </Button>
+        <NewPlanButton />
         {flash && (
           <span className="inline-flex items-center gap-1.5 rounded-md bg-secondary px-3 py-1.5 text-xs text-secondary-foreground">
             <RefreshCw className="h-3.5 w-3.5" />
@@ -86,7 +83,7 @@ export function SubscriptionsClient({
           <TR className="hover:bg-transparent">
             <TH>顧客</TH>
             <TH>プラン</TH>
-            <TH className="text-right">月額合計</TH>
+            <TH className="text-right">月額合計（税抜／税込）</TH>
             <TH>次回請求日</TH>
             <TH>状態</TH>
             <TH className="text-right">操作</TH>
@@ -106,7 +103,12 @@ export function SubscriptionsClient({
                   <span className="ml-1 text-xs">＋オプション{r.optionKeys.length}</span>
                 )}
               </TD>
-              <TD className="tabular text-right font-medium">{formatJPY(r.monthlyTotal)}</TD>
+              <TD className="text-right">
+                <div className="tabular font-medium">{formatJPY(r.monthlyTotal)}</div>
+                <div className="tabular text-xs text-muted-foreground">
+                  税込 {formatJPY(r.monthlyInclTotal)}
+                </div>
+              </TD>
               <TD className="text-muted-foreground">{formatDate(r.nextBillingDate)}</TD>
               <TD>
                 <SubscriptionStatusBadge status={r.status} />
@@ -145,18 +147,6 @@ export function SubscriptionsClient({
           start(async () => {
             await createSubscriptionAction(input);
             setSubOpen(false);
-            router.refresh();
-          })
-        }
-      />
-      <NewPlanDialog
-        open={planOpen}
-        onClose={() => setPlanOpen(false)}
-        pending={pending}
-        onSubmit={(input) =>
-          start(async () => {
-            await createPlanAction(input);
-            setPlanOpen(false);
             router.refresh();
           })
         }
@@ -278,82 +268,6 @@ function NewSubscriptionDialog({
             disabled={pending || !customerId || !planId}
           >
             契約を作成
-          </Button>
-        </div>
-      </div>
-    </Dialog>
-  );
-}
-
-function NewPlanDialog({
-  open,
-  onClose,
-  onSubmit,
-  pending,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onSubmit: (input: {
-    name: string;
-    description: string;
-    amount: number;
-    taxRate: number;
-    billingDay: number;
-    initialFee: number;
-    term: PlanTerm;
-  }) => void;
-  pending: boolean;
-}) {
-  const [name, setName] = React.useState("");
-  const [amount, setAmount] = React.useState(30000);
-  const [initialFee, setInitialFee] = React.useState(200000);
-  const [term, setTerm] = React.useState<PlanTerm>("monthly");
-  const [billingDay, setBillingDay] = React.useState(27);
-  return (
-    <Dialog open={open} onClose={onClose} title="新規プラン">
-      <div className="space-y-4">
-        <Field label="プラン名">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="定価 / まとめパック 等" />
-        </Field>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="契約区分">
-            <Select value={term} onChange={(e) => setTerm(e.target.value as PlanTerm)}>
-              <option value="monthly">月額</option>
-              <option value="annual">年間</option>
-            </Select>
-          </Field>
-          <Field label="請求日(毎月)">
-            <Input
-              type="number"
-              min={1}
-              max={28}
-              value={billingDay}
-              onChange={(e) => setBillingDay(Number(e.target.value))}
-            />
-          </Field>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="初期費用">
-            <Input type="number" value={initialFee} onChange={(e) => setInitialFee(Number(e.target.value))} />
-          </Field>
-          <Field label="基本料金(月額)">
-            <Input type="number" value={amount} onChange={(e) => setAmount(Number(e.target.value))} />
-          </Field>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          オプション（HPB・ミニモ／LINE 等）は作成後にシード/DBで設定できます。
-        </p>
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose} disabled={pending}>
-            キャンセル
-          </Button>
-          <Button
-            onClick={() =>
-              onSubmit({ name, description: "", amount, taxRate: 0, billingDay, initialFee, term })
-            }
-            disabled={pending || !name.trim()}
-          >
-            プランを作成
           </Button>
         </div>
       </div>

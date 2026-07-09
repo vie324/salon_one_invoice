@@ -10,7 +10,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Label, Select } from "@/components/ui/input";
-import { selectedOptions, subscriptionMonthly } from "@/lib/domain/calculations";
+import {
+  selectedOptions,
+  subscriptionMonthly,
+  taxAmount,
+} from "@/lib/domain/calculations";
 import type { Plan } from "@/lib/domain/types";
 import { formatJPY } from "@/lib/utils";
 
@@ -48,11 +52,16 @@ export function BillingButton({
   const toggleOpt = (key: string) =>
     setOptKeys((k) => (k.includes(key) ? k.filter((x) => x !== key) : [...k, key]));
 
-  const monthly = plan ? subscriptionMonthly(plan, optKeys) : 0;
-  const initialFee = plan?.initialFee ?? 0;
+  const taxRate = plan?.taxRate ?? 0.1;
+  const monthlyExcl = plan ? subscriptionMonthly(plan, optKeys) : 0;
+  const monthlyTax = taxAmount(monthlyExcl, taxRate);
+  const monthlyIncl = monthlyExcl + monthlyTax;
+  const initialExcl = plan?.initialFee ?? 0;
+  const initialIncl = initialExcl + taxAmount(initialExcl, taxRate);
   const planName = plan ? `${plan.name}（${termLabel(plan.term)}）` : "月額プラン";
 
-  const opts = () => ({ planName, monthlyAmount: monthly, initialFee });
+  // Stripe へは税込で課金する
+  const opts = () => ({ planName, monthlyAmount: monthlyIncl, initialFee: initialIncl });
 
   const checkout = () =>
     start(async () => {
@@ -131,7 +140,7 @@ export function BillingButton({
 
           <div className="space-y-1 rounded-md bg-secondary px-3 py-2.5 text-sm text-secondary-foreground">
             <div className="flex justify-between">
-              <span>基本料金</span>
+              <span>基本料金（税抜）</span>
               <span className="tabular">{formatJPY(plan?.amount ?? 0)}</span>
             </div>
             {plan &&
@@ -141,13 +150,21 @@ export function BillingButton({
                   <span className="tabular">{formatJPY(o.monthly)}</span>
                 </div>
               ))}
+            <div className="flex justify-between border-t border-border/60 pt-1 text-xs">
+              <span>小計（税抜）</span>
+              <span className="tabular">{formatJPY(monthlyExcl)}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span>消費税（{Math.round(taxRate * 100)}%）</span>
+              <span className="tabular">{formatJPY(monthlyTax)}</span>
+            </div>
             <div className="flex justify-between border-t border-border/60 pt-1 font-semibold">
-              <span>月額合計</span>
-              <span className="tabular">{formatJPY(monthly)}</span>
+              <span>月額合計（税込）</span>
+              <span className="tabular">{formatJPY(monthlyIncl)}</span>
             </div>
             <div className="flex justify-between pt-1 text-xs">
-              <span>初回請求（初期費用 {formatJPY(initialFee)} ＋ 初月 {formatJPY(monthly)}）</span>
-              <span className="tabular font-semibold">{formatJPY(initialFee + monthly)}</span>
+              <span>初回請求（初期費用 {formatJPY(initialIncl)} ＋ 初月 {formatJPY(monthlyIncl)}・税込）</span>
+              <span className="tabular font-semibold">{formatJPY(initialIncl + monthlyIncl)}</span>
             </div>
           </div>
 
