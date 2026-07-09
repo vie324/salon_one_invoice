@@ -3,6 +3,7 @@ import {
   computeNextBillingDate,
   effectiveStatus,
   nextInvoiceNumber,
+  subscriptionItems,
 } from "@/lib/domain/calculations";
 import { computeDashboardMetrics } from "@/lib/domain/metrics";
 import type {
@@ -133,6 +134,9 @@ export class DemoRepository implements Repository {
       billingCycle: "monthly",
       billingDay: input.billingDay,
       active: input.active ?? true,
+      initialFee: input.initialFee ?? 0,
+      term: input.term ?? "monthly",
+      options: input.options ?? [],
     };
     this.s.plans.push(plan);
     return plan;
@@ -154,6 +158,7 @@ export class DemoRepository implements Repository {
       nextBillingDate: computeNextBillingDate(input.startedOn, billingDay),
       billingDay,
       canceledOn: null,
+      optionKeys: input.optionKeys ?? [],
     };
     this.s.subscriptions.push(sub);
     const cus = this.s.customers.find((c) => c.id === input.customerId);
@@ -474,6 +479,8 @@ export class DemoRepository implements Repository {
     const created: Invoice[] = [];
     for (const sub of this.s.subscriptions) {
       if (sub.status !== "active") continue;
+      // Stripe 管理の契約は Stripe 側が課金するため自前生成しない
+      if (sub.stripeSubscriptionId) continue;
       if (sub.nextBillingDate > asOfDate) continue;
       const plan = this.s.plans.find((p) => p.id === sub.planId);
       if (!plan) continue;
@@ -495,14 +502,7 @@ export class DemoRepository implements Repository {
         paymentMethod: customer?.paymentMethod ?? "direct_debit",
         billingPeriod: period,
         subscriptionId: sub.id,
-        items: [
-          {
-            description: `${plan.name}（${period}）`,
-            quantity: 1,
-            unitPrice: plan.amount,
-            taxRate: plan.taxRate,
-          },
-        ],
+        items: subscriptionItems(plan, sub.optionKeys ?? [], period),
         status: customer?.paymentMethod === "direct_debit" ? "awaiting_payment" : "sent",
       });
       created.push(inv);
@@ -540,6 +540,9 @@ export class DemoRepository implements Repository {
         billingCycle: "monthly",
         billingDay: 1,
         active: true,
+        initialFee: 0,
+        term: "monthly",
+        options: [],
       };
       this.s.plans.push(plan);
     }
@@ -553,11 +556,13 @@ export class DemoRepository implements Repository {
       nextBillingDate: computeNextBillingDate(today, plan.billingDay),
       billingDay: plan.billingDay,
       canceledOn: null,
+      optionKeys: [],
       stripeSubscriptionId: input.stripeSubscriptionId,
     };
     this.s.subscriptions.push(sub);
+    // 注: 顧客の payment_method は変更しない。
+    // (他の口座振替契約の請求方法を壊さないため。Stripe請求は各請求書側で credit_card を明示)
     const c = this.s.customers.find((x) => x.id === input.customerId);
-    if (c) c.paymentMethod = "credit_card";
     this.addActivity({
       kind: "subscription_created",
       message: `${c?.name ?? ""} 様のStripe定期課金（${input.planName}）を開始`,

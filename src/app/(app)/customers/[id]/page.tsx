@@ -8,6 +8,7 @@ import { buttonClasses } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { isStripeConfigured } from "@/lib/payments/stripe-client";
 import { getRepository } from "@/lib/data";
+import { selectedOptions, subscriptionMonthly } from "@/lib/domain/calculations";
 import { paymentMethodLabels } from "@/lib/domain/constants";
 import { formatDate, formatJPY, maskAccount } from "@/lib/utils";
 import { BillingButton } from "./billing-button";
@@ -73,8 +74,7 @@ export default async function CustomerDetailPage({
           <BillingButton
             customerId={customer.id}
             stripeConfigured={isStripeConfigured()}
-            defaultPlanName={plan?.name ?? "月額プラン"}
-            defaultMonthly={plan ? Math.round(plan.amount * (1 + plan.taxRate)) : 12000}
+            plans={plans}
           />
           <Link
             href={`/invoices/new?customer=${customer.id}`}
@@ -183,11 +183,31 @@ export default async function CustomerDetailPage({
             </CardHeader>
             <CardContent className="text-sm">
               {subscription && plan ? (
-                <div className="space-y-1.5">
-                  <div className="font-medium">{plan.name}</div>
-                  <div className="tabular text-muted-foreground">{formatJPY(plan.amount)} / 月（税抜）</div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">{plan.name}</span>
+                    <Badge tone="neutral">{plan.term === "annual" ? "年間" : "月額"}</Badge>
+                  </div>
+                  <div className="space-y-0.5 text-xs text-muted-foreground">
+                    <div className="flex justify-between">
+                      <span>基本料金</span>
+                      <span className="tabular">{formatJPY(plan.amount)}</span>
+                    </div>
+                    {selectedOptions(plan, subscription.optionKeys).map((o) => (
+                      <div key={o.key} className="flex justify-between">
+                        <span>＋{o.name}</span>
+                        <span className="tabular">{formatJPY(o.monthly)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-between border-t border-border pt-1.5 font-semibold">
+                    <span>月額合計</span>
+                    <span className="tabular">
+                      {formatJPY(subscriptionMonthly(plan, subscription.optionKeys))}
+                    </span>
+                  </div>
                   <div className="text-xs text-muted-foreground">
-                    次回請求: {formatDate(subscription.nextBillingDate)}（毎月{subscription.billingDay}日）
+                    初期費用 {formatJPY(plan.initialFee)} ・ 次回請求 {formatDate(subscription.nextBillingDate)}
                   </div>
                 </div>
               ) : (

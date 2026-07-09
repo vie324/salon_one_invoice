@@ -77,11 +77,24 @@ export function outstandingAmount(inv: Invoice): number {
   return Math.max(0, inv.total - inv.amountPaid);
 }
 
-/** 定期プランから請求明細を生成 */
-export function planToItems(plan: Plan, billingPeriod: string): InvoiceItem[] {
-  return [
+/** 選択中のオプションを返す */
+export function selectedOptions(plan: Plan, optionKeys: string[] = []) {
+  return plan.options.filter((o) => optionKeys.includes(o.key));
+}
+
+/** 基本料金 + 選択オプションの月額合計 */
+export function subscriptionMonthly(plan: Plan, optionKeys: string[] = []): number {
+  return plan.amount + selectedOptions(plan, optionKeys).reduce((s, o) => s + o.monthly, 0);
+}
+
+/** 定期プラン(基本料金＋オプション)から請求明細を生成 */
+export function subscriptionItems(
+  plan: Plan,
+  optionKeys: string[],
+  billingPeriod: string,
+): Omit<InvoiceItem, "id">[] {
+  const items: Omit<InvoiceItem, "id">[] = [
     {
-      id: "temp",
       description: `${plan.name}（${billingPeriod}）`,
       quantity: 1,
       unitPrice: plan.amount,
@@ -89,6 +102,16 @@ export function planToItems(plan: Plan, billingPeriod: string): InvoiceItem[] {
       amount: plan.amount,
     },
   ];
+  for (const opt of selectedOptions(plan, optionKeys)) {
+    items.push({
+      description: `オプション: ${opt.name}`,
+      quantity: 1,
+      unitPrice: opt.monthly,
+      taxRate: plan.taxRate,
+      amount: opt.monthly,
+    });
+  }
+  return items;
 }
 
 /**

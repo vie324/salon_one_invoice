@@ -19,6 +19,17 @@ export type AccountType = "普通" | "当座";
 
 export type BillingCycle = "monthly";
 
+/** 契約期間区分: 月額(単月) / 年間プラン */
+export type PlanTerm = "monthly" | "annual";
+
+/** プランに紐づくオプション(例: HPB・ミニモ連携、LINE連携) */
+export interface PlanOption {
+  key: string;
+  name: string;
+  /** 月額(税込・JPY) */
+  monthly: number;
+}
+
 export type SubscriptionStatus = "active" | "paused" | "canceled";
 
 export type InvoiceType = "one_time" | "recurring" | "initial";
@@ -100,12 +111,19 @@ export interface Plan {
   id: string;
   name: string;
   description: string;
-  amount: number; // 税抜
+  /** 基本料金(月額)。表示額をそのまま請求(税の扱いは taxRate で調整) */
+  amount: number;
   taxRate: number;
   billingCycle: BillingCycle;
   /** 毎月の請求日 (1-28) */
   billingDay: number;
   active: boolean;
+  /** 初期費用(単発) */
+  initialFee: number;
+  /** 契約区分(月額/年間) */
+  term: PlanTerm;
+  /** 選択可能なオプション */
+  options: PlanOption[];
 }
 
 export interface Subscription {
@@ -118,6 +136,8 @@ export interface Subscription {
   nextBillingDate: string;
   billingDay: number;
   canceledOn: string | null;
+  /** 選択中のオプション(plan.options の key) */
+  optionKeys: string[];
   /** Stripe サブスクリプションID（決済連携時） */
   stripeSubscriptionId?: string | null;
 }

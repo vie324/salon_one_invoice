@@ -15,12 +15,10 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as React from "react";
-import { switchDemoRole } from "@/app/actions/session";
 import { Logo } from "@/components/brand/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { CurrentUser } from "@/lib/auth";
 import { roleLabels } from "@/lib/domain/constants";
-import type { Role } from "@/lib/domain/types";
 import { cn } from "@/lib/utils";
 
 const nav = [
@@ -122,7 +120,6 @@ export function AppShell({
 
           <div className="flex-1" />
 
-          {user.demo && <RoleSwitcher role={user.role} />}
           <ThemeToggle />
           <div className="flex items-center gap-2.5 pl-1">
             <div className="hidden text-right sm:block">
@@ -137,30 +134,6 @@ export function AppShell({
 
         <main className="min-w-0 flex-1 p-4 sm:p-6">{children}</main>
       </div>
-    </div>
-  );
-}
-
-function RoleSwitcher({ role }: { role: Role }) {
-  const [pending, start] = React.useTransition();
-  return (
-    <div className="hidden items-center gap-1 rounded-md border border-border bg-card p-0.5 sm:flex">
-      {(["owner", "staff"] as Role[]).map((r) => (
-        <button
-          key={r}
-          type="button"
-          disabled={pending}
-          onClick={() => start(() => switchDemoRole(r))}
-          className={cn(
-            "rounded px-2.5 py-1 text-xs font-medium transition-colors",
-            role === r
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {roleLabels[r]}表示
-        </button>
-      ))}
     </div>
   );
 }
