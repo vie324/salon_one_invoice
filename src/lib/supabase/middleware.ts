@@ -36,7 +36,10 @@ export async function updateSession(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const isAuthRoute = path.startsWith("/login") || path.startsWith("/auth");
   const isPublic =
-    isAuthRoute || path.startsWith("/print") || path.startsWith("/billing");
+    isAuthRoute ||
+    path.startsWith("/print") ||
+    path.startsWith("/billing") ||
+    path.startsWith("/sign"); // 電子契約の署名ページ(トークンで保護)
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();

@@ -1,6 +1,8 @@
 import type {
   BatchItemResult,
   BatchStatus,
+  ContractEventType,
+  ContractStatus,
   InvoiceStatus,
   InvoiceType,
   MandateStatus,
@@ -124,6 +126,47 @@ export const batchItemResultTone: Record<BatchItemResult, BadgeTone> = {
   success: "success",
   failed: "danger",
 };
+
+export const contractStatusLabels: Record<ContractStatus, string> = {
+  draft: "下書き",
+  sent: "署名待ち",
+  viewed: "閲覧済",
+  signed: "締結済",
+  declined: "辞退",
+  expired: "期限切れ",
+  canceled: "取消",
+};
+
+export const contractStatusTone: Record<ContractStatus, BadgeTone> = {
+  draft: "neutral",
+  sent: "info",
+  viewed: "warning",
+  signed: "success",
+  declined: "danger",
+  expired: "danger",
+  canceled: "neutral",
+};
+
+export const contractEventLabels: Record<ContractEventType, string> = {
+  created: "契約書を作成",
+  updated: "下書きを更新",
+  sent: "署名依頼を送付",
+  reminded: "リマインドを送信",
+  viewed: "契約者が閲覧",
+  code_failed: "アクセスコード誤入力",
+  code_verified: "アクセスコードを確認",
+  signed: "電子署名(同意)",
+  manual_signed: "書面締結を登録",
+  declined: "締結を辞退",
+  canceled: "契約書を取消",
+  billing_linked: "請求連携を開始",
+};
+
+/** 署名依頼の既定有効日数 */
+export const CONTRACT_SIGN_EXPIRY_DAYS = 14;
+
+/** アクセスコードの許容失敗回数(超過でロック) */
+export const CONTRACT_CODE_MAX_ATTEMPTS = 10;
 
 /** 未入金として扱うステータス(未収金の集計対象) */
 export const OUTSTANDING_STATUSES: InvoiceStatus[] = [

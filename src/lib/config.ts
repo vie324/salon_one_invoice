@@ -28,3 +28,10 @@ export const emailProvider = (process.env.EMAIL_PROVIDER ?? "console") as
   | "resend";
 
 export const cronSecret = process.env.CRON_SECRET ?? "";
+
+/** 署名リンク等の絶対URL生成に使う。未設定時はリクエストヘッダから推定。 */
+export const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+
+/** 定期請求の自動生成時に請求書メールも自動送付するか(既定: 有効) */
+export const invoiceAutoEmail =
+  (process.env.INVOICE_AUTO_EMAIL ?? "true").toLowerCase() !== "false";

@@ -1,7 +1,17 @@
 import { calcInvoiceTotals, subscriptionItems } from "@/lib/domain/calculations";
+import {
+  feeTablesFromPlan,
+  partyFromCustomer,
+  termsFromPlan,
+} from "@/lib/contracts/build";
+import { defaultTemplateInput } from "@/lib/contracts/default-template";
+import { computeContractHash } from "@/lib/contracts/hash";
 import type {
   Activity,
   BankTransaction,
+  Contract,
+  ContractEvent,
+  ContractTemplate,
   Customer,
   DirectDebitBatch,
   DirectDebitBatchItem,
@@ -27,6 +37,9 @@ export interface DataStore {
   batches: DirectDebitBatch[];
   bankTransactions: BankTransaction[];
   activities: Activity[];
+  contractTemplates: ContractTemplate[];
+  contracts: Contract[];
+  contractEvents: ContractEvent[];
 }
 
 const ym = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -523,6 +536,158 @@ export function buildSeed(now = new Date()): DataStore {
     },
   );
 
+  // --- 契約書 / 電子契約 ---
+  const templateCreatedAt = dayOfMonth(now, 6, 1) + "T09:00:00.000Z";
+  const contractTemplates: ContractTemplate[] = [
+    {
+      id: "ctpl_default",
+      ...defaultTemplateInput,
+      version: 1,
+      active: true,
+      createdAt: templateCreatedAt,
+      updatedAt: templateCreatedAt,
+    },
+  ];
+
+  const contracts: Contract[] = [];
+  const contractEvents: ContractEvent[] = [];
+  let ctrSeq = 0;
+  const ctrNo = (dateStr: string) => {
+    const d = new Date(dateStr);
+    ctrSeq += 1;
+    return `CTR-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}-${String(ctrSeq).padStart(4, "0")}`;
+  };
+  let evSeq = 0;
+  const pushEvent = (e: Omit<ContractEvent, "id">) => {
+    evSeq += 1;
+    contractEvents.push({ id: `cev_${evSeq}`, ...e });
+  };
+
+  const baseContract = (
+    id: string,
+    customerId: string,
+    planId: string,
+    optionKeys: string[],
+    createdAtIso: string,
+  ) => {
+    const cus = customers.find((c) => c.id === customerId)!;
+    const plan = planById.get(planId)!;
+    return {
+      id,
+      contractNumber: ctrNo(createdAtIso),
+      customerId,
+      templateId: "ctpl_default",
+      templateVersion: 1,
+      title: defaultTemplateInput.docTitle,
+      preamble: defaultTemplateInput.preamble,
+      provider: {
+        ...defaultTemplateInput.providerDefault,
+        name: organization.name,
+        postalCode: organization.postalCode,
+        address: organization.address,
+        email: organization.email,
+      },
+      customerParty: partyFromCustomer(cus),
+      sections: defaultTemplateInput.sections,
+      feeTables: [
+        ...feeTablesFromPlan(plan, optionKeys, 1),
+        ...defaultTemplateInput.feeTables,
+      ],
+      terms: termsFromPlan(plan, optionKeys, 1, createdAtIso.slice(0, 10)),
+      accessCodeAttempts: 0,
+      signerEmail: cus.email,
+      declinedAt: null,
+      declineReason: "",
+      canceledAt: null,
+      cancelReason: "",
+      linkedSubscriptionId: null,
+      linkedInvoiceId: null,
+      createdBy: cus.assignee,
+      createdAt: createdAtIso,
+      updatedAt: createdAtIso,
+    };
+  };
+
+  // 1) 締結済み(証跡フル) — Hair & Spa LUCE
+  {
+    const createdAt = dayOfMonth(now, 6, 2) + "T10:00:00.000Z";
+    const sentAt = dayOfMonth(now, 6, 2) + "T15:30:00.000Z";
+    const viewedAt = dayOfMonth(now, 6, 3) + "T09:12:00.000Z";
+    const signedAt = dayOfMonth(now, 6, 3) + "T09:24:00.000Z";
+    const base = baseContract("ctr_yamada", "cus_yamada", "plan_teika_m", ["hpb", "line"], createdAt);
+    const contentHash = computeContractHash(base);
+    const contract: Contract = {
+      ...base,
+      status: "signed",
+      signToken: "demo-signed-luce-token",
+      accessCode: null,
+      expiresAt: dayOfMonth(now, 5, 16) + "T23:59:59.000Z",
+      contentHash,
+      sentAt,
+      firstViewedAt: viewedAt,
+      signedAt,
+      signerName: "山田 花子",
+      signerIp: "203.0.113.24",
+      signerUserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5)",
+      linkedSubscriptionId: "sub_cus_yamada",
+    };
+    contracts.push(contract);
+    pushEvent({ contractId: contract.id, type: "created", actor: "佐々木 涼", ip: "", userAgent: "", detail: "テンプレート「SalonOne サービス利用契約書（標準）」から作成", contentHash: "", createdAt });
+    pushEvent({ contractId: contract.id, type: "sent", actor: "佐々木 涼", ip: "", userAgent: "", detail: `署名依頼を ${contract.signerEmail} へ送付`, contentHash, createdAt: sentAt });
+    pushEvent({ contractId: contract.id, type: "viewed", actor: "山田 花子", ip: "203.0.113.24", userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5)", detail: "", contentHash: "", createdAt: viewedAt });
+    pushEvent({ contractId: contract.id, type: "signed", actor: "山田 花子", ip: "203.0.113.24", userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5)", detail: "電子署名(同意)。内容ハッシュ照合 OK", contentHash, createdAt: signedAt });
+    pushEvent({ contractId: contract.id, type: "billing_linked", actor: "佐々木 涼", ip: "", userAgent: "", detail: "定期契約を開始", contentHash: "", createdAt: dayOfMonth(now, 6, 4) + "T10:00:00.000Z" });
+  }
+
+  // 2) 署名待ち — Total Beauty NOA (導入直後の顧客)
+  {
+    const createdAt = dayOfMonth(now, 0, 3) + "T11:00:00.000Z";
+    const sentAt = dayOfMonth(now, 0, 3) + "T14:00:00.000Z";
+    const base = baseContract("ctr_watanabe", "cus_watanabe", "plan_pack_a", ["hpb", "line"], createdAt);
+    const contentHash = computeContractHash(base);
+    const expires = new Date(now.getTime() + 10 * 86_400_000).toISOString();
+    const contract: Contract = {
+      ...base,
+      status: "sent",
+      signToken: "demo-sign-noa-token",
+      accessCode: null,
+      expiresAt: expires,
+      contentHash,
+      sentAt,
+      firstViewedAt: null,
+      signedAt: null,
+      signerName: "",
+      signerIp: "",
+      signerUserAgent: "",
+    };
+    contracts.push(contract);
+    pushEvent({ contractId: contract.id, type: "created", actor: "佐々木 涼", ip: "", userAgent: "", detail: "テンプレート「SalonOne サービス利用契約書（標準）」から作成", contentHash: "", createdAt });
+    pushEvent({ contractId: contract.id, type: "sent", actor: "佐々木 涼", ip: "", userAgent: "", detail: `署名依頼を ${contract.signerEmail} へ送付`, contentHash, createdAt: sentAt });
+  }
+
+  // 3) 下書き(編集中) — salon de Fleur
+  {
+    const createdAt = dayOfMonth(now, 0, 6) + "T16:00:00.000Z";
+    const base = baseContract("ctr_takahashi", "cus_takahashi", "plan_teika_a", ["hpb", "line"], createdAt);
+    const contract: Contract = {
+      ...base,
+      status: "draft",
+      signToken: null,
+      accessCode: null,
+      expiresAt: null,
+      contentHash: null,
+      sentAt: null,
+      firstViewedAt: null,
+      signedAt: null,
+      signerName: "",
+      signerIp: "",
+      signerUserAgent: "",
+      signerEmail: "",
+    };
+    contracts.push(contract);
+    pushEvent({ contractId: contract.id, type: "created", actor: "佐々木 涼", ip: "", userAgent: "", detail: "テンプレート「SalonOne サービス利用契約書（標準）」から作成", contentHash: "", createdAt });
+  }
+
   return {
     organization,
     customers,
@@ -534,5 +699,8 @@ export function buildSeed(now = new Date()): DataStore {
     batches,
     bankTransactions,
     activities,
+    contractTemplates,
+    contracts,
+    contractEvents,
   };
 }

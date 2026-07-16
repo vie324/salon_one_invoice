@@ -45,6 +45,20 @@ export function formatDate(input: string | Date | null | undefined): string {
   }).format(d);
 }
 
+/** 日時を YYYY/MM/DD HH:mm 表記 (証跡表示用) */
+export function formatDateTime(input: string | Date | null | undefined): string {
+  if (!input) return "—";
+  const d = typeof input === "string" ? new Date(input) : input;
+  if (Number.isNaN(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("ja-JP", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(d);
+}
+
 /** 年月表記 (2026年7月) */
 export function formatYearMonth(input: string | Date): string {
   const d = typeof input === "string" ? new Date(input) : input;

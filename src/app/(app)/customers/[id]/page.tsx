@@ -1,8 +1,12 @@
-import { ArrowLeft, Mail, MapPin, Phone, Plus } from "lucide-react";
+import { ArrowLeft, FileSignature, Mail, MapPin, Phone, Plus } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { InvoiceTable } from "@/components/invoices/invoice-table";
-import { MandateStatusBadge, SubscriptionStatusBadge } from "@/components/status-badge";
+import {
+  ContractStatusBadge,
+  MandateStatusBadge,
+  SubscriptionStatusBadge,
+} from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { buttonClasses } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,12 +39,13 @@ export default async function CustomerDetailPage({
   const customer = await repo.getCustomer(id);
   if (!customer) notFound();
 
-  const [mandate, subscriptions, plans, invoices, payments] = await Promise.all([
+  const [mandate, subscriptions, plans, invoices, payments, contracts] = await Promise.all([
     repo.getMandateByCustomer(id),
     repo.listSubscriptions(),
     repo.listPlans(),
     repo.listInvoices({ customerId: id }),
     repo.listPayments({ customerId: id }),
+    repo.listContracts({ customerId: id }),
   ]);
   const subscription = subscriptions.find((s) => s.customerId === id);
   const plan = subscription ? plans.find((p) => p.id === subscription.planId) : null;
@@ -82,6 +87,13 @@ export default async function CustomerDetailPage({
             plans={plans}
           />
           <Link
+            href={`/contracts/new?customer=${customer.id}`}
+            className={buttonClasses({ variant: "outline", size: "sm" })}
+          >
+            <FileSignature className="h-4 w-4" />
+            契約書を作成
+          </Link>
+          <Link
             href={`/invoices/new?customer=${customer.id}`}
             className={buttonClasses({ size: "sm" })}
           >
@@ -93,6 +105,49 @@ export default async function CustomerDetailPage({
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
+          <Card>
+            <CardHeader className="flex-row items-center justify-between">
+              <CardTitle>契約書</CardTitle>
+              <Link
+                href={`/contracts/new?customer=${customer.id}`}
+                className="text-sm text-primary hover:underline"
+              >
+                新規作成
+              </Link>
+            </CardHeader>
+            <CardContent>
+              {contracts.length > 0 ? (
+                <ul className="divide-y divide-border">
+                  {contracts.map((c) => (
+                    <li key={c.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                      <div className="min-w-0">
+                        <Link
+                          href={`/contracts/${c.id}`}
+                          className="tabular font-medium text-primary hover:underline"
+                        >
+                          {c.contractNumber}
+                        </Link>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {c.terms.planName || c.title}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3">
+                        <span className="text-xs text-muted-foreground">
+                          {c.signedAt ? `締結 ${formatDate(c.signedAt)}` : c.sentAt ? `送付 ${formatDate(c.sentAt)}` : `作成 ${formatDate(c.createdAt)}`}
+                        </span>
+                        <ContractStatusBadge status={c.status} />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  契約書はまだありません。「契約書を作成」から電子契約を開始できます。
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader className="flex-row items-center justify-between">
               <CardTitle>請求書</CardTitle>
