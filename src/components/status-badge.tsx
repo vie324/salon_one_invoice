@@ -4,6 +4,8 @@ import {
   batchItemResultTone,
   batchStatusLabels,
   batchStatusTone,
+  contractStatusLabels,
+  contractStatusTone,
   invoiceStatusLabels,
   invoiceStatusTone,
   mandateStatusLabels,
@@ -14,6 +16,7 @@ import {
 import type {
   BatchItemResult,
   BatchStatus,
+  ContractStatus,
   InvoiceStatus,
   MandateStatus,
   SubscriptionStatus,
@@ -37,6 +40,14 @@ export function SubscriptionStatusBadge({ status }: { status: SubscriptionStatus
 
 export function MandateStatusBadge({ status }: { status: MandateStatus }) {
   return <Badge tone={mandateStatusTone[status]}>{mandateStatusLabels[status]}</Badge>;
+}
+
+export function ContractStatusBadge({ status }: { status: ContractStatus }) {
+  return (
+    <Badge tone={contractStatusTone[status]} dot>
+      {contractStatusLabels[status]}
+    </Badge>
+  );
 }
 
 export function BatchStatusBadge({ status }: { status: BatchStatus }) {

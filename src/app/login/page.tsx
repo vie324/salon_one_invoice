@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { LogoStacked } from "@/components/brand/logo";
 import { buttonClasses } from "@/components/ui/button";
 import { isDemoMode } from "@/lib/config";
@@ -33,7 +34,11 @@ export default function LoginPage() {
               </p>
             </div>
           ) : (
-            <LoginForm />
+            // useSearchParams を使うクライアントフォームは Suspense 境界が必要
+            // (Supabase設定時のみ描画されるため、プレビュー/本番ビルドでのみ顕在化する)
+            <Suspense fallback={null}>
+              <LoginForm />
+            </Suspense>
           )}
         </div>
       </div>

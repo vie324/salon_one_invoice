@@ -221,13 +221,178 @@ export interface BankTransaction {
   importedAt: string;
 }
 
+/* ---- 契約書 / 電子契約 ---- */
+
+/**
+ * 契約書ステータス。
+ * draft(下書き・編集可) → sent(送付済/署名待ち) → viewed(閲覧済) → signed(締結済)。
+ * declined(辞退) / canceled(取消・無効化) は終端。expired は表示用の実効ステータス
+ * (保存値は sent/viewed のまま、署名期限切れを導出)。
+ */
+export type ContractStatus =
+  | "draft"
+  | "sent"
+  | "viewed"
+  | "signed"
+  | "declined"
+  | "expired"
+  | "canceled";
+
+/** 契約書の条文(章)。body は改行区切りのプレーンテキスト。 */
+export interface ContractSection {
+  title: string; // 例: 第1条（目的・定義）
+  body: string;
+}
+
+/** 料金表の1行。金額は「30,000円、または…」等の表記を許すため文字列。 */
+export interface ContractFeeRow {
+  item: string;
+  amount: string;
+  note?: string;
+}
+
+/** 料金表(別表)。本文中の {{料金表}} プレースホルダ位置に描画される。 */
+export interface ContractFeeTable {
+  title: string; // 例: ■ 通常料金【システム関連費用】
+  rows: ContractFeeRow[];
+}
+
+/** 契約当事者(甲/乙)のスナップショット。締結時点の記載を固定化する。 */
+export interface ContractParty {
+  name: string; // 会社名/屋号
+  postalCode: string;
+  address: string;
+  representative: string; // 代表者/署名者
+  email: string;
+}
+
+/**
+ * 申込内容(構造化)。検索(電帳法の取引金額・取引先・年月日)と
+ * 締結後の請求連携(定期契約・初期費用請求の自動作成)に使う。
+ */
+export interface ContractTerms {
+  planId: string | null;
+  planName: string; // スナップショット(プラン削除後も表示可能に)
+  optionKeys: string[];
+  storeCount: number;
+  /** 初期費用(税抜)。null = 契約書上の記載に従う */
+  initialFee: number | null;
+  /** 月額合計(税抜・オプション込み) */
+  monthlyFee: number | null;
+  /** 契約開始日(予定) */
+  startDate: string | null;
+  notes: string;
+}
+
+/** 契約書テンプレート。契約作成時に内容をコピー(スナップショット)する。 */
+export interface ContractTemplate {
+  id: string;
+  /** 識別スラッグ(既定テンプレートの重複作成防止に使用) */
+  slug: string;
+  name: string;
+  description: string;
+  /** 書面タイトル(例: SalonOne サービス利用契約書) */
+  docTitle: string;
+  /** 前文 */
+  preamble: string;
+  sections: ContractSection[];
+  feeTables: ContractFeeTable[];
+  /** 甲(サービス提供者)の既定値 */
+  providerDefault: ContractParty;
+  version: number;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 契約書(申込書)。送付後は内容(条文・料金・当事者)が凍結される。 */
+export interface Contract {
+  id: string;
+  contractNumber: string; // CTR-YYYYMM-####
+  customerId: string;
+  templateId: string | null;
+  templateVersion: number | null;
+  title: string;
+  preamble: string;
+  status: ContractStatus;
+  provider: ContractParty; // 甲
+  customerParty: ContractParty; // 乙
+  sections: ContractSection[];
+  feeTables: ContractFeeTable[];
+  terms: ContractTerms;
+  /** 署名用トークン(URLに使用)。crypto乱数48hex。 */
+  signToken: string | null;
+  /** アクセスコード(6桁)。別経路(電話等)で伝達し2要素とする。null=不要 */
+  accessCode: string | null;
+  accessCodeAttempts: number;
+  /** 署名期限 */
+  expiresAt: string | null;
+  /** 送付時に固定化した契約内容の SHA-256 ハッシュ(改ざん検知) */
+  contentHash: string | null;
+  sentAt: string | null;
+  firstViewedAt: string | null;
+  signedAt: string | null;
+  signerName: string;
+  signerEmail: string;
+  signerIp: string;
+  signerUserAgent: string;
+  declinedAt: string | null;
+  declineReason: string;
+  canceledAt: string | null;
+  cancelReason: string;
+  /** 締結後に開始した定期契約/初期費用請求への紐付け */
+  linkedSubscriptionId: string | null;
+  linkedInvoiceId: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 監査証跡イベント種別 */
+export type ContractEventType =
+  | "created" // 作成
+  | "updated" // 下書き更新
+  | "sent" // 送付(署名依頼)
+  | "reminded" // リマインド送信
+  | "viewed" // 契約者が閲覧
+  | "code_failed" // アクセスコード誤り
+  | "code_verified" // アクセスコード確認
+  | "signed" // 電子署名(同意)
+  | "manual_signed" // 書面締結の手動登録
+  | "declined" // 辞退
+  | "canceled" // 取消・無効化
+  | "billing_linked"; // 請求連携(定期契約/初期費用の作成)
+
+/**
+ * 契約書の監査証跡。追記専用(UPDATE/DELETE はDBトリガーで禁止)。
+ * 締結の真正性を裏付ける証拠として IP・UA・時刻・内容ハッシュを保全する。
+ */
+export interface ContractEvent {
+  id: string;
+  contractId: string;
+  type: ContractEventType;
+  actor: string; // スタッフ名 / 署名者名 / "システム"
+  ip: string;
+  userAgent: string;
+  detail: string;
+  contentHash: string;
+  createdAt: string;
+}
+
+export interface ContractWithCustomer extends Contract {
+  customer: Customer;
+}
+
 export type ActivityKind =
   | "invoice_created"
   | "invoice_sent"
   | "payment_confirmed"
   | "subscription_created"
   | "batch_processed"
-  | "customer_created";
+  | "customer_created"
+  | "contract_created"
+  | "contract_sent"
+  | "contract_signed";
 
 export interface Activity {
   id: string;

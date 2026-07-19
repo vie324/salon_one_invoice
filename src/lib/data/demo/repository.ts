@@ -1,3 +1,6 @@
+import { effectiveContractStatus } from "@/lib/contracts/build";
+import { defaultTemplateInput } from "@/lib/contracts/default-template";
+import { computeContractHash } from "@/lib/contracts/hash";
 import {
   calcInvoiceTotals,
   computeNextBillingDate,
@@ -5,10 +8,15 @@ import {
   nextInvoiceNumber,
   subscriptionItems,
 } from "@/lib/domain/calculations";
+import { CONTRACT_CODE_MAX_ATTEMPTS } from "@/lib/domain/constants";
 import { computeDashboardMetrics } from "@/lib/domain/metrics";
 import type {
   Activity,
   BankTransaction,
+  Contract,
+  ContractEvent,
+  ContractTemplate,
+  ContractWithCustomer,
   Customer,
   CustomerStatus,
   DashboardMetrics,
@@ -26,6 +34,13 @@ import type {
 import { genId, toISODate } from "@/lib/utils";
 import type {
   BankRowInput,
+  ContractActionResult,
+  ContractEventInput,
+  ContractFilter,
+  ContractInput,
+  ContractSendParams,
+  ContractSignParams,
+  ContractTemplateInput,
   CustomerInput,
   InvoiceFilter,
   InvoiceInput,
@@ -524,6 +539,472 @@ export class DemoRepository implements Repository {
       sub.nextBillingDate = computeNextBillingDate(sub.nextBillingDate, sub.billingDay);
     }
     return { created };
+  }
+
+  // ---- 契約書テンプレート ----
+
+  async listContractTemplates(): Promise<ContractTemplate[]> {
+    if (!this.s.contractTemplates.some((t) => t.slug === defaultTemplateInput.slug)) {
+      const now = new Date().toISOString();
+      this.s.contractTemplates.unshift({
+        id: genId("ctpl"),
+        ...defaultTemplateInput,
+        version: 1,
+        active: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    return [...this.s.contractTemplates].sort((a, b) =>
+      a.createdAt.localeCompare(b.createdAt),
+    );
+  }
+
+  async getContractTemplate(id: string): Promise<ContractTemplate | null> {
+    await this.listContractTemplates();
+    return this.s.contractTemplates.find((t) => t.id === id) ?? null;
+  }
+
+  async createContractTemplate(input: ContractTemplateInput): Promise<ContractTemplate> {
+    const now = new Date().toISOString();
+    const tpl: ContractTemplate = {
+      id: genId("ctpl"),
+      slug: input.slug ?? genId("tpl"),
+      name: input.name,
+      description: input.description ?? "",
+      docTitle: input.docTitle,
+      preamble: input.preamble ?? "",
+      sections: input.sections,
+      feeTables: input.feeTables,
+      providerDefault: input.providerDefault,
+      version: 1,
+      active: input.active ?? true,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.s.contractTemplates.push(tpl);
+    return tpl;
+  }
+
+  async updateContractTemplate(
+    id: string,
+    input: Partial<ContractTemplateInput>,
+  ): Promise<ContractTemplate> {
+    const tpl = this.s.contractTemplates.find((t) => t.id === id);
+    if (!tpl) throw new Error("テンプレートが見つかりません");
+    if (input.name !== undefined) tpl.name = input.name;
+    if (input.description !== undefined) tpl.description = input.description;
+    if (input.docTitle !== undefined) tpl.docTitle = input.docTitle;
+    if (input.preamble !== undefined) tpl.preamble = input.preamble;
+    if (input.sections !== undefined) tpl.sections = input.sections;
+    if (input.feeTables !== undefined) tpl.feeTables = input.feeTables;
+    if (input.providerDefault !== undefined) tpl.providerDefault = input.providerDefault;
+    if (input.active !== undefined) tpl.active = input.active;
+    tpl.version += 1;
+    tpl.updatedAt = new Date().toISOString();
+    return tpl;
+  }
+
+  // ---- 契約書 / 電子契約 ----
+
+  private decorateContract(c: Contract): ContractWithCustomer {
+    return {
+      ...c,
+      status: effectiveContractStatus(c),
+      customer: this.s.customers.find((x) => x.id === c.customerId)!,
+    };
+  }
+
+  private pushContractEvent(contractId: string, e: ContractEventInput): void {
+    this.s.contractEvents.push({
+      id: genId("cev"),
+      contractId,
+      type: e.type,
+      actor: e.actor,
+      ip: e.ip ?? "",
+      userAgent: e.userAgent ?? "",
+      detail: e.detail ?? "",
+      contentHash: e.contentHash ?? "",
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  async listContracts(filter?: ContractFilter): Promise<ContractWithCustomer[]> {
+    let list = this.s.contracts.map((c) => this.decorateContract(c));
+    if (filter?.customerId) list = list.filter((c) => c.customerId === filter.customerId);
+    if (filter?.status && filter.status !== "all") {
+      list = list.filter((c) => c.status === filter.status);
+    }
+    if (filter?.search) {
+      const q = filter.search.toLowerCase();
+      list = list.filter(
+        (c) =>
+          c.contractNumber.toLowerCase().includes(q) ||
+          c.title.toLowerCase().includes(q) ||
+          c.customer?.name.toLowerCase().includes(q),
+      );
+    }
+    return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async getContract(id: string): Promise<ContractWithCustomer | null> {
+    const c = this.s.contracts.find((x) => x.id === id);
+    return c ? this.decorateContract(c) : null;
+  }
+
+  async getContractByToken(token: string): Promise<ContractWithCustomer | null> {
+    if (!token) return null;
+    const c = this.s.contracts.find((x) => x.signToken === token);
+    return c ? this.decorateContract(c) : null;
+  }
+
+  async createContract(input: ContractInput): Promise<Contract> {
+    const now = new Date().toISOString();
+    const contract: Contract = {
+      id: genId("ctr"),
+      contractNumber: nextInvoiceNumber(
+        "CTR",
+        toISODate(new Date()),
+        this.s.contracts.map((c) => c.contractNumber),
+      ),
+      customerId: input.customerId,
+      templateId: input.templateId ?? null,
+      templateVersion: input.templateVersion ?? null,
+      title: input.title,
+      preamble: input.preamble ?? "",
+      status: "draft",
+      provider: input.provider,
+      customerParty: input.customerParty,
+      sections: input.sections,
+      feeTables: input.feeTables,
+      terms: input.terms,
+      signToken: null,
+      accessCode: null,
+      accessCodeAttempts: 0,
+      expiresAt: null,
+      contentHash: null,
+      sentAt: null,
+      firstViewedAt: null,
+      signedAt: null,
+      signerName: "",
+      signerEmail: "",
+      signerIp: "",
+      signerUserAgent: "",
+      declinedAt: null,
+      declineReason: "",
+      canceledAt: null,
+      cancelReason: "",
+      linkedSubscriptionId: null,
+      linkedInvoiceId: null,
+      createdBy: input.createdBy ?? "",
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.s.contracts.push(contract);
+    this.pushContractEvent(contract.id, {
+      type: "created",
+      actor: input.createdBy || "担当者",
+      detail: "契約書を作成",
+    });
+    const cus = this.s.customers.find((c) => c.id === input.customerId);
+    this.addActivity({
+      kind: "contract_created",
+      message: `${cus?.name ?? ""} 様の契約書 ${contract.contractNumber} を作成`,
+      actor: input.createdBy || "担当者",
+    });
+    return contract;
+  }
+
+  async updateContractDraft(id: string, input: Partial<ContractInput>): Promise<Contract> {
+    const c = this.s.contracts.find((x) => x.id === id);
+    if (!c) throw new Error("契約書が見つかりません");
+    if (c.status !== "draft") {
+      throw new Error("送付済みの契約書は編集できません。取消して新しい契約書を作成してください。");
+    }
+    if (input.customerId !== undefined) c.customerId = input.customerId;
+    if (input.title !== undefined) c.title = input.title;
+    if (input.preamble !== undefined) c.preamble = input.preamble;
+    if (input.provider !== undefined) c.provider = input.provider;
+    if (input.customerParty !== undefined) c.customerParty = input.customerParty;
+    if (input.sections !== undefined) c.sections = input.sections;
+    if (input.feeTables !== undefined) c.feeTables = input.feeTables;
+    if (input.terms !== undefined) c.terms = input.terms;
+    c.updatedAt = new Date().toISOString();
+    this.pushContractEvent(id, {
+      type: "updated",
+      actor: input.createdBy || "担当者",
+      detail: "下書きを更新",
+    });
+    return c;
+  }
+
+  async markContractSent(id: string, params: ContractSendParams): Promise<Contract> {
+    const c = this.s.contracts.find((x) => x.id === id);
+    if (!c) throw new Error("契約書が見つかりません");
+    if (!["draft", "sent", "viewed"].includes(c.status)) {
+      throw new Error("このステータスの契約書は送付できません");
+    }
+    const isResend = c.status !== "draft";
+    if (isResend && c.contentHash && c.contentHash !== params.contentHash) {
+      throw new Error("契約内容のハッシュが一致しません(内容が変更されています)");
+    }
+    c.status = "sent";
+    c.signToken = params.token;
+    c.accessCode = params.accessCode;
+    c.accessCodeAttempts = 0;
+    c.expiresAt = params.expiresAt;
+    c.contentHash = params.contentHash;
+    c.sentAt = new Date().toISOString();
+    c.signerEmail = params.signerEmail;
+    c.updatedAt = c.sentAt;
+    this.pushContractEvent(id, {
+      type: "sent",
+      actor: params.actor,
+      ip: params.ip,
+      userAgent: params.userAgent,
+      detail: `${isResend ? "再送信(トークン再発行)" : "署名依頼を送付"}: ${params.signerEmail}${params.accessCode ? " / アクセスコードあり" : ""}`,
+      contentHash: params.contentHash,
+    });
+    const cus = this.s.customers.find((x) => x.id === c.customerId);
+    this.addActivity({
+      kind: "contract_sent",
+      message: `${cus?.name ?? ""} 様へ契約書 ${c.contractNumber} の署名依頼を送付`,
+      actor: params.actor,
+    });
+    return c;
+  }
+
+  async recordContractViewed(
+    token: string,
+    meta: { ip: string; userAgent: string },
+  ): Promise<void> {
+    const c = this.s.contracts.find((x) => x.signToken === token);
+    if (!c) return;
+    if (c.status !== "sent" && c.status !== "viewed") return;
+    const now = new Date().toISOString();
+    if (!c.firstViewedAt) c.firstViewedAt = now;
+    if (c.status === "sent") c.status = "viewed";
+    c.updatedAt = now;
+    this.pushContractEvent(c.id, {
+      type: "viewed",
+      actor: c.customerParty.representative || "契約者",
+      ip: meta.ip,
+      userAgent: meta.userAgent,
+    });
+  }
+
+  async verifyContractAccessCode(
+    token: string,
+    code: string,
+    meta: { ip: string; userAgent: string },
+  ): Promise<{ ok: boolean; locked?: boolean; error?: string }> {
+    const c = this.s.contracts.find((x) => x.signToken === token);
+    if (!c) return { ok: false, error: "契約書が見つかりません" };
+    if (!c.accessCode) return { ok: true };
+    if (c.accessCodeAttempts >= CONTRACT_CODE_MAX_ATTEMPTS) {
+      return { ok: false, locked: true, error: "試行回数の上限に達しました。送信元にお問い合わせください。" };
+    }
+    if (code === c.accessCode) {
+      this.pushContractEvent(c.id, {
+        type: "code_verified",
+        actor: c.customerParty.representative || "契約者",
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+      });
+      await this.recordContractViewed(token, meta);
+      return { ok: true };
+    }
+    c.accessCodeAttempts += 1;
+    this.pushContractEvent(c.id, {
+      type: "code_failed",
+      actor: "契約者",
+      ip: meta.ip,
+      userAgent: meta.userAgent,
+      detail: `失敗 ${c.accessCodeAttempts} 回目`,
+    });
+    const locked = c.accessCodeAttempts >= CONTRACT_CODE_MAX_ATTEMPTS;
+    return {
+      ok: false,
+      locked,
+      error: locked
+        ? "試行回数の上限に達しました。送信元にお問い合わせください。"
+        : "アクセスコードが一致しません",
+    };
+  }
+
+  async signContract(token: string, params: ContractSignParams): Promise<ContractActionResult> {
+    const c = this.s.contracts.find((x) => x.signToken === token);
+    if (!c) return { ok: false, error: "契約書が見つかりません" };
+    if (c.status !== "sent" && c.status !== "viewed") {
+      return { ok: false, error: "この契約書は署名できる状態ではありません" };
+    }
+    if (c.expiresAt && new Date(c.expiresAt).getTime() < Date.now()) {
+      return { ok: false, error: "署名期限が切れています。送信元に再送を依頼してください。" };
+    }
+    if (c.accessCode) {
+      if (c.accessCodeAttempts >= CONTRACT_CODE_MAX_ATTEMPTS) {
+        return { ok: false, locked: true, error: "試行回数の上限に達しました" };
+      }
+      if (params.accessCode !== c.accessCode) {
+        // 署名アクション経由の総当たりも試行回数に数え、証跡に残す
+        c.accessCodeAttempts += 1;
+        this.pushContractEvent(c.id, {
+          type: "code_failed",
+          actor: "契約者",
+          ip: params.ip,
+          userAgent: params.userAgent,
+          detail: `署名時のコード不一致 (失敗 ${c.accessCodeAttempts} 回目)`,
+        });
+        return { ok: false, error: "アクセスコードが一致しません" };
+      }
+    }
+    // 改ざん検知: 送付時に固定化したハッシュと現在の内容を照合
+    const recomputed = computeContractHash(c);
+    if (!c.contentHash || recomputed !== c.contentHash) {
+      return {
+        ok: false,
+        error: "契約内容の整合性エラーが検出されました。送信元にお問い合わせください。",
+      };
+    }
+    const now = new Date().toISOString();
+    c.status = "signed";
+    c.signedAt = now;
+    c.signerName = params.signerName;
+    c.signerIp = params.ip;
+    c.signerUserAgent = params.userAgent;
+    c.updatedAt = now;
+    this.pushContractEvent(c.id, {
+      type: "signed",
+      actor: params.signerName,
+      ip: params.ip,
+      userAgent: params.userAgent,
+      detail: "電子署名(同意)。内容ハッシュ照合 OK",
+      contentHash: c.contentHash,
+    });
+    const cus = this.s.customers.find((x) => x.id === c.customerId);
+    this.addActivity({
+      kind: "contract_signed",
+      message: `${cus?.name ?? ""} 様が契約書 ${c.contractNumber} に電子署名`,
+      actor: params.signerName,
+    });
+    return { ok: true, contract: c };
+  }
+
+  async declineContract(
+    token: string,
+    params: { reason: string; accessCode?: string; ip: string; userAgent: string },
+  ): Promise<ContractActionResult> {
+    const c = this.s.contracts.find((x) => x.signToken === token);
+    if (!c) return { ok: false, error: "契約書が見つかりません" };
+    if (c.status !== "sent" && c.status !== "viewed") {
+      return { ok: false, error: "この契約書は辞退できる状態ではありません" };
+    }
+    if (c.accessCode) {
+      if (c.accessCodeAttempts >= CONTRACT_CODE_MAX_ATTEMPTS) {
+        return { ok: false, locked: true, error: "試行回数の上限に達しました" };
+      }
+      if (params.accessCode !== c.accessCode) {
+        c.accessCodeAttempts += 1;
+        this.pushContractEvent(c.id, {
+          type: "code_failed",
+          actor: "契約者",
+          ip: params.ip,
+          userAgent: params.userAgent,
+          detail: `辞退時のコード不一致 (失敗 ${c.accessCodeAttempts} 回目)`,
+        });
+        return { ok: false, error: "アクセスコードが一致しません" };
+      }
+    }
+    const now = new Date().toISOString();
+    c.status = "declined";
+    c.declinedAt = now;
+    c.declineReason = params.reason;
+    c.updatedAt = now;
+    this.pushContractEvent(c.id, {
+      type: "declined",
+      actor: c.customerParty.representative || "契約者",
+      ip: params.ip,
+      userAgent: params.userAgent,
+      detail: params.reason,
+    });
+    return { ok: true, contract: c };
+  }
+
+  async cancelContract(id: string, reason: string, actor: string): Promise<Contract> {
+    const c = this.s.contracts.find((x) => x.id === id);
+    if (!c) throw new Error("契約書が見つかりません");
+    if (!["draft", "sent", "viewed"].includes(c.status)) {
+      throw new Error("締結済み・終了済みの契約書は取消できません");
+    }
+    const now = new Date().toISOString();
+    c.status = "canceled";
+    c.canceledAt = now;
+    c.cancelReason = reason;
+    c.signToken = null; // 署名リンクを無効化
+    c.updatedAt = now;
+    this.pushContractEvent(id, { type: "canceled", actor, detail: reason });
+    return c;
+  }
+
+  async markContractSignedManually(
+    id: string,
+    params: { signerName: string; signedAt: string; note: string; actor: string },
+  ): Promise<Contract> {
+    const c = this.s.contracts.find((x) => x.id === id);
+    if (!c) throw new Error("契約書が見つかりません");
+    if (!["draft", "sent", "viewed"].includes(c.status)) {
+      throw new Error("このステータスの契約書は締結登録できません");
+    }
+    const now = new Date().toISOString();
+    if (!c.contentHash) c.contentHash = computeContractHash(c);
+    c.status = "signed";
+    c.signedAt = params.signedAt;
+    c.signerName = params.signerName;
+    c.signToken = null; // 未使用の署名リンクを無効化
+    c.updatedAt = now;
+    this.pushContractEvent(id, {
+      type: "manual_signed",
+      actor: params.actor,
+      detail: `書面締結を登録: 署名者 ${params.signerName}${params.note ? ` / ${params.note}` : ""}`,
+      contentHash: c.contentHash,
+    });
+    return c;
+  }
+
+  async linkContractBilling(
+    id: string,
+    params: {
+      subscriptionId?: string | null;
+      invoiceId?: string | null;
+      actor: string;
+      detail?: string;
+      guardUnlinked?: boolean;
+    },
+  ): Promise<Contract | null> {
+    const c = this.s.contracts.find((x) => x.id === id);
+    if (!c) throw new Error("契約書が見つかりません");
+    if (params.guardUnlinked && (c.linkedSubscriptionId || c.linkedInvoiceId)) {
+      return null; // 並行実行で先に紐付け済み
+    }
+    if (params.subscriptionId !== undefined) c.linkedSubscriptionId = params.subscriptionId;
+    if (params.invoiceId !== undefined) c.linkedInvoiceId = params.invoiceId;
+    c.updatedAt = new Date().toISOString();
+    this.pushContractEvent(id, {
+      type: "billing_linked",
+      actor: params.actor,
+      detail: params.detail ?? "請求連携を開始",
+    });
+    return c;
+  }
+
+  async listContractEvents(contractId: string): Promise<ContractEvent[]> {
+    return this.s.contractEvents
+      .filter((e) => e.contractId === contractId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async addContractEvent(contractId: string, event: ContractEventInput): Promise<void> {
+    this.pushContractEvent(contractId, event);
   }
 
   async linkStripeCustomer(customerId: string, stripeCustomerId: string): Promise<void> {

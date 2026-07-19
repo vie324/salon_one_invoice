@@ -1,4 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { effectiveContractStatus } from "@/lib/contracts/build";
+import { defaultTemplateInput } from "@/lib/contracts/default-template";
+import { computeContractHash } from "@/lib/contracts/hash";
 import {
   calcInvoiceTotals,
   computeNextBillingDate,
@@ -6,10 +9,17 @@ import {
   nextInvoiceNumber,
   subscriptionItems,
 } from "@/lib/domain/calculations";
+import { CONTRACT_CODE_MAX_ATTEMPTS } from "@/lib/domain/constants";
 import { computeDashboardMetrics } from "@/lib/domain/metrics";
 import type {
   Activity,
   BankTransaction,
+  Contract,
+  ContractEvent,
+  ContractParty,
+  ContractTemplate,
+  ContractTerms,
+  ContractWithCustomer,
   Customer,
   CustomerStatus,
   DashboardMetrics,
@@ -27,6 +37,13 @@ import type {
 import { genId, toISODate } from "@/lib/utils";
 import type {
   BankRowInput,
+  ContractActionResult,
+  ContractEventInput,
+  ContractFilter,
+  ContractInput,
+  ContractSendParams,
+  ContractSignParams,
+  ContractTemplateInput,
   CustomerInput,
   InvoiceFilter,
   InvoiceInput,
@@ -231,7 +248,98 @@ function mapActivity(r: any): Activity {
   };
 }
 
+const EMPTY_PARTY: ContractParty = {
+  name: "",
+  postalCode: "",
+  address: "",
+  representative: "",
+  email: "",
+};
+
+const EMPTY_TERMS: ContractTerms = {
+  planId: null,
+  planName: "",
+  optionKeys: [],
+  storeCount: 1,
+  initialFee: null,
+  monthlyFee: null,
+  startDate: null,
+  notes: "",
+};
+
+function mapContractTemplate(r: any): ContractTemplate {
+  return {
+    id: r.id,
+    slug: r.slug,
+    name: r.name,
+    description: r.description ?? "",
+    docTitle: r.doc_title,
+    preamble: r.preamble ?? "",
+    sections: Array.isArray(r.sections) ? r.sections : [],
+    feeTables: Array.isArray(r.fee_tables) ? r.fee_tables : [],
+    providerDefault: { ...EMPTY_PARTY, ...(r.provider_default ?? {}) },
+    version: r.version ?? 1,
+    active: r.active ?? true,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+function mapContract(r: any): Contract {
+  return {
+    id: r.id,
+    contractNumber: r.contract_number,
+    customerId: r.customer_id,
+    templateId: r.template_id,
+    templateVersion: r.template_version,
+    title: r.title,
+    preamble: r.preamble ?? "",
+    status: r.status,
+    provider: { ...EMPTY_PARTY, ...(r.provider ?? {}) },
+    customerParty: { ...EMPTY_PARTY, ...(r.customer_party ?? {}) },
+    sections: Array.isArray(r.sections) ? r.sections : [],
+    feeTables: Array.isArray(r.fee_tables) ? r.fee_tables : [],
+    terms: { ...EMPTY_TERMS, ...(r.terms ?? {}) },
+    signToken: r.sign_token,
+    accessCode: r.access_code,
+    accessCodeAttempts: r.access_code_attempts ?? 0,
+    expiresAt: r.expires_at,
+    contentHash: r.content_hash,
+    sentAt: r.sent_at,
+    firstViewedAt: r.first_viewed_at,
+    signedAt: r.signed_at,
+    signerName: r.signer_name ?? "",
+    signerEmail: r.signer_email ?? "",
+    signerIp: r.signer_ip ?? "",
+    signerUserAgent: r.signer_user_agent ?? "",
+    declinedAt: r.declined_at,
+    declineReason: r.decline_reason ?? "",
+    canceledAt: r.canceled_at,
+    cancelReason: r.cancel_reason ?? "",
+    linkedSubscriptionId: r.linked_subscription_id,
+    linkedInvoiceId: r.linked_invoice_id,
+    createdBy: r.created_by ?? "",
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+function mapContractEvent(r: any): ContractEvent {
+  return {
+    id: r.id,
+    contractId: r.contract_id,
+    type: r.type,
+    actor: r.actor ?? "",
+    ip: r.ip ?? "",
+    userAgent: r.user_agent ?? "",
+    detail: r.detail ?? "",
+    contentHash: r.content_hash ?? "",
+    createdAt: r.created_at,
+  };
+}
+
 const INVOICE_SELECT = "*, invoice_items(*)";
+const CONTRACT_SELECT = "*, customer:customers(*)";
 
 /** Supabase(Postgres) 実装。RLS 適用のクライアントを受け取る。 */
 export class SupabaseRepository implements Repository {
@@ -873,6 +981,601 @@ export class SupabaseRepository implements Repository {
         .eq("id", sub.id);
     }
     return { created };
+  }
+
+  // ---- 契約書テンプレート ----
+
+  async listContractTemplates(): Promise<ContractTemplate[]> {
+    const { data, error } = await this.db
+      .from("contract_templates")
+      .select("*")
+      .order("created_at");
+    if (error) throw error;
+    if (!(data ?? []).some((r: any) => r.slug === defaultTemplateInput.slug)) {
+      // 既定テンプレートを初回アクセス時に自動投入(slug 一意制約で競合は無視)
+      await this.db
+        .from("contract_templates")
+        .upsert(
+          {
+            slug: defaultTemplateInput.slug,
+            name: defaultTemplateInput.name,
+            description: defaultTemplateInput.description,
+            doc_title: defaultTemplateInput.docTitle,
+            preamble: defaultTemplateInput.preamble,
+            sections: defaultTemplateInput.sections,
+            fee_tables: defaultTemplateInput.feeTables,
+            provider_default: defaultTemplateInput.providerDefault,
+            version: 1,
+            active: true,
+          },
+          { onConflict: "slug", ignoreDuplicates: true },
+        );
+      const { data: again, error: err2 } = await this.db
+        .from("contract_templates")
+        .select("*")
+        .order("created_at");
+      if (err2) throw err2;
+      return (again ?? []).map(mapContractTemplate);
+    }
+    return (data ?? []).map(mapContractTemplate);
+  }
+
+  async getContractTemplate(id: string): Promise<ContractTemplate | null> {
+    const { data } = await this.db
+      .from("contract_templates")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    return data ? mapContractTemplate(data) : null;
+  }
+
+  async createContractTemplate(input: ContractTemplateInput): Promise<ContractTemplate> {
+    const { data, error } = await this.db
+      .from("contract_templates")
+      .insert({
+        slug: input.slug ?? genId("tpl"),
+        name: input.name,
+        description: input.description ?? "",
+        doc_title: input.docTitle,
+        preamble: input.preamble ?? "",
+        sections: input.sections,
+        fee_tables: input.feeTables,
+        provider_default: input.providerDefault,
+        version: 1,
+        active: input.active ?? true,
+      })
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapContractTemplate(data);
+  }
+
+  async updateContractTemplate(
+    id: string,
+    input: Partial<ContractTemplateInput>,
+  ): Promise<ContractTemplate> {
+    const current = await this.getContractTemplate(id);
+    if (!current) throw new Error("テンプレートが見つかりません");
+    const patch: Record<string, unknown> = { version: current.version + 1 };
+    if (input.name !== undefined) patch.name = input.name;
+    if (input.description !== undefined) patch.description = input.description;
+    if (input.docTitle !== undefined) patch.doc_title = input.docTitle;
+    if (input.preamble !== undefined) patch.preamble = input.preamble;
+    if (input.sections !== undefined) patch.sections = input.sections;
+    if (input.feeTables !== undefined) patch.fee_tables = input.feeTables;
+    if (input.providerDefault !== undefined) patch.provider_default = input.providerDefault;
+    if (input.active !== undefined) patch.active = input.active;
+    const { data, error } = await this.db
+      .from("contract_templates")
+      .update(patch)
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapContractTemplate(data);
+  }
+
+  // ---- 契約書 / 電子契約 ----
+
+  private async logContractEvent(contractId: string, e: ContractEventInput): Promise<void> {
+    const { error } = await this.db.from("contract_events").insert({
+      contract_id: contractId,
+      type: e.type,
+      actor: e.actor,
+      ip: e.ip ?? "",
+      user_agent: e.userAgent ?? "",
+      detail: e.detail ?? "",
+      content_hash: e.contentHash ?? "",
+    });
+    if (error) throw error;
+  }
+
+  private decorateContract(r: any): ContractWithCustomer {
+    const c = mapContract(r);
+    return {
+      ...c,
+      status: effectiveContractStatus(c),
+      customer: mapCustomer(r.customer),
+    };
+  }
+
+  /**
+   * 保存値そのままの契約(実効ステータス補正なし)。
+   * 状態遷移の判定に使う。getContract() は期限切れを expired に補正するため、
+   * それで判定すると期限切れ契約の再送・取消・書面締結登録ができなくなる。
+   */
+  private async rawContract(id: string): Promise<Contract | null> {
+    const { data } = await this.db.from("contracts").select("*").eq("id", id).maybeSingle();
+    return data ? mapContract(data) : null;
+  }
+
+  private async rawContractByToken(token: string): Promise<Contract | null> {
+    if (!token) return null;
+    const { data } = await this.db
+      .from("contracts")
+      .select("*")
+      .eq("sign_token", token)
+      .maybeSingle();
+    return data ? mapContract(data) : null;
+  }
+
+  /** アクセスコード失敗の原子的カウント(加算後の値を返す) */
+  private async bumpCodeAttempts(contractId: string, fallback: number): Promise<number> {
+    const { data, error } = await this.db.rpc("bump_contract_code_attempts", {
+      cid: contractId,
+    });
+    if (error || typeof data !== "number") return fallback + 1;
+    return data;
+  }
+
+  async listContracts(filter?: ContractFilter): Promise<ContractWithCustomer[]> {
+    let q = this.db
+      .from("contracts")
+      .select(CONTRACT_SELECT)
+      .order("created_at", { ascending: false });
+    if (filter?.customerId) q = q.eq("customer_id", filter.customerId);
+    const { data, error } = await q;
+    if (error) throw error;
+    let list = (data ?? []).map((r: any) => this.decorateContract(r));
+    if (filter?.status && filter.status !== "all") {
+      list = list.filter((c) => c.status === filter.status);
+    }
+    if (filter?.search) {
+      const s = filter.search.toLowerCase();
+      list = list.filter(
+        (c) =>
+          c.contractNumber.toLowerCase().includes(s) ||
+          c.title.toLowerCase().includes(s) ||
+          c.customer?.name.toLowerCase().includes(s),
+      );
+    }
+    return list;
+  }
+
+  async getContract(id: string): Promise<ContractWithCustomer | null> {
+    const { data } = await this.db
+      .from("contracts")
+      .select(CONTRACT_SELECT)
+      .eq("id", id)
+      .maybeSingle();
+    return data ? this.decorateContract(data) : null;
+  }
+
+  async getContractByToken(token: string): Promise<ContractWithCustomer | null> {
+    if (!token) return null;
+    const { data } = await this.db
+      .from("contracts")
+      .select(CONTRACT_SELECT)
+      .eq("sign_token", token)
+      .maybeSingle();
+    return data ? this.decorateContract(data) : null;
+  }
+
+  async createContract(input: ContractInput): Promise<Contract> {
+    const { data: existing } = await this.db.from("contracts").select("contract_number");
+    const number = nextInvoiceNumber(
+      "CTR",
+      toISODate(new Date()),
+      (existing ?? []).map((r: any) => r.contract_number),
+    );
+    const { data, error } = await this.db
+      .from("contracts")
+      .insert({
+        contract_number: number,
+        customer_id: input.customerId,
+        template_id: input.templateId ?? null,
+        template_version: input.templateVersion ?? null,
+        title: input.title,
+        preamble: input.preamble ?? "",
+        status: "draft",
+        provider: input.provider,
+        customer_party: input.customerParty,
+        sections: input.sections,
+        fee_tables: input.feeTables,
+        terms: input.terms,
+        created_by: input.createdBy ?? "",
+      })
+      .select("*")
+      .single();
+    if (error) throw error;
+    await this.logContractEvent(data.id, {
+      type: "created",
+      actor: input.createdBy || "担当者",
+      detail: "契約書を作成",
+    });
+    await this.logActivity({
+      kind: "contract_created",
+      message: `契約書 ${number} を作成`,
+      actor: input.createdBy || "担当者",
+      amount: null,
+      linkInvoiceId: null,
+    });
+    return mapContract(data);
+  }
+
+  async updateContractDraft(id: string, input: Partial<ContractInput>): Promise<Contract> {
+    const current = await this.rawContract(id);
+    if (!current) throw new Error("契約書が見つかりません");
+    if (current.status !== "draft") {
+      throw new Error("送付済みの契約書は編集できません。取消して新しい契約書を作成してください。");
+    }
+    const patch: Record<string, unknown> = {};
+    if (input.customerId !== undefined) patch.customer_id = input.customerId;
+    if (input.title !== undefined) patch.title = input.title;
+    if (input.preamble !== undefined) patch.preamble = input.preamble;
+    if (input.provider !== undefined) patch.provider = input.provider;
+    if (input.customerParty !== undefined) patch.customer_party = input.customerParty;
+    if (input.sections !== undefined) patch.sections = input.sections;
+    if (input.feeTables !== undefined) patch.fee_tables = input.feeTables;
+    if (input.terms !== undefined) patch.terms = input.terms;
+    const { data, error } = await this.db
+      .from("contracts")
+      .update(patch)
+      .eq("id", id)
+      .eq("status", "draft") // 競合ガード: 下書きの間のみ更新
+      .select("*");
+    if (error) throw error;
+    if (!data || data.length === 0) {
+      throw new Error("他の操作と競合しました。画面を更新して再度お試しください。");
+    }
+    await this.logContractEvent(id, {
+      type: "updated",
+      actor: input.createdBy || "担当者",
+      detail: "下書きを更新",
+    });
+    return mapContract(data[0]);
+  }
+
+  async markContractSent(id: string, params: ContractSendParams): Promise<Contract> {
+    const current = await this.rawContract(id);
+    if (!current) throw new Error("契約書が見つかりません");
+    if (!["draft", "sent", "viewed"].includes(current.status)) {
+      throw new Error("このステータスの契約書は送付できません");
+    }
+    const isResend = current.status !== "draft";
+    if (isResend && current.contentHash && current.contentHash !== params.contentHash) {
+      throw new Error("契約内容のハッシュが一致しません(内容が変更されています)");
+    }
+    const { data, error } = await this.db
+      .from("contracts")
+      .update({
+        status: "sent",
+        sign_token: params.token,
+        access_code: params.accessCode,
+        access_code_attempts: 0,
+        expires_at: params.expiresAt,
+        content_hash: params.contentHash,
+        sent_at: new Date().toISOString(),
+        signer_email: params.signerEmail,
+      })
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (error) throw error;
+    await this.logContractEvent(id, {
+      type: "sent",
+      actor: params.actor,
+      ip: params.ip,
+      userAgent: params.userAgent,
+      detail: `${isResend ? "再送信(トークン再発行)" : "署名依頼を送付"}: ${params.signerEmail}${params.accessCode ? " / アクセスコードあり" : ""}`,
+      contentHash: params.contentHash,
+    });
+    await this.logActivity({
+      kind: "contract_sent",
+      message: `契約書 ${current.contractNumber} の署名依頼を送付`,
+      actor: params.actor,
+      amount: null,
+      linkInvoiceId: null,
+    });
+    return mapContract(data);
+  }
+
+  async recordContractViewed(
+    token: string,
+    meta: { ip: string; userAgent: string },
+  ): Promise<void> {
+    const c = await this.rawContractByToken(token);
+    if (!c) return;
+    if (c.status !== "sent" && c.status !== "viewed") return;
+    const patch: Record<string, unknown> = {};
+    if (!c.firstViewedAt) patch.first_viewed_at = new Date().toISOString();
+    if (c.status === "sent") patch.status = "viewed";
+    if (Object.keys(patch).length > 0) {
+      const { error } = await this.db.from("contracts").update(patch).eq("id", c.id);
+      if (error) return; // 状態を更新できなかった場合は証跡も残さない(不整合防止)
+    }
+    await this.logContractEvent(c.id, {
+      type: "viewed",
+      actor: c.customerParty.representative || "契約者",
+      ip: meta.ip,
+      userAgent: meta.userAgent,
+    });
+  }
+
+  async verifyContractAccessCode(
+    token: string,
+    code: string,
+    meta: { ip: string; userAgent: string },
+  ): Promise<{ ok: boolean; locked?: boolean; error?: string }> {
+    const c = await this.rawContractByToken(token);
+    if (!c) return { ok: false, error: "契約書が見つかりません" };
+    if (!c.accessCode) return { ok: true };
+    if (c.accessCodeAttempts >= CONTRACT_CODE_MAX_ATTEMPTS) {
+      return { ok: false, locked: true, error: "試行回数の上限に達しました。送信元にお問い合わせください。" };
+    }
+    if (code === c.accessCode) {
+      await this.logContractEvent(c.id, {
+        type: "code_verified",
+        actor: c.customerParty.representative || "契約者",
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+      });
+      await this.recordContractViewed(token, meta);
+      return { ok: true };
+    }
+    const attempts = await this.bumpCodeAttempts(c.id, c.accessCodeAttempts);
+    await this.logContractEvent(c.id, {
+      type: "code_failed",
+      actor: "契約者",
+      ip: meta.ip,
+      userAgent: meta.userAgent,
+      detail: `失敗 ${attempts} 回目`,
+    });
+    const locked = attempts >= CONTRACT_CODE_MAX_ATTEMPTS;
+    return {
+      ok: false,
+      locked,
+      error: locked
+        ? "試行回数の上限に達しました。送信元にお問い合わせください。"
+        : "アクセスコードが一致しません",
+    };
+  }
+
+  async signContract(token: string, params: ContractSignParams): Promise<ContractActionResult> {
+    const c = await this.rawContractByToken(token);
+    if (!c) return { ok: false, error: "契約書が見つかりません" };
+    if (c.status !== "sent" && c.status !== "viewed") {
+      return { ok: false, error: "この契約書は署名できる状態ではありません" };
+    }
+    if (c.expiresAt && new Date(c.expiresAt).getTime() < Date.now()) {
+      return { ok: false, error: "署名期限が切れています。送信元に再送を依頼してください。" };
+    }
+    if (c.accessCode) {
+      if (c.accessCodeAttempts >= CONTRACT_CODE_MAX_ATTEMPTS) {
+        return { ok: false, locked: true, error: "試行回数の上限に達しました" };
+      }
+      if (params.accessCode !== c.accessCode) {
+        // 署名アクション経由の総当たりも試行回数に数え、証跡に残す
+        const attempts = await this.bumpCodeAttempts(c.id, c.accessCodeAttempts);
+        await this.logContractEvent(c.id, {
+          type: "code_failed",
+          actor: "契約者",
+          ip: params.ip,
+          userAgent: params.userAgent,
+          detail: `署名時のコード不一致 (失敗 ${attempts} 回目)`,
+        });
+        return { ok: false, error: "アクセスコードが一致しません" };
+      }
+    }
+    // 改ざん検知: 送付時に固定化したハッシュと現在の内容を照合
+    const recomputed = computeContractHash(c);
+    if (!c.contentHash || recomputed !== c.contentHash) {
+      return {
+        ok: false,
+        error: "契約内容の整合性エラーが検出されました。送信元にお問い合わせください。",
+      };
+    }
+    const now = new Date().toISOString();
+    const { data, error } = await this.db
+      .from("contracts")
+      .update({
+        status: "signed",
+        signed_at: now,
+        signer_name: params.signerName,
+        signer_ip: params.ip,
+        signer_user_agent: params.userAgent,
+      })
+      .eq("id", c.id)
+      .in("status", ["sent", "viewed"]) // 競合ガード(二重署名防止)
+      .select("*");
+    if (error) return { ok: false, error: error.message };
+    if (!data || data.length === 0) {
+      return { ok: false, error: "この契約書は既に処理されています" };
+    }
+    await this.logContractEvent(c.id, {
+      type: "signed",
+      actor: params.signerName,
+      ip: params.ip,
+      userAgent: params.userAgent,
+      detail: "電子署名(同意)。内容ハッシュ照合 OK",
+      contentHash: c.contentHash,
+    });
+    await this.logActivity({
+      kind: "contract_signed",
+      message: `契約書 ${c.contractNumber} に電子署名されました`,
+      actor: params.signerName,
+      amount: null,
+      linkInvoiceId: null,
+    });
+    return { ok: true, contract: mapContract(data[0]) };
+  }
+
+  async declineContract(
+    token: string,
+    params: { reason: string; accessCode?: string; ip: string; userAgent: string },
+  ): Promise<ContractActionResult> {
+    const c = await this.rawContractByToken(token);
+    if (!c) return { ok: false, error: "契約書が見つかりません" };
+    if (c.status !== "sent" && c.status !== "viewed") {
+      return { ok: false, error: "この契約書は辞退できる状態ではありません" };
+    }
+    if (c.accessCode) {
+      if (c.accessCodeAttempts >= CONTRACT_CODE_MAX_ATTEMPTS) {
+        return { ok: false, locked: true, error: "試行回数の上限に達しました" };
+      }
+      if (params.accessCode !== c.accessCode) {
+        const attempts = await this.bumpCodeAttempts(c.id, c.accessCodeAttempts);
+        await this.logContractEvent(c.id, {
+          type: "code_failed",
+          actor: "契約者",
+          ip: params.ip,
+          userAgent: params.userAgent,
+          detail: `辞退時のコード不一致 (失敗 ${attempts} 回目)`,
+        });
+        return { ok: false, error: "アクセスコードが一致しません" };
+      }
+    }
+    const { data, error } = await this.db
+      .from("contracts")
+      .update({
+        status: "declined",
+        declined_at: new Date().toISOString(),
+        decline_reason: params.reason,
+      })
+      .eq("id", c.id)
+      .in("status", ["sent", "viewed"])
+      .select("*");
+    if (error) return { ok: false, error: error.message };
+    if (!data || data.length === 0) {
+      return { ok: false, error: "この契約書は既に処理されています" };
+    }
+    await this.logContractEvent(c.id, {
+      type: "declined",
+      actor: c.customerParty.representative || "契約者",
+      ip: params.ip,
+      userAgent: params.userAgent,
+      detail: params.reason,
+    });
+    return { ok: true, contract: mapContract(data[0]) };
+  }
+
+  async cancelContract(id: string, reason: string, actor: string): Promise<Contract> {
+    const current = await this.rawContract(id);
+    if (!current) throw new Error("契約書が見つかりません");
+    if (!["draft", "sent", "viewed"].includes(current.status)) {
+      throw new Error("締結済み・終了済みの契約書は取消できません");
+    }
+    const { data, error } = await this.db
+      .from("contracts")
+      .update({
+        status: "canceled",
+        canceled_at: new Date().toISOString(),
+        cancel_reason: reason,
+        sign_token: null, // 署名リンクを無効化
+      })
+      .eq("id", id)
+      .in("status", ["draft", "sent", "viewed"])
+      .select("*");
+    if (error) throw error;
+    if (!data || data.length === 0) {
+      throw new Error("他の操作と競合しました。画面を更新して再度お試しください。");
+    }
+    await this.logContractEvent(id, { type: "canceled", actor, detail: reason });
+    return mapContract(data[0]);
+  }
+
+  async markContractSignedManually(
+    id: string,
+    params: { signerName: string; signedAt: string; note: string; actor: string },
+  ): Promise<Contract> {
+    const current = await this.rawContract(id);
+    if (!current) throw new Error("契約書が見つかりません");
+    if (!["draft", "sent", "viewed"].includes(current.status)) {
+      throw new Error("このステータスの契約書は締結登録できません");
+    }
+    const contentHash = current.contentHash ?? computeContractHash(current);
+    const patch: Record<string, unknown> = {
+      status: "signed",
+      signed_at: params.signedAt,
+      signer_name: params.signerName,
+      sign_token: null, // 未使用の署名リンクを無効化
+    };
+    // 未送付(下書き)から直接締結する場合のみ内容を凍結
+    if (!current.contentHash) patch.content_hash = contentHash;
+    const { data: rows, error } = await this.db
+      .from("contracts")
+      .update(patch)
+      .eq("id", id)
+      .in("status", ["draft", "sent", "viewed"])
+      .select("*");
+    if (error) throw error;
+    if (!rows || rows.length === 0) {
+      throw new Error("他の操作と競合しました。画面を更新して再度お試しください。");
+    }
+    const data = rows[0];
+    await this.logContractEvent(id, {
+      type: "manual_signed",
+      actor: params.actor,
+      detail: `書面締結を登録: 署名者 ${params.signerName}${params.note ? ` / ${params.note}` : ""}`,
+      contentHash,
+    });
+    return mapContract(data);
+  }
+
+  async linkContractBilling(
+    id: string,
+    params: {
+      subscriptionId?: string | null;
+      invoiceId?: string | null;
+      actor: string;
+      detail?: string;
+      guardUnlinked?: boolean;
+    },
+  ): Promise<Contract | null> {
+    const patch: Record<string, unknown> = {};
+    if (params.subscriptionId !== undefined) patch.linked_subscription_id = params.subscriptionId;
+    if (params.invoiceId !== undefined) patch.linked_invoice_id = params.invoiceId;
+    let q = this.db.from("contracts").update(patch).eq("id", id);
+    if (params.guardUnlinked) {
+      // 並行実行ガード: 未紐付けの場合のみ更新できる
+      q = q.is("linked_subscription_id", null).is("linked_invoice_id", null);
+    }
+    const { data, error } = await q.select("*");
+    if (error) throw error;
+    if (!data || data.length === 0) {
+      if (params.guardUnlinked) return null; // 先に別の実行が紐付け済み
+      throw new Error("契約書が見つかりません");
+    }
+    await this.logContractEvent(id, {
+      type: "billing_linked",
+      actor: params.actor,
+      detail: params.detail ?? "請求連携を開始",
+    });
+    return mapContract(data[0]);
+  }
+
+  async listContractEvents(contractId: string): Promise<ContractEvent[]> {
+    const { data, error } = await this.db
+      .from("contract_events")
+      .select("*")
+      .eq("contract_id", contractId)
+      .order("created_at");
+    if (error) throw error;
+    return (data ?? []).map(mapContractEvent);
+  }
+
+  async addContractEvent(contractId: string, event: ContractEventInput): Promise<void> {
+    await this.logContractEvent(contractId, event);
   }
 
   // --- Stripe 連携 ---

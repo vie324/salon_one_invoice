@@ -2,6 +2,7 @@
 
 import {
   Banknote,
+  FileSignature,
   FileText,
   LayoutDashboard,
   Landmark,
@@ -23,6 +24,7 @@ import { cn } from "@/lib/utils";
 
 const nav = [
   { href: "/dashboard", label: "ダッシュボード", icon: LayoutDashboard },
+  { href: "/contracts", label: "契約書", icon: FileSignature },
   { href: "/invoices", label: "請求書", icon: FileText },
   { href: "/customers", label: "顧客", icon: Users },
   { href: "/subscriptions", label: "定期請求", icon: Repeat },

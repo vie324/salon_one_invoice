@@ -1,6 +1,16 @@
 import type {
   Activity,
   BankTransaction,
+  Contract,
+  ContractEvent,
+  ContractEventType,
+  ContractFeeTable,
+  ContractParty,
+  ContractSection,
+  ContractStatus,
+  ContractTemplate,
+  ContractTerms,
+  ContractWithCustomer,
   Customer,
   CustomerStatus,
   DashboardMetrics,
@@ -112,6 +122,73 @@ export interface StripeInvoiceInput {
   paidAt?: string | null;
 }
 
+/* ---- 契約書 / 電子契約 ---- */
+
+export interface ContractFilter {
+  status?: ContractStatus | "all";
+  customerId?: string;
+  search?: string;
+}
+
+export interface ContractTemplateInput {
+  slug?: string;
+  name: string;
+  description?: string;
+  docTitle: string;
+  preamble?: string;
+  sections: ContractSection[];
+  feeTables: ContractFeeTable[];
+  providerDefault: ContractParty;
+  active?: boolean;
+}
+
+export interface ContractInput {
+  customerId: string;
+  templateId?: string | null;
+  templateVersion?: number | null;
+  title: string;
+  preamble?: string;
+  provider: ContractParty;
+  customerParty: ContractParty;
+  sections: ContractSection[];
+  feeTables: ContractFeeTable[];
+  terms: ContractTerms;
+  createdBy?: string;
+}
+
+/** 監査証跡イベントの入力(追記専用) */
+export interface ContractEventInput {
+  type: ContractEventType;
+  actor: string;
+  ip?: string;
+  userAgent?: string;
+  detail?: string;
+  contentHash?: string;
+}
+
+/** 送付(署名依頼)時のパラメータ。トークン・ハッシュは呼び出し側で生成する。 */
+export interface ContractSendParams {
+  token: string;
+  expiresAt: string;
+  accessCode: string | null;
+  contentHash: string;
+  signerEmail: string;
+  actor: string;
+  ip?: string;
+  userAgent?: string;
+}
+
+export interface ContractSignParams {
+  signerName: string;
+  accessCode?: string;
+  ip: string;
+  userAgent: string;
+}
+
+export type ContractActionResult =
+  | { ok: true; contract: Contract }
+  | { ok: false; error: string; locked?: boolean };
+
 export interface StripeSubscriptionInput {
   customerId: string;
   stripeSubscriptionId: string;
@@ -176,6 +253,78 @@ export interface Repository {
 
   // --- 定期請求バッチ生成 ---
   runRecurringBilling(asOf?: string): Promise<{ created: Invoice[] }>;
+
+  // --- 契約書テンプレート ---
+  /** 一覧。既定テンプレートが無ければ自動投入する。 */
+  listContractTemplates(): Promise<ContractTemplate[]>;
+  getContractTemplate(id: string): Promise<ContractTemplate | null>;
+  createContractTemplate(input: ContractTemplateInput): Promise<ContractTemplate>;
+  /** 更新のたびに version を加算(既存契約には影響しない=スナップショット方式) */
+  updateContractTemplate(
+    id: string,
+    input: Partial<ContractTemplateInput>,
+  ): Promise<ContractTemplate>;
+
+  // --- 契約書 / 電子契約 ---
+  listContracts(filter?: ContractFilter): Promise<ContractWithCustomer[]>;
+  getContract(id: string): Promise<ContractWithCustomer | null>;
+  /** 署名トークンで取得(公開署名ページ用。サービスロールで呼ぶ) */
+  getContractByToken(token: string): Promise<ContractWithCustomer | null>;
+  createContract(input: ContractInput): Promise<Contract>;
+  /** 下書きのみ更新可。送付後の内容変更は拒否される。 */
+  updateContractDraft(id: string, input: Partial<ContractInput>): Promise<Contract>;
+  /**
+   * 送付(署名依頼)。下書き→署名待ちへ。再送(トークン再発行)にも使う。
+   * 内容ハッシュを固定化し、以降の内容変更は DB トリガーでも拒否される。
+   */
+  markContractSent(id: string, params: ContractSendParams): Promise<Contract>;
+  /** 契約者が内容を閲覧したことを記録(初回閲覧時刻 + 証跡) */
+  recordContractViewed(
+    token: string,
+    meta: { ip: string; userAgent: string },
+  ): Promise<void>;
+  /** アクセスコード検証。失敗回数を加算し、上限超過でロック。 */
+  verifyContractAccessCode(
+    token: string,
+    code: string,
+    meta: { ip: string; userAgent: string },
+  ): Promise<{ ok: boolean; locked?: boolean; error?: string }>;
+  /**
+   * 電子署名(同意)。ステータス・期限・アクセスコード・内容ハッシュを検証し、
+   * 署名者情報(氏名・IP・UA・時刻)を保存して締結済にする。
+   */
+  signContract(token: string, params: ContractSignParams): Promise<ContractActionResult>;
+  /** 契約者による辞退 */
+  declineContract(
+    token: string,
+    params: { reason: string; accessCode?: string; ip: string; userAgent: string },
+  ): Promise<ContractActionResult>;
+  /** 取消・無効化(スタッフ操作)。証跡は保持される。 */
+  cancelContract(id: string, reason: string, actor: string): Promise<Contract>;
+  /** 書面で締結した契約の手動登録(紙運用のフォールバック) */
+  markContractSignedManually(
+    id: string,
+    params: { signerName: string; signedAt: string; note: string; actor: string },
+  ): Promise<Contract>;
+  /**
+   * 締結済契約と定期契約/初期費用請求の紐付け。
+   * guardUnlinked=true の場合、既に紐付け済みなら何もせず null を返す
+   * (並行実行による二重の請求開始を防ぐ)。
+   */
+  linkContractBilling(
+    id: string,
+    params: {
+      subscriptionId?: string | null;
+      invoiceId?: string | null;
+      actor: string;
+      detail?: string;
+      guardUnlinked?: boolean;
+    },
+  ): Promise<Contract | null>;
+  /** 監査証跡の一覧(時系列) */
+  listContractEvents(contractId: string): Promise<ContractEvent[]>;
+  /** 証跡イベントの追記(リマインド送信の記録など) */
+  addContractEvent(contractId: string, event: ContractEventInput): Promise<void>;
 
   // --- Stripe 連携 ---
   linkStripeCustomer(customerId: string, stripeCustomerId: string): Promise<void>;
