@@ -21,6 +21,7 @@ import {
 import { paymentMethodLabels } from "@/lib/domain/constants";
 import { formatDate, formatJPY, maskAccount } from "@/lib/utils";
 import { BillingButton } from "./billing-button";
+import { MandateButton } from "./mandate-button";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -217,7 +218,7 @@ export default async function CustomerDetailPage({
                 <CardTitle>口座振替</CardTitle>
                 {mandate && <MandateStatusBadge status={mandate.status} />}
               </CardHeader>
-              <CardContent className="text-sm">
+              <CardContent className="space-y-3 text-sm">
                 {mandate ? (
                   <div className="space-y-1.5 text-muted-foreground">
                     <div>{mandate.bankName} {mandate.branchName}</div>
@@ -230,8 +231,11 @@ export default async function CustomerDetailPage({
                     )}
                   </div>
                 ) : (
-                  <p className="text-muted-foreground">口座振替の登録がありません。</p>
+                  <p className="text-muted-foreground">
+                    口座振替の登録がありません。口座振替用紙の回収・収納代行への登録が済んだら登録してください。
+                  </p>
                 )}
+                <MandateButton customerId={customer.id} mandate={mandate} />
               </CardContent>
             </Card>
           )}

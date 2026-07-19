@@ -44,6 +44,7 @@ import type {
   CustomerInput,
   InvoiceFilter,
   InvoiceInput,
+  MandateInput,
   PaymentInput,
   PlanInput,
   Repository,
@@ -129,6 +130,41 @@ export class DemoRepository implements Repository {
 
   async getMandateByCustomer(customerId: string): Promise<DirectDebitMandate | null> {
     return this.s.mandates.find((m) => m.customerId === customerId) ?? null;
+  }
+
+  async upsertMandate(customerId: string, input: MandateInput): Promise<DirectDebitMandate> {
+    const existing = this.s.mandates.find((m) => m.customerId === customerId);
+    const registeredAt =
+      input.registeredAt !== undefined
+        ? input.registeredAt
+        : input.status === "active"
+          ? toISODate(new Date())
+          : (existing?.registeredAt ?? null);
+    if (existing) {
+      if (input.bankName !== undefined) existing.bankName = input.bankName;
+      if (input.branchName !== undefined) existing.branchName = input.branchName;
+      if (input.branchCode !== undefined) existing.branchCode = input.branchCode;
+      if (input.accountType !== undefined) existing.accountType = input.accountType;
+      if (input.accountNumber !== undefined) existing.accountNumber = input.accountNumber;
+      if (input.accountHolderKana !== undefined) existing.accountHolderKana = input.accountHolderKana;
+      existing.status = input.status;
+      existing.registeredAt = registeredAt;
+      return existing;
+    }
+    const mandate: DirectDebitMandate = {
+      id: genId("man"),
+      customerId,
+      bankName: input.bankName ?? "",
+      branchName: input.branchName ?? "",
+      branchCode: input.branchCode ?? "",
+      accountType: input.accountType ?? "普通",
+      accountNumber: input.accountNumber ?? "",
+      accountHolderKana: input.accountHolderKana ?? "",
+      status: input.status,
+      registeredAt,
+    };
+    this.s.mandates.push(mandate);
+    return mandate;
   }
 
   async listPlans(): Promise<Plan[]> {

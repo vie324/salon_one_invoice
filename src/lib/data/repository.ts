@@ -50,6 +50,18 @@ export interface CustomerInput {
   notes?: string;
 }
 
+/** 口座振替(マンデート)の登録・更新。NSS等の収納代行への登録状況をツール上で管理する。 */
+export interface MandateInput {
+  bankName?: string;
+  branchName?: string;
+  branchCode?: string;
+  accountType?: import("@/lib/domain/types").AccountType;
+  accountNumber?: string;
+  accountHolderKana?: string;
+  status: import("@/lib/domain/types").MandateStatus;
+  registeredAt?: string | null;
+}
+
 export interface InvoiceItemInput {
   description: string;
   quantity: number;
@@ -212,6 +224,8 @@ export interface Repository {
   createCustomer(input: CustomerInput): Promise<Customer>;
   updateCustomer(id: string, input: Partial<CustomerInput>): Promise<Customer>;
   getMandateByCustomer(customerId: string): Promise<DirectDebitMandate | null>;
+  /** 口座振替の登録・更新(顧客ごとに1件)。 */
+  upsertMandate(customerId: string, input: MandateInput): Promise<DirectDebitMandate>;
 
   // --- プラン / 定期契約 ---
   listPlans(): Promise<Plan[]>;

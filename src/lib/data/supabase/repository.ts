@@ -47,6 +47,7 @@ import type {
   CustomerInput,
   InvoiceFilter,
   InvoiceInput,
+  MandateInput,
   PaymentInput,
   PlanInput,
   Repository,
@@ -445,6 +446,34 @@ export class SupabaseRepository implements Repository {
       .eq("customer_id", customerId)
       .maybeSingle();
     return data ? mapMandate(data) : null;
+  }
+
+  async upsertMandate(customerId: string, input: MandateInput): Promise<DirectDebitMandate> {
+    const existing = await this.getMandateByCustomer(customerId);
+    const registeredAt =
+      input.registeredAt !== undefined
+        ? input.registeredAt
+        : input.status === "active"
+          ? toISODate(new Date())
+          : (existing?.registeredAt ?? null);
+    const row = {
+      customer_id: customerId,
+      bank_name: input.bankName ?? existing?.bankName ?? "",
+      branch_name: input.branchName ?? existing?.branchName ?? "",
+      branch_code: input.branchCode ?? existing?.branchCode ?? "",
+      account_type: input.accountType ?? existing?.accountType ?? "普通",
+      account_number: input.accountNumber ?? existing?.accountNumber ?? "",
+      account_holder_kana: input.accountHolderKana ?? existing?.accountHolderKana ?? "",
+      status: input.status,
+      registered_at: registeredAt,
+    };
+    const { data, error } = await this.db
+      .from("direct_debit_mandates")
+      .upsert(row, { onConflict: "customer_id" })
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapMandate(data);
   }
 
   async listPlans(): Promise<Plan[]> {
