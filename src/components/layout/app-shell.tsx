@@ -6,6 +6,7 @@ import {
   FileText,
   LayoutDashboard,
   Landmark,
+  LifeBuoy,
   Menu,
   Repeat,
   Settings,
@@ -30,6 +31,7 @@ const nav = [
   { href: "/subscriptions", label: "定期請求", icon: Repeat },
   { href: "/direct-debit", label: "口座振替", icon: Landmark },
   { href: "/payments", label: "入金確認", icon: Wallet },
+  { href: "/help", label: "ヘルプ", icon: LifeBuoy },
   { href: "/settings", label: "設定", icon: Settings },
 ] as const;
 
