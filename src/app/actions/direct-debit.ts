@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 
 function revalidateDdViews() {
   revalidatePath("/direct-debit");
@@ -12,7 +12,7 @@ function revalidateDdViews() {
 
 export async function createBatchAction(scheduledDate: string) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     const batch = await repo.createBatchFromAwaiting(scheduledDate);
     revalidateDdViews();
     return { ok: true as const, id: batch.id, count: batch.items.length };
@@ -23,7 +23,7 @@ export async function createBatchAction(scheduledDate: string) {
 
 export async function processBatchAction(id: string) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     const batch = await repo.processBatch(id);
     const success = batch.items.filter((i) => i.result === "success").length;
     const failed = batch.items.filter((i) => i.result === "failed").length;

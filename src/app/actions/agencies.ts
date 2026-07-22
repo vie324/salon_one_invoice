@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import type { AgencyInput, AgencyMemberInput } from "@/lib/data/repository";
 import { computeAgencyStatement } from "@/lib/domain/agency";
 import { getEmailProvider } from "@/lib/email";
@@ -14,7 +14,7 @@ function revalidateAgencyViews(id?: string) {
 
 export async function createAgencyAction(input: AgencyInput) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     const agency = await repo.createAgency(input);
     revalidateAgencyViews();
     return { ok: true as const, id: agency.id };
@@ -25,7 +25,7 @@ export async function createAgencyAction(input: AgencyInput) {
 
 export async function updateAgencyAction(id: string, input: Partial<AgencyInput>) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     await repo.updateAgency(id, input);
     revalidateAgencyViews(id);
     return { ok: true as const };
@@ -36,7 +36,7 @@ export async function updateAgencyAction(id: string, input: Partial<AgencyInput>
 
 export async function createAgencyMemberAction(input: AgencyMemberInput) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     await repo.createAgencyMember(input);
     revalidateAgencyViews(input.agencyId);
     return { ok: true as const };
@@ -51,7 +51,7 @@ export async function updateAgencyMemberAction(
   input: Partial<Omit<AgencyMemberInput, "agencyId">>,
 ) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     await repo.updateAgencyMember(id, input);
     revalidateAgencyViews(agencyId);
     return { ok: true as const };
@@ -63,7 +63,7 @@ export async function updateAgencyMemberAction(
 /** 対象月の支払明細を計算し、代理店のメールアドレスへ送付する。 */
 export async function sendAgencyStatementAction(agencyId: string, month: string) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     const agency = await repo.getAgency(agencyId);
     if (!agency) return { ok: false as const, error: "代理店が見つかりません" };
     if (!agency.email) {

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import type { InvoiceInput } from "@/lib/data/repository";
 import { getEmailProvider } from "@/lib/email";
 import { invoiceEmailHtml } from "@/lib/email/templates";
@@ -16,7 +16,7 @@ function revalidateInvoiceViews() {
 
 export async function createInvoiceAction(input: InvoiceInput) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     const inv = await repo.createInvoice(input);
     revalidateInvoiceViews();
     return { ok: true as const, id: inv.id };
@@ -27,7 +27,7 @@ export async function createInvoiceAction(input: InvoiceInput) {
 
 export async function sendInvoiceAction(id: string, options?: { email?: boolean }) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     const inv = await repo.sendInvoice(id);
     let emailResult: string | null = null;
     if (options?.email) {
@@ -58,7 +58,7 @@ export async function sendInvoiceAction(id: string, options?: { email?: boolean 
 
 export async function updateInvoiceStatusAction(id: string, status: InvoiceStatus) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     await repo.updateInvoiceStatus(id, status);
     revalidateInvoiceViews();
     revalidatePath(`/invoices/${id}`);
@@ -70,7 +70,7 @@ export async function updateInvoiceStatusAction(id: string, status: InvoiceStatu
 
 export async function runRecurringBillingAction() {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     const { created } = await repo.runRecurringBilling();
     revalidateInvoiceViews();
     revalidatePath("/subscriptions");

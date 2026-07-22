@@ -2,7 +2,7 @@
 
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import { createSubscriptionCheckout, getOrCreateStripeCustomer } from "@/lib/payments/checkout";
 import { isStripeConfigured } from "@/lib/payments/stripe-client";
 import { genId, toISODate } from "@/lib/utils";
@@ -31,7 +31,7 @@ export async function startBillingCheckoutAction(customerId: string, opts: Billi
         error: "STRIPE_SECRET_KEY が未設定です。テスト用シミュレートをご利用ください。",
       };
     }
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     const customer = await repo.getCustomer(customerId);
     if (!customer) return { ok: false as const, error: "顧客が見つかりません" };
 
@@ -63,7 +63,7 @@ export async function startBillingCheckoutAction(customerId: string, opts: Billi
  */
 export async function simulateBillingAction(customerId: string, opts: BillingOptions) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     const customer = await repo.getCustomer(customerId);
     if (!customer) return { ok: false as const, error: "顧客が見つかりません" };
 

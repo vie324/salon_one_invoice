@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
-import { getJobRepository, getRepository } from "@/lib/data";
+import { getJobRepository, getServiceRepository } from "@/lib/data";
 import type {
   ContractInput,
   ContractTemplateInput,
@@ -53,7 +53,7 @@ async function signBaseUrl(): Promise<string> {
 
 export async function createContractAction(input: ContractInput) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     const user = await getCurrentUser();
     const contract = await repo.createContract({ ...input, createdBy: user.name });
     revalidateContractViews();
@@ -65,7 +65,7 @@ export async function createContractAction(input: ContractInput) {
 
 export async function updateContractDraftAction(id: string, input: Partial<ContractInput>) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     const user = await getCurrentUser();
     await repo.updateContractDraft(id, { ...input, createdBy: user.name });
     revalidateContractViews(id);
@@ -87,7 +87,7 @@ export async function sendContractAction(
   options: { email: string; requireCode: boolean; expiresInDays?: number },
 ) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     const user = await getCurrentUser();
     const meta = await clientMeta();
     const contract = await repo.getContract(id);
@@ -140,7 +140,7 @@ export async function sendContractAction(
 /** リマインドメールの送付(既存トークンのまま) */
 export async function remindContractAction(id: string) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     const user = await getCurrentUser();
     const contract = await repo.getContract(id);
     if (!contract?.signToken || !contract.signerEmail) {
@@ -173,7 +173,7 @@ export async function remindContractAction(id: string) {
 
 export async function cancelContractAction(id: string, reason: string) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     const user = await getCurrentUser();
     await repo.cancelContract(id, reason || "取消", user.name);
     revalidateContractViews(id);
@@ -189,7 +189,7 @@ export async function markContractSignedManuallyAction(
   params: { signerName: string; signedAt: string; note: string },
 ) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     const user = await getCurrentUser();
     if (!params.signerName) return { ok: false as const, error: "署名者名を入力してください" };
     await repo.markContractSignedManually(id, { ...params, actor: user.name });
@@ -207,7 +207,7 @@ export async function markContractSignedManuallyAction(
  */
 export async function startContractBillingAction(id: string, params: { startedOn: string }) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     const user = await getCurrentUser();
     const contract = await repo.getContract(id);
     if (!contract) return { ok: false as const, error: "契約書が見つかりません" };
@@ -311,7 +311,7 @@ export async function startContractBillingAction(id: string, params: { startedOn
 
 export async function createContractTemplateAction(input: ContractTemplateInput) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     const tpl = await repo.createContractTemplate(input);
     revalidatePath("/contracts/templates");
     return { ok: true as const, id: tpl.id };
@@ -325,7 +325,7 @@ export async function updateContractTemplateAction(
   input: Partial<ContractTemplateInput>,
 ) {
   try {
-    const repo = await getRepository();
+    const repo = await getServiceRepository();
     await repo.updateContractTemplate(id, input);
     revalidatePath("/contracts/templates");
     revalidatePath(`/contracts/templates/${id}`);
