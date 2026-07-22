@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { buttonClasses } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import {
   addMonths,
   computeAgencyStatement,
@@ -32,7 +32,7 @@ export default async function AgencyDetailPage({
   const sp = await searchParams;
   const month = /^\d{4}-\d{2}$/.test(sp.month ?? "") ? sp.month! : currentMonth();
 
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const agency = await repo.getAgency(id);
   if (!agency) notFound();
 

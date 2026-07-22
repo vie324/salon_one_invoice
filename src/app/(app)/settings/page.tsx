@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { getCurrentUser } from "@/lib/auth";
 import { emailProvider, isDemoMode, paymentProvider } from "@/lib/config";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import { roleLabels } from "@/lib/domain/constants";
 import { SignOutButton } from "./sign-out-button";
 
@@ -14,7 +14,7 @@ export const metadata = { title: "設定" };
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const [user, repo] = await Promise.all([getCurrentUser(), getRepository()]);
+  const [user, repo] = await Promise.all([getCurrentUser(), getServiceRepository()]);
   const org = await repo.getOrganization();
 
   return (

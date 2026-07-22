@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import { InvoiceForm } from "../invoice-form";
 
 export const metadata = { title: "請求書の作成" };
@@ -12,7 +12,7 @@ export default async function NewInvoicePage({
   searchParams: Promise<{ customer?: string }>;
 }) {
   const { customer } = await searchParams;
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const [customers, plans, org] = await Promise.all([
     repo.listCustomers({ status: "active" }),
     repo.listPlans(),

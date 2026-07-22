@@ -4,7 +4,7 @@ import { InvoiceTable } from "@/components/invoices/invoice-table";
 import { buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import type { InvoiceStatus, InvoiceType } from "@/lib/domain/types";
 import { formatJPY } from "@/lib/utils";
 import { outstandingAmount } from "@/lib/domain/calculations";
@@ -21,7 +21,7 @@ export default async function InvoicesPage({
   searchParams: Promise<{ status?: string; q?: string; type?: string }>;
 }) {
   const sp = await searchParams;
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const invoices = await repo.listInvoices({
     status: (sp.status as InvoiceStatus | "all") ?? "all",
     type: (sp.type as InvoiceType | "all") ?? "all",

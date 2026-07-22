@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import { subscriptionMonthly, withTax } from "@/lib/domain/calculations";
 import type { Plan } from "@/lib/domain/types";
 import { formatJPY } from "@/lib/utils";
@@ -16,7 +16,7 @@ export const metadata = { title: "定期請求" };
 export const dynamic = "force-dynamic";
 
 export default async function SubscriptionsPage() {
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const [subscriptions, plans, customers, metrics] = await Promise.all([
     repo.listSubscriptions(),
     repo.listPlans(),

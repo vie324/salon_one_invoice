@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/ui/page-header";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import { TemplateForm } from "./template-form";
 
 export const metadata = { title: "テンプレートの編集" };
@@ -11,7 +11,7 @@ export default async function EditTemplatePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const template = await repo.getContractTemplate(id);
   if (!template) notFound();
 

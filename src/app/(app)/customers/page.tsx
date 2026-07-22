@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import { paymentMethodLabels } from "@/lib/domain/constants";
 import { NewCustomerButton } from "./new-customer-button";
 
@@ -13,7 +13,7 @@ export const metadata = { title: "顧客" };
 export const dynamic = "force-dynamic";
 
 export default async function CustomersPage() {
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const [customers, invoices] = await Promise.all([
     repo.listCustomers(),
     repo.listInvoices(),

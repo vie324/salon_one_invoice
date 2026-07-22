@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { batchToCsv } from "@/lib/bank/csv";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 
 /** 口座振替バッチを収納代行向けCSVとしてダウンロード。 */
 export async function GET(
@@ -8,7 +8,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const batch = await repo.getBatch(id);
   if (!batch) return new NextResponse("Not found", { status: 404 });
   const customers = await repo.listCustomers();

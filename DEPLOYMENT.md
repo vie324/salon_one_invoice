@@ -89,6 +89,7 @@
 | 症状 | 対処 |
 | --- | --- |
 | ログイン後に何も表示されない | migrations 未適用の可能性。`0001`〜`0003` を実行。 |
+| 保存・作成後に「ページが見つかりません」になる / 保存時に `SUPABASE_SERVICE_ROLE_KEY が未設定…` と表示される | `SUPABASE_SERVICE_ROLE_KEY` が未設定。Vercel の環境変数に service_role キーを設定し、再デプロイ。 |
 | 「デモモード」と表示される | `NEXT_PUBLIC_SUPABASE_URL` / `ANON_KEY` が未設定。 |
 | Cron が動かない | `CRON_SECRET` 未設定、または Vercel の Cron 権限を確認。 |
 | メールが届かない | 既定は `console`（未送信）。`EMAIL_PROVIDER=resend` を設定。 |

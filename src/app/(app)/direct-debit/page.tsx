@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { paymentProvider } from "@/lib/config";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import { formatDate, formatJPY } from "@/lib/utils";
 import { CreateBatchButton } from "./create-batch-button";
 
@@ -17,7 +17,7 @@ export const metadata = { title: "口座振替" };
 export const dynamic = "force-dynamic";
 
 export default async function DirectDebitPage() {
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const [batches, invoices, customers] = await Promise.all([
     repo.listBatches(),
     repo.listInvoices({ paymentMethod: "direct_debit" }),

@@ -5,7 +5,7 @@ import { buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import { formatDate } from "@/lib/utils";
 
 export const metadata = { title: "契約書テンプレート" };
@@ -14,7 +14,7 @@ export const metadata = { title: "契約書テンプレート" };
 export const dynamic = "force-dynamic";
 
 export default async function ContractTemplatesPage() {
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const templates = await repo.listContractTemplates();
 
   return (

@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import { computeAgencyStatement, currentMonth } from "@/lib/domain/agency";
 import { formatDate, formatJPY, formatPercent } from "@/lib/utils";
 import { PrintButton } from "@/app/print/invoices/[id]/print-button";
 import { LogoMark } from "@/components/brand/logo";
 
 export const metadata = { title: "支払明細書（印刷）" };
+export const dynamic = "force-dynamic";
 
 /** 営業代理店向けの支払明細書(印刷/PDF)。 */
 export default async function PrintAgencyStatementPage({
@@ -19,7 +20,7 @@ export default async function PrintAgencyStatementPage({
   const sp = await searchParams;
   const month = /^\d{4}-\d{2}$/.test(sp.month ?? "") ? sp.month! : currentMonth();
 
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const agency = await repo.getAgency(id);
   if (!agency) notFound();
   const [members, customers, invoices, org] = await Promise.all([

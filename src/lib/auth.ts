@@ -29,13 +29,31 @@ export async function getCurrentUser(): Promise<CurrentUser> {
 
   const { createClient } = await import("@/lib/supabase/server");
   const supabase = await createClient();
-  const {
+  let {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
+    // Auth サーバーへの検証呼び出しが失敗する環境でも、cookie のセッションから
+    // 表示用のユーザー情報を得る。呼び出し元は middleware で認証ゲート済みの
+    // 画面・アクションのみのため、ここでは表示・記録(操作者名)用途に限られる。
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    user = session?.user ?? null;
+  }
+  if (!user) {
     return { id: "", name: "ゲスト", email: "", role: "staff", demo: false };
   }
-  const { data: profile } = await supabase
+
+  // profiles は RLS クライアントだと anon 扱いで読めない環境があるため、
+  // サービスロールがあればそちらで参照する(自分のプロフィール表示のみ)。
+  const { supabaseServiceKey } = await import("@/lib/config");
+  let profileDb = supabase;
+  if (supabaseServiceKey) {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    profileDb = createAdminClient();
+  }
+  const { data: profile } = await profileDb
     .from("profiles")
     .select("full_name, role")
     .eq("id", user.id)
