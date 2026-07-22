@@ -15,7 +15,7 @@ import { ContractDocument } from "@/components/contracts/contract-document";
 import { ContractStatusBadge } from "@/components/status-badge";
 import { buttonClasses } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import { contractEventLabels } from "@/lib/domain/constants";
 import type { ContractEventType } from "@/lib/domain/types";
 import { formatDateTime, formatJPY } from "@/lib/utils";
@@ -44,7 +44,7 @@ export default async function ContractDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const contract = await repo.getContract(id);
   if (!contract) notFound();
   const events = await repo.listContractEvents(id);

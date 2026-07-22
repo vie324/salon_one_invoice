@@ -1,10 +1,11 @@
 import { notFound } from "next/navigation";
 import { ContractCertificate } from "@/components/contracts/contract-certificate";
 import { ContractDocument } from "@/components/contracts/contract-document";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import { PrintButton } from "@/app/print/invoices/[id]/print-button";
 
 export const metadata = { title: "契約書（印刷）" };
+export const dynamic = "force-dynamic";
 
 /** 契約書 + (締結済みの場合)締結証明書の印刷/PDF出力ページ。 */
 export default async function PrintContractPage({
@@ -13,7 +14,7 @@ export default async function PrintContractPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const contract = await repo.getContract(id);
   if (!contract) notFound();
   const org = await repo.getOrganization();

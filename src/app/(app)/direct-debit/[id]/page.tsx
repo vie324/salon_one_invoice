@@ -5,7 +5,7 @@ import { BatchItemResultBadge, BatchStatusBadge } from "@/components/status-badg
 import { buttonClasses } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import { formatDate, formatJPY } from "@/lib/utils";
 import { ProcessBatchButton } from "./process-batch-button";
 
@@ -17,7 +17,7 @@ export default async function BatchDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const batch = await repo.getBatch(id);
   if (!batch) notFound();
   const customers = await repo.listCustomers();

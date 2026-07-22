@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import { computeAgencyStatement, currentMonth } from "@/lib/domain/agency";
 import { formatJPY, formatPercent } from "@/lib/utils";
 import { NewAgencyButton } from "./new-agency-button";
@@ -16,7 +16,7 @@ export const metadata = { title: "代理店" };
 export const dynamic = "force-dynamic";
 
 export default async function AgenciesPage() {
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const [agencies, members, customers, invoices] = await Promise.all([
     repo.listAgencies(),
     repo.listAgencyMembers(),

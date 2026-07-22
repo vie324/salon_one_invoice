@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { buttonClasses } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { isStripeConfigured } from "@/lib/payments/stripe-client";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import {
   selectedOptions,
   subscriptionMonthly,
@@ -26,7 +26,7 @@ import { MandateButton } from "./mandate-button";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const c = await repo.getCustomer(id);
   return { title: c ? c.name : "顧客" };
 }
@@ -37,7 +37,7 @@ export default async function CustomerDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const customer = await repo.getCustomer(id);
   if (!customer) notFound();
 

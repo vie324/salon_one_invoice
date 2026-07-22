@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import type { ContractStatus } from "@/lib/domain/types";
 import { formatDate, formatJPY } from "@/lib/utils";
 import { ContractFilters } from "./contract-filters";
@@ -22,7 +22,7 @@ export default async function ContractsPage({
   searchParams: Promise<{ status?: string; q?: string }>;
 }) {
   const sp = await searchParams;
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const contracts = await repo.listContracts({
     status: (sp.status as ContractStatus | "all") ?? "all",
     search: sp.q,

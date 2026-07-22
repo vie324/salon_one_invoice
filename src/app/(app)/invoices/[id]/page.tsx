@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { InvoiceDocument } from "@/components/invoices/invoice-document";
 import { InvoiceStatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import { outstandingAmount } from "@/lib/domain/calculations";
 import { paymentMethodLabels } from "@/lib/domain/constants";
 import { formatDate, formatJPY } from "@/lib/utils";
@@ -12,7 +12,7 @@ import { InvoiceActions } from "./invoice-actions";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const inv = await repo.getInvoice(id);
   return { title: inv ? `請求書 ${inv.invoiceNumber}` : "請求書" };
 }
@@ -23,7 +23,7 @@ export default async function InvoiceDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const invoice = await repo.getInvoice(id);
   if (!invoice) notFound();
 

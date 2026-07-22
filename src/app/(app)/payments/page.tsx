@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import { outstandingAmount } from "@/lib/domain/calculations";
 import { paymentMethodLabels } from "@/lib/domain/constants";
 import { formatDate, formatJPY } from "@/lib/utils";
@@ -18,7 +18,7 @@ export const metadata = { title: "入金確認" };
 export const dynamic = "force-dynamic";
 
 export default async function PaymentsPage() {
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const [payments, bankTxns, invoices, metrics, customers] = await Promise.all([
     repo.listPayments(),
     repo.listBankTransactions(),

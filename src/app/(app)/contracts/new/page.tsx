@@ -1,5 +1,5 @@
 import { PageHeader } from "@/components/ui/page-header";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import { ContractForm } from "../contract-form";
 
 export const metadata = { title: "契約書の作成" };
@@ -10,7 +10,7 @@ export default async function NewContractPage({
   searchParams: Promise<{ customer?: string }>;
 }) {
   const sp = await searchParams;
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const [customers, plans, templates, org] = await Promise.all([
     repo.listCustomers({ status: "active" }),
     repo.listPlans(),

@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
 import { InvoiceDocument } from "@/components/invoices/invoice-document";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import { PrintButton } from "./print-button";
 
 export const metadata = { title: "請求書（印刷）" };
+export const dynamic = "force-dynamic";
 
 export default async function PrintInvoicePage({
   params,
@@ -11,7 +12,7 @@ export default async function PrintInvoicePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const invoice = await repo.getInvoice(id);
   if (!invoice) notFound();
   const org = await repo.getOrganization();

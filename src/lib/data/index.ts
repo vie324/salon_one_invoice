@@ -3,44 +3,24 @@ import { DemoRepository } from "./demo/repository";
 import type { Repository } from "./repository";
 
 /**
- * サーバーコンポーネント(画面)用リポジトリ。
- * デモモード → インメモリ。
- * 本番(Supabase) → ログイン中のユーザーを検証できればサービスロール、
- *   できなければ RLS クライアント。
+ * 認証済みスタッフの画面(/(app) 配下)・印刷ページ・CSV API・Server Action 用
+ * リポジトリ。デモモード → インメモリ / 本番 → サービスロール(RLSバイパス)。
  *
- * 画面の一部(公開の印刷ページ /print や CSV API)は未認証でも到達しうるため、
- * ここでは必ず認証を確認し、未認証時は RLS クライアントに退避して
- * データが漏れないようにする。書き込みを伴うスタッフ操作は
- * getServiceRepository() を使うこと。
- */
-export async function getRepository(): Promise<Repository> {
-  if (isDemoMode) return new DemoRepository();
-  const { SupabaseRepository } = await import("./supabase/repository");
-  const { createClient } = await import("@/lib/supabase/server");
-
-  if (supabaseServiceKey) {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (user) {
-      const { createAdminClient } = await import("@/lib/supabase/admin");
-      return new SupabaseRepository(createAdminClient());
-    }
-  }
-  return new SupabaseRepository(await createClient());
-}
-
-/**
- * 認証済みスタッフの操作(Server Action)用リポジトリ。
- * デモモード → インメモリ / 本番 → サービスロール(RLSバイパス)。
- *
- * Server Actions は middleware により認証ゲートされており(未ログインは
- * /login へリダイレクトされ、アクション本体は実行されない)、かつ本アプリは
+ * これらの経路は middleware により認証ゲートされており(未ログインは
+ * /login へリダイレクトされ、ページもアクションも実行されない)、かつ本アプリは
  * 「認証済みスタッフ = 全データにフルアクセス」という設計のため、ここでは
- * サービスロールで確実に読み書きする。これにより、Next.js の Server Actions で
- * RLS 用クライアントへセッション(JWT)が伝播せず書き込みが RLS 違反になる問題を
- * 回避する。サービスロール未設定時のみ RLS クライアントにフォールバックする。
+ * サービスロールで確実に読み書きする。これにより、Next.js の RSC / Server
+ * Actions で RLS 用クライアントへセッション(JWT)が伝播せず、書き込みが
+ * RLS 違反になったり、読み取りが空になって実在するデータの詳細ページが
+ * 「ページが見つかりません」(404) に化ける問題を回避する。
+ *
+ * SUPABASE_SERVICE_ROLE_KEY 未設定時は、セッションを検証できる場合のみ
+ * RLS クライアントにフォールバックする(ローカル開発向け)。検証できない場合は
+ * 原因の分からない RLS 違反や偽 404 にせず、設定不備を明示するエラーを投げる。
+ *
+ * 注意: middleware の認証ゲートを通らない公開ルート(電子契約の署名ページ等)
+ * からは使わないこと。それらはトークン等で独自にアクセス制御した上で
+ * getJobRepository() を使う。
  */
 export async function getServiceRepository(): Promise<Repository> {
   if (isDemoMode) return new DemoRepository();
@@ -49,9 +29,20 @@ export async function getServiceRepository(): Promise<Repository> {
     const { createAdminClient } = await import("@/lib/supabase/admin");
     return new SupabaseRepository(createAdminClient());
   }
-  // サービスロール未設定時は RLS クライアント(要ログイン)にフォールバック
+  // サービスロール未設定時のフォールバック(主にローカル開発)。
+  // セッションが RLS クライアントへ伝播する環境でのみ動作する。
   const { createClient } = await import("@/lib/supabase/server");
-  return new SupabaseRepository(await createClient());
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    throw new Error(
+      "SUPABASE_SERVICE_ROLE_KEY が未設定のため、データの読み書きができません。" +
+        "Vercel(またはサーバー)の環境変数に Supabase の service_role キーを設定してください。",
+    );
+  }
+  return new SupabaseRepository(supabase);
 }
 
 /** Supabase 設定済みか(UI からの状態表示・警告用に再エクスポート) */

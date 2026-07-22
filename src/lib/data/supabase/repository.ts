@@ -381,6 +381,7 @@ const CONTRACT_SELECT = "*, customer:customers(*)";
 export class SupabaseRepository implements Repository {
   constructor(private db: SupabaseClient) {}
 
+  /** 操作ログ(最近の動き)。本体の業務処理を失敗させないため書き込みは best-effort。 */
   private async logActivity(a: Omit<Activity, "id" | "createdAt">) {
     await this.db.from("activities").insert({
       kind: a.kind,
@@ -410,16 +411,24 @@ export class SupabaseRepository implements Repository {
   }
 
   async getCustomer(id: string): Promise<Customer | null> {
-    const { data } = await this.db.from("customers").select("*").eq("id", id).maybeSingle();
+    // error を握りつぶすと、DB 障害や権限不足が「顧客が存在しない」= 404 に
+    // 化けて原因が隠れるため、必ず伝播させる(以下の単一行取得も同様)。
+    const { data, error } = await this.db
+      .from("customers")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw error;
     return data ? mapCustomer(data) : null;
   }
 
   async createCustomer(input: CustomerInput): Promise<Customer> {
     let code = input.code;
     if (!code) {
-      const { count } = await this.db
+      const { count, error } = await this.db
         .from("customers")
         .select("*", { count: "exact", head: true });
+      if (error) throw error;
       code = `M-${String((count ?? 0) + 1).padStart(4, "0")}`;
     }
     const { data, error } = await this.db
@@ -479,11 +488,12 @@ export class SupabaseRepository implements Repository {
   }
 
   async getMandateByCustomer(customerId: string): Promise<DirectDebitMandate | null> {
-    const { data } = await this.db
+    const { data, error } = await this.db
       .from("direct_debit_mandates")
       .select("*")
       .eq("customer_id", customerId)
       .maybeSingle();
+    if (error) throw error;
     return data ? mapMandate(data) : null;
   }
 
@@ -522,7 +532,8 @@ export class SupabaseRepository implements Repository {
   }
 
   async getPlan(id: string): Promise<Plan | null> {
-    const { data } = await this.db.from("plans").select("*").eq("id", id).maybeSingle();
+    const { data, error } = await this.db.from("plans").select("*").eq("id", id).maybeSingle();
+    if (error) throw error;
     return data ? mapPlan(data) : null;
   }
 
@@ -619,16 +630,22 @@ export class SupabaseRepository implements Repository {
   }
 
   async getAgency(id: string): Promise<Agency | null> {
-    const { data } = await this.db.from("agencies").select("*").eq("id", id).maybeSingle();
+    const { data, error } = await this.db
+      .from("agencies")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw error;
     return data ? mapAgency(data) : null;
   }
 
   async createAgency(input: AgencyInput): Promise<Agency> {
     let code = input.code;
     if (!code) {
-      const { count } = await this.db
+      const { count, error } = await this.db
         .from("agencies")
         .select("*", { count: "exact", head: true });
+      if (error) throw error;
       code = `AG-${String((count ?? 0) + 1).padStart(3, "0")}`;
     }
     const { data, error } = await this.db
@@ -762,11 +779,12 @@ export class SupabaseRepository implements Repository {
   }
 
   async getInvoice(id: string): Promise<InvoiceWithCustomer | null> {
-    const { data } = await this.db
+    const { data, error } = await this.db
       .from("invoices")
       .select(`${INVOICE_SELECT}, customer:customers(*)`)
       .eq("id", id)
       .maybeSingle();
+    if (error) throw error;
     if (!data) return null;
     const inv = mapInvoice(data);
     return {
@@ -787,7 +805,10 @@ export class SupabaseRepository implements Repository {
     }));
     const totals = calcInvoiceTotals(items);
     const org = await this.getOrganization();
-    const { data: existing } = await this.db.from("invoices").select("invoice_number");
+    const { data: existing, error: numsError } = await this.db
+      .from("invoices")
+      .select("invoice_number");
+    if (numsError) throw numsError;
     const number = nextInvoiceNumber(
       org.invoicePrefix,
       input.issueDate,
@@ -920,7 +941,11 @@ export class SupabaseRepository implements Repository {
         } else if (paid > 0) {
           patch.status = "partially_paid";
         }
-        await this.db.from("invoices").update(patch).eq("id", input.invoiceId);
+        const { error: invUpdError } = await this.db
+          .from("invoices")
+          .update(patch)
+          .eq("id", input.invoiceId);
+        if (invUpdError) throw invUpdError;
       }
     }
     await this.logActivity({
@@ -943,25 +968,28 @@ export class SupabaseRepository implements Repository {
   }
 
   async getBatch(id: string): Promise<DirectDebitBatch | null> {
-    const { data } = await this.db
+    const { data, error } = await this.db
       .from("direct_debit_batches")
       .select("*, direct_debit_batch_items(*)")
       .eq("id", id)
       .maybeSingle();
+    if (error) throw error;
     return data ? mapBatch(data) : null;
   }
 
   async createBatchFromAwaiting(scheduledDate: string): Promise<DirectDebitBatch> {
     // 既にバッチ済みの請求書IDを除外
-    const { data: existingItems } = await this.db
+    const { data: existingItems, error: itemsError } = await this.db
       .from("direct_debit_batch_items")
       .select("invoice_id");
+    if (itemsError) throw itemsError;
     const batched = new Set((existingItems ?? []).map((r: any) => r.invoice_id));
-    const { data: invoices } = await this.db
+    const { data: invoices, error: invoicesError } = await this.db
       .from("invoices")
       .select("*, invoice_items(*)")
       .eq("payment_method", "direct_debit")
       .in("status", ["awaiting_payment", "sent"]);
+    if (invoicesError) throw invoicesError;
     const targets = (invoices ?? [])
       .map(mapInvoice)
       .filter((inv) => inv.amountPaid < inv.total && !batched.has(inv.id));
@@ -981,7 +1009,8 @@ export class SupabaseRepository implements Repository {
       const mandates = await Promise.all(
         targets.map((inv) => this.getMandateByCustomer(inv.customerId)),
       );
-      await this.db.from("direct_debit_batch_items").insert(
+      // 明細の書き込み失敗を握りつぶすと「空のバッチ」が静かに出来上がる
+      const { error: insertError } = await this.db.from("direct_debit_batch_items").insert(
         targets.map((inv, i) => ({
           batch_id: batchRow.id,
           invoice_id: inv.id,
@@ -992,6 +1021,7 @@ export class SupabaseRepository implements Repository {
           result_reason: "",
         })),
       );
+      if (insertError) throw insertError;
     }
     return (await this.getBatch(batchRow.id))!;
   }
@@ -1003,19 +1033,24 @@ export class SupabaseRepository implements Repository {
     let failed = 0;
     for (const item of batch.items) {
       if (item.result !== "pending") continue;
-      const mandate = item.mandateId
-        ? (await this.db
-            .from("direct_debit_mandates")
-            .select("*")
-            .eq("id", item.mandateId)
-            .maybeSingle()).data
-        : null;
+      let mandate = null;
+      if (item.mandateId) {
+        const { data, error } = await this.db
+          .from("direct_debit_mandates")
+          .select("*")
+          .eq("id", item.mandateId)
+          .maybeSingle();
+        // DB エラーを「口座無効=引落失敗」と誤判定しないよう伝播させる
+        if (error) throw error;
+        mandate = data;
+      }
       const ok = mandate?.status === "active";
       if (ok) {
-        await this.db
+        const { error: okError } = await this.db
           .from("direct_debit_batch_items")
           .update({ result: "success" })
           .eq("id", item.id);
+        if (okError) throw okError;
         await this.recordPayment({
           invoiceId: item.invoiceId,
           customerId: item.customerId,
@@ -1027,18 +1062,27 @@ export class SupabaseRepository implements Repository {
         });
         success++;
       } else {
-        await this.db
+        const { error: ngError } = await this.db
           .from("direct_debit_batch_items")
           .update({
             result: "failed",
             result_reason: mandate ? "口座振替の登録が有効ではありません" : "残高不足",
           })
           .eq("id", item.id);
-        await this.db.from("invoices").update({ status: "failed" }).eq("id", item.invoiceId);
+        if (ngError) throw ngError;
+        const { error: invError } = await this.db
+          .from("invoices")
+          .update({ status: "failed" })
+          .eq("id", item.invoiceId);
+        if (invError) throw invError;
         failed++;
       }
     }
-    await this.db.from("direct_debit_batches").update({ status: "completed" }).eq("id", id);
+    const { error: doneError } = await this.db
+      .from("direct_debit_batches")
+      .update({ status: "completed" })
+      .eq("id", id);
+    if (doneError) throw doneError;
     await this.logActivity({
       kind: "batch_processed",
       message: `${batch.name} を処理（成功 ${success}件 / 失敗 ${failed}件）`,
@@ -1075,11 +1119,12 @@ export class SupabaseRepository implements Repository {
   }
 
   async matchBankTransaction(txnId: string, invoiceId: string): Promise<void> {
-    const { data: txn } = await this.db
+    const { data: txn, error: txnError } = await this.db
       .from("bank_transactions")
       .select("*")
       .eq("id", txnId)
       .maybeSingle();
+    if (txnError) throw txnError;
     const inv = await this.getInvoice(invoiceId);
     if (!txn || !inv) throw new Error("対象が見つかりません");
     const payment = await this.recordPayment({
@@ -1092,10 +1137,11 @@ export class SupabaseRepository implements Repository {
       matchedBy: "manual",
       memo: "銀行明細から消込",
     });
-    await this.db
+    const { error: matchError } = await this.db
       .from("bank_transactions")
       .update({ matched_invoice_id: invoiceId, matched_payment_id: payment.id })
       .eq("id", txnId);
+    if (matchError) throw matchError;
   }
 
   async getDashboardMetrics(): Promise<DashboardMetrics> {
@@ -1106,6 +1152,10 @@ export class SupabaseRepository implements Repository {
       this.db.from("plans").select("*"),
       this.db.from("customers").select("*"),
     ]);
+    // 読み取り失敗を握りつぶすと売上ゼロ等の誤った数値を表示してしまう
+    for (const res of [invoicesRes, paymentsRes, subsRes, plansRes, customersRes]) {
+      if (res.error) throw res.error;
+    }
     return computeDashboardMetrics({
       invoices: (invoicesRes.data ?? []).map(mapInvoice),
       payments: (paymentsRes.data ?? []).map(mapPayment),
@@ -1127,24 +1177,27 @@ export class SupabaseRepository implements Repository {
 
   async runRecurringBilling(asOf?: string): Promise<{ created: Invoice[] }> {
     const asOfDate = asOf ?? toISODate(new Date());
-    const { data: subs } = await this.db
+    const { data: subs, error: subsError } = await this.db
       .from("subscriptions")
       .select("*")
       .eq("status", "active")
       .is("stripe_subscription_id", null) // Stripe 管理の契約は除外(Stripe が課金)
       .lte("next_billing_date", asOfDate);
+    if (subsError) throw subsError;
     const created: Invoice[] = [];
     for (const subRow of subs ?? []) {
       const sub = mapSubscription(subRow);
       const plan = await this.getPlan(sub.planId);
       if (!plan) continue;
       const period = ym(new Date(sub.nextBillingDate));
-      const { data: exists } = await this.db
+      // エラーを「未生成」と誤判定すると請求書が二重生成されるため伝播させる
+      const { data: exists, error: existsError } = await this.db
         .from("invoices")
         .select("id")
         .eq("subscription_id", sub.id)
         .eq("billing_period", period)
         .maybeSingle();
+      if (existsError) throw existsError;
       if (!exists) {
         const customer = await this.getCustomer(sub.customerId);
         const inv = await this.createInvoice({
@@ -1160,10 +1213,11 @@ export class SupabaseRepository implements Repository {
         });
         created.push(inv);
       }
-      await this.db
+      const { error: nextError } = await this.db
         .from("subscriptions")
         .update({ next_billing_date: computeNextBillingDate(sub.nextBillingDate, sub.billingDay) })
         .eq("id", sub.id);
+      if (nextError) throw nextError;
     }
     return { created };
   }
@@ -1206,11 +1260,12 @@ export class SupabaseRepository implements Repository {
   }
 
   async getContractTemplate(id: string): Promise<ContractTemplate | null> {
-    const { data } = await this.db
+    const { data, error } = await this.db
       .from("contract_templates")
       .select("*")
       .eq("id", id)
       .maybeSingle();
+    if (error) throw error;
     return data ? mapContractTemplate(data) : null;
   }
 
@@ -1290,17 +1345,23 @@ export class SupabaseRepository implements Repository {
    * それで判定すると期限切れ契約の再送・取消・書面締結登録ができなくなる。
    */
   private async rawContract(id: string): Promise<Contract | null> {
-    const { data } = await this.db.from("contracts").select("*").eq("id", id).maybeSingle();
+    const { data, error } = await this.db
+      .from("contracts")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw error;
     return data ? mapContract(data) : null;
   }
 
   private async rawContractByToken(token: string): Promise<Contract | null> {
     if (!token) return null;
-    const { data } = await this.db
+    const { data, error } = await this.db
       .from("contracts")
       .select("*")
       .eq("sign_token", token)
       .maybeSingle();
+    if (error) throw error;
     return data ? mapContract(data) : null;
   }
 
@@ -1338,26 +1399,31 @@ export class SupabaseRepository implements Repository {
   }
 
   async getContract(id: string): Promise<ContractWithCustomer | null> {
-    const { data } = await this.db
+    const { data, error } = await this.db
       .from("contracts")
       .select(CONTRACT_SELECT)
       .eq("id", id)
       .maybeSingle();
+    if (error) throw error;
     return data ? this.decorateContract(data) : null;
   }
 
   async getContractByToken(token: string): Promise<ContractWithCustomer | null> {
     if (!token) return null;
-    const { data } = await this.db
+    const { data, error } = await this.db
       .from("contracts")
       .select(CONTRACT_SELECT)
       .eq("sign_token", token)
       .maybeSingle();
+    if (error) throw error;
     return data ? this.decorateContract(data) : null;
   }
 
   async createContract(input: ContractInput): Promise<Contract> {
-    const { data: existing } = await this.db.from("contracts").select("contract_number");
+    const { data: existing, error: numsError } = await this.db
+      .from("contracts")
+      .select("contract_number");
+    if (numsError) throw numsError;
     const number = nextInvoiceNumber(
       "CTR",
       toISODate(new Date()),
@@ -1765,47 +1831,53 @@ export class SupabaseRepository implements Repository {
 
   // --- Stripe 連携 ---
   async linkStripeCustomer(customerId: string, stripeCustomerId: string): Promise<void> {
-    await this.db
+    const { error } = await this.db
       .from("customers")
       .update({ stripe_customer_id: stripeCustomerId })
       .eq("id", customerId);
+    if (error) throw error;
   }
 
   async findCustomerByStripeCustomerId(stripeCustomerId: string): Promise<Customer | null> {
-    const { data } = await this.db
+    const { data, error } = await this.db
       .from("customers")
       .select("*")
       .eq("stripe_customer_id", stripeCustomerId)
       .maybeSingle();
+    // エラーを「顧客未連携」と誤判定すると Webhook が入金記録をスキップする
+    if (error) throw error;
     return data ? mapCustomer(data) : null;
   }
 
   async upsertStripeSubscription(input: StripeSubscriptionInput): Promise<Subscription> {
     // limit(1) で複数行時の maybeSingle エラーを回避
-    const { data: existingRows } = await this.db
+    const { data: existingRows, error: existingError } = await this.db
       .from("subscriptions")
       .select("*")
       .eq("stripe_subscription_id", input.stripeSubscriptionId)
       .order("created_at")
       .limit(1);
+    if (existingError) throw existingError;
     const existing = existingRows?.[0];
     if (existing) {
       const patch: Record<string, unknown> = { status: input.status };
       if (input.status === "canceled") patch.canceled_on = toISODate(new Date());
-      const { data } = await this.db
+      const { data, error } = await this.db
         .from("subscriptions")
         .update(patch)
         .eq("id", existing.id)
         .select("*")
         .single();
+      if (error) throw error;
       return mapSubscription(data);
     }
     // プランを名称で検索、無ければ作成
-    const { data: planRows } = await this.db
+    const { data: planRows, error: planError } = await this.db
       .from("plans")
       .select("*")
       .eq("name", input.planName)
       .limit(1);
+    if (planError) throw planError;
     let planRow = planRows?.[0];
     if (!planRow) {
       const created = await this.db
@@ -1824,6 +1896,7 @@ export class SupabaseRepository implements Repository {
         })
         .select("*")
         .single();
+      if (created.error) throw created.error;
       planRow = created.data;
     }
     const today = toISODate(new Date());
@@ -1858,10 +1931,11 @@ export class SupabaseRepository implements Repository {
   }
 
   async markStripeSubscriptionCanceled(stripeSubscriptionId: string): Promise<void> {
-    await this.db
+    const { error } = await this.db
       .from("subscriptions")
       .update({ status: "canceled", canceled_on: toISODate(new Date()) })
       .eq("stripe_subscription_id", stripeSubscriptionId);
+    if (error) throw error;
   }
 
   async recordStripeInvoice(input: StripeInvoiceInput): Promise<Invoice | null> {
@@ -1869,15 +1943,18 @@ export class SupabaseRepository implements Repository {
     if (!customer) return null;
 
     // 冪等化 + 失敗→成功の状態遷移
-    const { data: existRows } = await this.db
+    const { data: existRows, error: existError } = await this.db
       .from("invoices")
       .select("*")
       .eq("external_id", input.externalId)
       .limit(1);
+    if (existError) throw existError;
     const existing = existRows?.[0];
     if (existing) {
       if (existing.status === "failed" && input.status === "paid") {
-        await this.db
+        // 書き込み失敗を握りつぶすと 200 を返してしまい Stripe が再送しない
+        // (=入金記録が失われる)ため、必ず伝播させて再送させる。
+        const { error: updError } = await this.db
           .from("invoices")
           .update({
             status: "paid",
@@ -1887,8 +1964,13 @@ export class SupabaseRepository implements Repository {
             paid_at: input.paidAt ?? input.issueDate,
           })
           .eq("id", existing.id);
-        await this.db.from("invoice_items").delete().eq("invoice_id", existing.id);
-        await this.db.from("invoice_items").insert(
+        if (updError) throw updError;
+        const { error: delError } = await this.db
+          .from("invoice_items")
+          .delete()
+          .eq("invoice_id", existing.id);
+        if (delError) throw delError;
+        const { error: insError } = await this.db.from("invoice_items").insert(
           input.lines.map((l, idx) => ({
             invoice_id: existing.id,
             description: l.description,
@@ -1899,7 +1981,8 @@ export class SupabaseRepository implements Repository {
             position: idx,
           })),
         );
-        await this.db.from("payments").insert({
+        if (insError) throw insError;
+        const { error: payError } = await this.db.from("payments").insert({
           invoice_id: existing.id,
           customer_id: customer.id,
           amount: input.total,
@@ -1910,6 +1993,7 @@ export class SupabaseRepository implements Repository {
           matched_by: "auto",
           memo: "",
         });
+        if (payError) throw payError;
         await this.logActivity({
           kind: "payment_confirmed",
           message: `${customer.name} 様のStripe決済（再試行）を確認`,
@@ -1917,30 +2001,35 @@ export class SupabaseRepository implements Repository {
           amount: input.total,
           linkInvoiceId: existing.id,
         });
-        const { data: fresh } = await this.db
+        const { data: fresh, error: freshError } = await this.db
           .from("invoices")
           .select(INVOICE_SELECT)
           .eq("id", existing.id)
           .single();
+        if (freshError) throw freshError;
         return fresh ? mapInvoice(fresh) : null;
       }
       return null;
     }
 
     const org = await this.getOrganization();
-    const { data: existingNums } = await this.db.from("invoices").select("invoice_number");
+    const { data: existingNums, error: numsError } = await this.db
+      .from("invoices")
+      .select("invoice_number");
+    if (numsError) throw numsError;
     const number = nextInvoiceNumber(
       org.invoicePrefix,
       input.issueDate,
       (existingNums ?? []).map((r: any) => r.invoice_number),
     );
-    const { data: subRows } = await this.db
+    const { data: subRows, error: subError } = await this.db
       .from("subscriptions")
       .select("id")
       .eq("customer_id", customer.id)
       .not("stripe_subscription_id", "is", null)
       .order("created_at", { ascending: false })
       .limit(1);
+    if (subError) throw subError;
     const subId = subRows?.[0]?.id ?? null;
 
     const paid = input.status === "paid";

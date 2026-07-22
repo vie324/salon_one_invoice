@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { PageHeader } from "@/components/ui/page-header";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import { ContractForm } from "../../contract-form";
 
 export const metadata = { title: "契約書の編集" };
@@ -11,7 +11,7 @@ export default async function EditContractPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const repo = await getRepository();
+  const repo = await getServiceRepository();
   const contract = await repo.getContract(id);
   if (!contract) notFound();
   // 下書き以外は編集不可(内容凍結)。詳細ページへ戻す。

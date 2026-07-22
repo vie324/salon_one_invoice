@@ -20,7 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatCard } from "@/components/ui/stat-card";
 import { getCurrentUser } from "@/lib/auth";
-import { getRepository } from "@/lib/data";
+import { getServiceRepository } from "@/lib/data";
 import { formatBillingPeriod, outstandingAmount } from "@/lib/domain/calculations";
 import { paymentMethodLabels } from "@/lib/domain/constants";
 import type { PaymentMethod } from "@/lib/domain/types";
@@ -40,7 +40,7 @@ const methodColor: Record<PaymentMethod | "adjustment", number> = {
 };
 
 export default async function DashboardPage() {
-  const [user, repo] = await Promise.all([getCurrentUser(), getRepository()]);
+  const [user, repo] = await Promise.all([getCurrentUser(), getServiceRepository()]);
   const [metrics, activities, invoices, bankTxns] = await Promise.all([
     repo.getDashboardMetrics(),
     repo.listActivities(8),
