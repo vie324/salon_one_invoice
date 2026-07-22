@@ -82,9 +82,17 @@ export function selectedOptions(plan: Plan, optionKeys: string[] = []) {
   return plan.options.filter((o) => optionKeys.includes(o.key));
 }
 
-/** 基本料金 + 選択オプションの月額合計(税抜) */
-export function subscriptionMonthly(plan: Plan, optionKeys: string[] = []): number {
-  return plan.amount + selectedOptions(plan, optionKeys).reduce((s, o) => s + o.monthly, 0);
+/**
+ * 基本料金 + 選択オプションの月額合計(税抜)。
+ * priceOverride(個別価格)が設定されていれば基本料金をそちらで置き換える。
+ */
+export function subscriptionMonthly(
+  plan: Plan,
+  optionKeys: string[] = [],
+  priceOverride?: number | null,
+): number {
+  const base = priceOverride ?? plan.amount;
+  return base + selectedOptions(plan, optionKeys).reduce((s, o) => s + o.monthly, 0);
 }
 
 /** 消費税額 (税抜 × 税率、四捨五入) */
@@ -97,19 +105,21 @@ export function withTax(exclusive: number, rate: number): number {
   return exclusive + taxAmount(exclusive, rate);
 }
 
-/** 定期プラン(基本料金＋オプション)から請求明細を生成 */
+/** 定期プラン(基本料金＋オプション)から請求明細を生成。個別価格があれば適用。 */
 export function subscriptionItems(
   plan: Plan,
   optionKeys: string[],
   billingPeriod: string,
+  priceOverride?: number | null,
 ): Omit<InvoiceItem, "id">[] {
+  const base = priceOverride ?? plan.amount;
   const items: Omit<InvoiceItem, "id">[] = [
     {
-      description: `${plan.name}（${billingPeriod}）`,
+      description: `${plan.name}（${billingPeriod}）${priceOverride != null ? "※個別価格" : ""}`,
       quantity: 1,
-      unitPrice: plan.amount,
+      unitPrice: base,
       taxRate: plan.taxRate,
-      amount: plan.amount,
+      amount: base,
     },
   ];
   for (const opt of selectedOptions(plan, optionKeys)) {

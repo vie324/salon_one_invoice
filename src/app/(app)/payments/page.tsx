@@ -14,6 +14,9 @@ import { ReconcileClient, type OpenInvoiceOption, type TxnRow } from "./reconcil
 
 export const metadata = { title: "入金確認" };
 
+// 一覧はデータ依存のため常にサーバーで描画する(静的化するとビルド時データが焼き込まれる)
+export const dynamic = "force-dynamic";
+
 export default async function PaymentsPage() {
   const repo = await getRepository();
   const [payments, bankTxns, invoices, metrics, customers] = await Promise.all([

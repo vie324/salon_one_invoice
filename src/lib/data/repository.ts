@@ -1,5 +1,7 @@
 import type {
   Activity,
+  Agency,
+  AgencyMember,
   BankTransaction,
   Contract,
   ContractEvent,
@@ -48,6 +50,31 @@ export interface CustomerInput {
   status?: CustomerStatus;
   assignee?: string;
   notes?: string;
+  /** 獲得した営業代理店/営業マン(null で紐付け解除) */
+  agencyId?: string | null;
+  agencyMemberId?: string | null;
+}
+
+/* ---- 営業代理店 ---- */
+
+export interface AgencyInput {
+  code?: string;
+  name: string;
+  contactName?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  /** 手数料率 (0.20 = 20%) */
+  commissionRate: number;
+  notes?: string;
+  active?: boolean;
+}
+
+export interface AgencyMemberInput {
+  agencyId: string;
+  name: string;
+  email?: string;
+  active?: boolean;
 }
 
 /** 口座振替(マンデート)の登録・更新。NSS等の収納代行への登録状況をツール上で管理する。 */
@@ -112,6 +139,15 @@ export interface SubscriptionInput {
   startedOn: string;
   billingDay?: number;
   optionKeys?: string[];
+  /** 基本料金の個別価格(税抜)。特別待遇・紹介割引など。 */
+  priceOverride?: number | null;
+}
+
+/** 既存の定期契約の変更(オプション・個別価格) */
+export interface SubscriptionUpdateInput {
+  optionKeys?: string[];
+  priceOverride?: number | null;
+  billingDay?: number;
 }
 
 export interface BankRowInput {
@@ -238,6 +274,21 @@ export interface Repository {
     id: string,
     status: Subscription["status"],
   ): Promise<Subscription>;
+  /** 定期契約の内容変更(オプション・個別価格)。次回請求から反映される。 */
+  updateSubscription(id: string, input: SubscriptionUpdateInput): Promise<Subscription>;
+
+  // --- 営業代理店 ---
+  listAgencies(): Promise<Agency[]>;
+  getAgency(id: string): Promise<Agency | null>;
+  createAgency(input: AgencyInput): Promise<Agency>;
+  updateAgency(id: string, input: Partial<AgencyInput>): Promise<Agency>;
+  /** agencyId 指定で所属営業マンのみ、未指定で全員 */
+  listAgencyMembers(agencyId?: string): Promise<AgencyMember[]>;
+  createAgencyMember(input: AgencyMemberInput): Promise<AgencyMember>;
+  updateAgencyMember(
+    id: string,
+    input: Partial<Omit<AgencyMemberInput, "agencyId">>,
+  ): Promise<AgencyMember>;
 
   // --- 請求書 ---
   listInvoices(filter?: InvoiceFilter): Promise<InvoiceWithCustomer[]>;

@@ -2,7 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { getRepository } from "@/lib/data";
-import type { PlanInput, SubscriptionInput } from "@/lib/data/repository";
+import type {
+  PlanInput,
+  SubscriptionInput,
+  SubscriptionUpdateInput,
+} from "@/lib/data/repository";
 import type { Subscription } from "@/lib/domain/types";
 
 export async function createSubscriptionAction(input: SubscriptionInput) {
@@ -24,6 +28,19 @@ export async function updateSubscriptionStatusAction(
   try {
     const repo = await getRepository();
     await repo.updateSubscriptionStatus(id, status);
+    revalidatePath("/subscriptions");
+    revalidatePath("/dashboard");
+    return { ok: true as const };
+  } catch (e) {
+    return { ok: false as const, error: (e as Error).message };
+  }
+}
+
+/** 定期契約の変更(オプション・個別価格)。次回の請求生成から反映される。 */
+export async function updateSubscriptionAction(id: string, input: SubscriptionUpdateInput) {
+  try {
+    const repo = await getRepository();
+    await repo.updateSubscription(id, input);
     revalidatePath("/subscriptions");
     revalidatePath("/dashboard");
     return { ok: true as const };

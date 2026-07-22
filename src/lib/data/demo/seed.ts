@@ -1,5 +1,7 @@
 import type {
   Activity,
+  Agency,
+  AgencyMember,
   BankTransaction,
   Contract,
   ContractEvent,
@@ -29,6 +31,8 @@ export interface DataStore {
   contractTemplates: ContractTemplate[];
   contracts: Contract[];
   contractEvents: ContractEvent[];
+  agencies: Agency[];
+  agencyMembers: AgencyMember[];
 }
 
 const opt = (key: string, name: string, monthly: number): PlanOption => ({ key, name, monthly });
@@ -110,5 +114,7 @@ export function buildSeed(): DataStore {
     contractTemplates: [],
     contracts: [],
     contractEvents: [],
+    agencies: [],
+    agencyMembers: [],
   };
 }

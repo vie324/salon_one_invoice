@@ -13,6 +13,8 @@ import { CONTRACT_CODE_MAX_ATTEMPTS } from "@/lib/domain/constants";
 import { computeDashboardMetrics } from "@/lib/domain/metrics";
 import type {
   Activity,
+  Agency,
+  AgencyMember,
   BankTransaction,
   Contract,
   ContractEvent,
@@ -36,6 +38,8 @@ import type {
 } from "@/lib/domain/types";
 import { genId, toISODate } from "@/lib/utils";
 import type {
+  AgencyInput,
+  AgencyMemberInput,
   BankRowInput,
   ContractActionResult,
   ContractEventInput,
@@ -54,6 +58,7 @@ import type {
   StripeInvoiceInput,
   StripeSubscriptionInput,
   SubscriptionInput,
+  SubscriptionUpdateInput,
 } from "../repository";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -99,6 +104,35 @@ function mapCustomer(r: any): Customer {
     notes: r.notes ?? "",
     createdAt: r.created_at,
     stripeCustomerId: r.stripe_customer_id ?? null,
+    agencyId: r.agency_id ?? null,
+    agencyMemberId: r.agency_member_id ?? null,
+  };
+}
+
+function mapAgency(r: any): Agency {
+  return {
+    id: r.id,
+    code: r.code,
+    name: r.name,
+    contactName: r.contact_name ?? "",
+    email: r.email ?? "",
+    phone: r.phone ?? "",
+    address: r.address ?? "",
+    commissionRate: Number(r.commission_rate ?? 0),
+    notes: r.notes ?? "",
+    active: r.active ?? true,
+    createdAt: r.created_at,
+  };
+}
+
+function mapAgencyMember(r: any): AgencyMember {
+  return {
+    id: r.id,
+    agencyId: r.agency_id,
+    name: r.name,
+    email: r.email ?? "",
+    active: r.active ?? true,
+    createdAt: r.created_at,
   };
 }
 
@@ -144,6 +178,7 @@ function mapSubscription(r: any): Subscription {
     billingDay: r.billing_day,
     canceledOn: r.canceled_on,
     optionKeys: Array.isArray(r.option_keys) ? r.option_keys : [],
+    priceOverride: r.price_override == null ? null : Number(r.price_override),
     stripeSubscriptionId: r.stripe_subscription_id ?? null,
   };
 }
@@ -402,6 +437,8 @@ export class SupabaseRepository implements Repository {
         status: input.status ?? "active",
         assignee: input.assignee ?? "",
         notes: input.notes ?? "",
+        agency_id: input.agencyId ?? null,
+        agency_member_id: input.agencyMemberId ?? null,
       })
       .select("*")
       .single();
@@ -429,6 +466,8 @@ export class SupabaseRepository implements Repository {
     if (input.status !== undefined) patch.status = input.status;
     if (input.assignee !== undefined) patch.assignee = input.assignee;
     if (input.notes !== undefined) patch.notes = input.notes;
+    if (input.agencyId !== undefined) patch.agency_id = input.agencyId;
+    if (input.agencyMemberId !== undefined) patch.agency_member_id = input.agencyMemberId;
     const { data, error } = await this.db
       .from("customers")
       .update(patch)
@@ -548,11 +587,128 @@ export class SupabaseRepository implements Repository {
         next_billing_date: computeNextBillingDate(input.startedOn, billingDay),
         billing_day: billingDay,
         option_keys: input.optionKeys ?? [],
+        price_override: input.priceOverride ?? null,
       })
       .select("*")
       .single();
     if (error) throw error;
     return mapSubscription(data);
+  }
+
+  async updateSubscription(id: string, input: SubscriptionUpdateInput): Promise<Subscription> {
+    const patch: Record<string, unknown> = {};
+    if (input.optionKeys !== undefined) patch.option_keys = input.optionKeys;
+    if (input.priceOverride !== undefined) patch.price_override = input.priceOverride;
+    if (input.billingDay !== undefined) patch.billing_day = input.billingDay;
+    const { data, error } = await this.db
+      .from("subscriptions")
+      .update(patch)
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapSubscription(data);
+  }
+
+  // ---- 営業代理店 ----
+
+  async listAgencies(): Promise<Agency[]> {
+    const { data, error } = await this.db.from("agencies").select("*").order("code");
+    if (error) throw error;
+    return (data ?? []).map(mapAgency);
+  }
+
+  async getAgency(id: string): Promise<Agency | null> {
+    const { data } = await this.db.from("agencies").select("*").eq("id", id).maybeSingle();
+    return data ? mapAgency(data) : null;
+  }
+
+  async createAgency(input: AgencyInput): Promise<Agency> {
+    let code = input.code;
+    if (!code) {
+      const { count } = await this.db
+        .from("agencies")
+        .select("*", { count: "exact", head: true });
+      code = `AG-${String((count ?? 0) + 1).padStart(3, "0")}`;
+    }
+    const { data, error } = await this.db
+      .from("agencies")
+      .insert({
+        code,
+        name: input.name,
+        contact_name: input.contactName ?? "",
+        email: input.email ?? "",
+        phone: input.phone ?? "",
+        address: input.address ?? "",
+        commission_rate: input.commissionRate,
+        notes: input.notes ?? "",
+        active: input.active ?? true,
+      })
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapAgency(data);
+  }
+
+  async updateAgency(id: string, input: Partial<AgencyInput>): Promise<Agency> {
+    const patch: Record<string, unknown> = {};
+    if (input.name !== undefined) patch.name = input.name;
+    if (input.contactName !== undefined) patch.contact_name = input.contactName;
+    if (input.email !== undefined) patch.email = input.email;
+    if (input.phone !== undefined) patch.phone = input.phone;
+    if (input.address !== undefined) patch.address = input.address;
+    if (input.commissionRate !== undefined) patch.commission_rate = input.commissionRate;
+    if (input.notes !== undefined) patch.notes = input.notes;
+    if (input.active !== undefined) patch.active = input.active;
+    const { data, error } = await this.db
+      .from("agencies")
+      .update(patch)
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapAgency(data);
+  }
+
+  async listAgencyMembers(agencyId?: string): Promise<AgencyMember[]> {
+    let q = this.db.from("agency_members").select("*").order("name");
+    if (agencyId) q = q.eq("agency_id", agencyId);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []).map(mapAgencyMember);
+  }
+
+  async createAgencyMember(input: AgencyMemberInput): Promise<AgencyMember> {
+    const { data, error } = await this.db
+      .from("agency_members")
+      .insert({
+        agency_id: input.agencyId,
+        name: input.name,
+        email: input.email ?? "",
+        active: input.active ?? true,
+      })
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapAgencyMember(data);
+  }
+
+  async updateAgencyMember(
+    id: string,
+    input: Partial<Omit<AgencyMemberInput, "agencyId">>,
+  ): Promise<AgencyMember> {
+    const patch: Record<string, unknown> = {};
+    if (input.name !== undefined) patch.name = input.name;
+    if (input.email !== undefined) patch.email = input.email;
+    if (input.active !== undefined) patch.active = input.active;
+    const { data, error } = await this.db
+      .from("agency_members")
+      .update(patch)
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapAgencyMember(data);
   }
 
   async updateSubscriptionStatus(
@@ -999,7 +1155,7 @@ export class SupabaseRepository implements Repository {
           paymentMethod: customer?.paymentMethod ?? "direct_debit",
           billingPeriod: period,
           subscriptionId: sub.id,
-          items: subscriptionItems(plan, sub.optionKeys ?? [], period),
+          items: subscriptionItems(plan, sub.optionKeys ?? [], period, sub.priceOverride),
           status: customer?.paymentMethod === "direct_debit" ? "awaiting_payment" : "sent",
         });
         created.push(inv);

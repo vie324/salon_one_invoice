@@ -23,6 +23,7 @@ export function NewCustomerButton() {
     address: "",
     paymentMethod: "direct_debit" as PaymentMethod,
     assignee: "",
+    notes: "",
   });
 
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
@@ -34,7 +35,7 @@ export function NewCustomerButton() {
       const res = await createCustomerAction(form);
       if (res.ok) {
         setOpen(false);
-        setForm({ name: "", kana: "", email: "", phone: "", address: "", paymentMethod: "direct_debit", assignee: "" });
+        setForm({ name: "", kana: "", email: "", phone: "", address: "", paymentMethod: "direct_debit", assignee: "", notes: "" });
         router.push(`/customers/${res.id}`);
       } else setError(res.error ?? "登録に失敗しました。");
     });
@@ -84,6 +85,9 @@ export function NewCustomerButton() {
               <Input value={form.assignee} onChange={(e) => set({ assignee: e.target.value })} />
             </Field>
           </div>
+          <Field label="メモ（任意）" hint="特別待遇の理由・紹介経緯などを記録できます">
+            <Input value={form.notes} onChange={(e) => set({ notes: e.target.value })} placeholder="例）〇〇様のご紹介" />
+          </Field>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>

@@ -21,7 +21,8 @@
 5. `0005_stripe_unique.sql` … Stripe サブスクの一意制約
 6. `0006_plan_options.sql` … 料金プランのオプション/初期費用/期間区分
 7. `0007_contracts.sql` … 契約書・電子契約（内容凍結/追記専用トリガー・RLS）
-8. （任意）`seed.sql` … 初期サンプルデータ
+8. `0008_agencies_pricing.sql` … 営業代理店・営業マン・個別料金
+9. （任意）`seed.sql` … 初期データ（自社情報・料金プラン）
 
 > 電子契約の公開署名ページ（`/sign/<token>`）はサービスロールでデータへアクセスします。
 > `SUPABASE_SERVICE_ROLE_KEY` と、署名リンクの絶対URL用に `NEXT_PUBLIC_APP_URL` を必ず設定してください。

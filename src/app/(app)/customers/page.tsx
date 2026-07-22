@@ -9,6 +9,9 @@ import { NewCustomerButton } from "./new-customer-button";
 
 export const metadata = { title: "顧客" };
 
+// 一覧はデータ依存のため常にサーバーで描画する(静的化するとビルド時データが焼き込まれる)
+export const dynamic = "force-dynamic";
+
 export default async function CustomersPage() {
   const repo = await getRepository();
   const [customers, invoices] = await Promise.all([
@@ -45,6 +48,7 @@ export default async function CustomersPage() {
               <TH>支払方法</TH>
               <TH>口座振替</TH>
               <TH>担当</TH>
+              <TH>メモ</TH>
               <TH className="text-right">未収</TH>
               <TH>状態</TH>
             </TR>
@@ -89,6 +93,18 @@ export default async function CustomersPage() {
                     )}
                   </TD>
                   <TD className="text-muted-foreground">{c.assignee || "—"}</TD>
+                  <TD className="max-w-[220px]">
+                    {c.notes ? (
+                      <span
+                        className="block truncate text-xs text-muted-foreground"
+                        title={c.notes}
+                      >
+                        {c.notes}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TD>
                   <TD className="tabular text-right">
                     {outstanding > 0 ? (
                       <span className="font-medium text-warning">
