@@ -1,26 +1,30 @@
 "use client";
 
-import { Pause, Play, Plus, RefreshCw, X, Zap } from "lucide-react";
+import { Pause, Pencil, Play, Plus, RefreshCw, X, Zap } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import * as React from "react";
 import {
   createSubscriptionAction,
+  updateSubscriptionAction,
   updateSubscriptionStatusAction,
 } from "@/app/actions/subscriptions";
 import { runRecurringBillingAction } from "@/app/actions/invoices";
 import { SubscriptionStatusBadge } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Label, Select } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import type { Customer, Plan, Subscription } from "@/lib/domain/types";
+import type { Customer, Plan, PlanOption, Subscription } from "@/lib/domain/types";
 import { formatDate, formatJPY, toISODate } from "@/lib/utils";
 import { NewPlanButton } from "./plan-dialog";
 
 interface Row extends Subscription {
   customerName: string;
   planName: string;
+  planAmount: number;
+  planOptions: PlanOption[];
   monthlyTotal: number;
   monthlyInclTotal: number;
 }
@@ -102,6 +106,11 @@ export function SubscriptionsClient({
                 {r.optionKeys.length > 0 && (
                   <span className="ml-1 text-xs">＋オプション{r.optionKeys.length}</span>
                 )}
+                {r.priceOverride != null && (
+                  <Badge tone="primary" className="ml-1.5">
+                    個別価格
+                  </Badge>
+                )}
               </TD>
               <TD className="text-right">
                 <div className="tabular font-medium">{formatJPY(r.monthlyTotal)}</div>
@@ -115,6 +124,9 @@ export function SubscriptionsClient({
               </TD>
               <TD>
                 <div className="flex justify-end gap-1">
+                  {r.status !== "canceled" && (
+                    <EditSubscriptionButton row={r} pending={pending} />
+                  )}
                   {r.status === "active" && (
                     <IconBtn title="停止" onClick={() => changeStatus(r.id, "paused")} disabled={pending}>
                       <Pause className="h-4 w-4" />
@@ -178,6 +190,106 @@ function IconBtn({
   );
 }
 
+/** 既存契約の変更(個別価格・オプション)ダイアログ */
+function EditSubscriptionButton({ row, pending }: { row: Row; pending: boolean }) {
+  const router = useRouter();
+  const [open, setOpen] = React.useState(false);
+  const [saving, start] = React.useTransition();
+  const [error, setError] = React.useState<string | null>(null);
+  const [override, setOverride] = React.useState<string>(
+    row.priceOverride != null ? String(row.priceOverride) : "",
+  );
+  const [optKeys, setOptKeys] = React.useState<string[]>(row.optionKeys);
+
+  const toggle = (k: string) =>
+    setOptKeys((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]));
+
+  const submit = () =>
+    start(async () => {
+      setError(null);
+      const res = await updateSubscriptionAction(row.id, {
+        priceOverride: override === "" ? null : Number(override),
+        optionKeys: optKeys,
+      });
+      if (res.ok) {
+        setOpen(false);
+        router.refresh();
+      } else setError(res.error ?? "保存に失敗しました");
+    });
+
+  return (
+    <>
+      <IconBtn title="契約内容を変更（個別価格）" onClick={() => setOpen(true)} disabled={pending}>
+        <Pencil className="h-4 w-4" />
+      </IconBtn>
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title={`契約内容の変更 — ${row.customerName}`}
+        description="変更内容は次回の請求書生成から反映されます。"
+      >
+        <div className="space-y-4">
+          <Field
+            label={`基本料金の個別価格（税抜） — プラン定価 ${formatJPY(row.planAmount)}`}
+            hint="特別待遇・紹介割引など。空欄にするとプラン定価に戻ります。"
+          >
+            <Input
+              type="number"
+              value={override}
+              onChange={(e) => setOverride(e.target.value)}
+              placeholder={String(row.planAmount)}
+            />
+          </Field>
+          {row.planOptions.length > 0 && (
+            <div>
+              <Label>オプション</Label>
+              <div className="space-y-1.5">
+                {row.planOptions.map((o) => (
+                  <label
+                    key={o.key}
+                    className="flex cursor-pointer items-center justify-between rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50"
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <input
+                        type="checkbox"
+                        checked={optKeys.includes(o.key)}
+                        onChange={() => toggle(o.key)}
+                        className="h-4 w-4 accent-[hsl(var(--primary))]"
+                      />
+                      {o.name}
+                    </span>
+                    <span className="tabular text-muted-foreground">+{formatJPY(o.monthly)}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="rounded-md bg-secondary px-3 py-2 text-xs text-secondary-foreground">
+            変更後の月額（税抜）:{" "}
+            <strong className="tabular">
+              {formatJPY(
+                (override === "" ? row.planAmount : Number(override) || 0) +
+                  row.planOptions
+                    .filter((o) => optKeys.includes(o.key))
+                    .reduce((s, o) => s + o.monthly, 0),
+              )}
+            </strong>
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>
+              キャンセル
+            </Button>
+            <Button onClick={submit} disabled={saving}>
+              保存する
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    </>
+  );
+}
+
 function NewSubscriptionDialog({
   open,
   onClose,
@@ -195,6 +307,7 @@ function NewSubscriptionDialog({
     planId: string;
     startedOn: string;
     optionKeys: string[];
+    priceOverride: number | null;
   }) => void;
   pending: boolean;
 }) {
@@ -202,6 +315,7 @@ function NewSubscriptionDialog({
   const [planId, setPlanId] = React.useState(plans[0]?.id ?? "");
   const [optKeys, setOptKeys] = React.useState<string[]>(plans[0]?.options.map((o) => o.key) ?? []);
   const [startedOn, setStartedOn] = React.useState(toISODate(new Date()));
+  const [override, setOverride] = React.useState<string>("");
 
   const plan = plans.find((p) => p.id === planId);
   const onPlan = (id: string) => {
@@ -256,15 +370,33 @@ function NewSubscriptionDialog({
             </div>
           </div>
         )}
-        <Field label="契約開始日">
-          <Input type="date" value={startedOn} onChange={(e) => setStartedOn(e.target.value)} />
-        </Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="契約開始日">
+            <Input type="date" value={startedOn} onChange={(e) => setStartedOn(e.target.value)} />
+          </Field>
+          <Field label="個別価格（税抜・任意）" hint="特別待遇・紹介割引など。空欄で定価">
+            <Input
+              type="number"
+              value={override}
+              onChange={(e) => setOverride(e.target.value)}
+              placeholder={plan ? String(plan.amount) : ""}
+            />
+          </Field>
+        </div>
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose} disabled={pending}>
             キャンセル
           </Button>
           <Button
-            onClick={() => onSubmit({ customerId, planId, startedOn, optionKeys: optKeys })}
+            onClick={() =>
+              onSubmit({
+                customerId,
+                planId,
+                startedOn,
+                optionKeys: optKeys,
+                priceOverride: override === "" ? null : Number(override),
+              })
+            }
             disabled={pending || !customerId || !planId}
           >
             契約を作成

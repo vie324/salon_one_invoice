@@ -21,6 +21,7 @@ import {
 import { paymentMethodLabels } from "@/lib/domain/constants";
 import { formatDate, formatJPY, maskAccount } from "@/lib/utils";
 import { BillingButton } from "./billing-button";
+import { EditCustomerButton } from "./edit-customer-button";
 import { MandateButton } from "./mandate-button";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
@@ -40,14 +41,21 @@ export default async function CustomerDetailPage({
   const customer = await repo.getCustomer(id);
   if (!customer) notFound();
 
-  const [mandate, subscriptions, plans, invoices, payments, contracts] = await Promise.all([
-    repo.getMandateByCustomer(id),
-    repo.listSubscriptions(),
-    repo.listPlans(),
-    repo.listInvoices({ customerId: id }),
-    repo.listPayments({ customerId: id }),
-    repo.listContracts({ customerId: id }),
-  ]);
+  const [mandate, subscriptions, plans, invoices, payments, contracts, agencies, agencyMembers] =
+    await Promise.all([
+      repo.getMandateByCustomer(id),
+      repo.listSubscriptions(),
+      repo.listPlans(),
+      repo.listInvoices({ customerId: id }),
+      repo.listPayments({ customerId: id }),
+      repo.listContracts({ customerId: id }),
+      repo.listAgencies(),
+      repo.listAgencyMembers(),
+    ]);
+  const agency = customer.agencyId ? agencies.find((a) => a.id === customer.agencyId) : null;
+  const agencyMember = customer.agencyMemberId
+    ? agencyMembers.find((m) => m.id === customer.agencyMemberId)
+    : null;
   const subscription = subscriptions.find((s) => s.customerId === id);
   const plan = subscription ? plans.find((p) => p.id === subscription.planId) : null;
   const outstanding = invoices
@@ -82,6 +90,11 @@ export default async function CustomerDetailPage({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <EditCustomerButton
+            customer={customer}
+            agencies={agencies}
+            agencyMembers={agencyMembers}
+          />
           <BillingButton
             customerId={customer.id}
             stripeConfigured={isStripeConfigured()}
@@ -202,12 +215,24 @@ export default async function CustomerDetailPage({
                 value={`${customer.postalCode ? "〒" + customer.postalCode + " " : ""}${customer.address || "—"}`}
               />
               <div className="border-t border-border pt-2.5 text-muted-foreground">
+                先方担当： {customer.contactName || "—"}
+                <br />
                 支払方法： {paymentMethodLabels[customer.paymentMethod]}
                 <br />
                 社内担当： {customer.assignee || "—"}
+                {agency && (
+                  <>
+                    <br />
+                    獲得代理店： {agency.name}
+                    {agencyMember ? `（${agencyMember.name}）` : ""}
+                  </>
+                )}
               </div>
               {customer.notes && (
-                <p className="rounded-md bg-muted px-3 py-2 text-xs">{customer.notes}</p>
+                <div className="rounded-md bg-muted px-3 py-2 text-xs">
+                  <div className="mb-0.5 font-medium text-foreground">メモ</div>
+                  <p className="whitespace-pre-wrap">{customer.notes}</p>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -250,12 +275,19 @@ export default async function CustomerDetailPage({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-medium">{plan.name}</span>
-                    <Badge tone="neutral">{plan.term === "annual" ? "年間" : "月額"}</Badge>
+                    <span className="flex items-center gap-1.5">
+                      {subscription.priceOverride != null && (
+                        <Badge tone="primary">個別価格</Badge>
+                      )}
+                      <Badge tone="neutral">{plan.term === "annual" ? "年間" : "月額"}</Badge>
+                    </span>
                   </div>
                   <div className="space-y-0.5 text-xs text-muted-foreground">
                     <div className="flex justify-between">
-                      <span>基本料金</span>
-                      <span className="tabular">{formatJPY(plan.amount)}</span>
+                      <span>基本料金{subscription.priceOverride != null ? "（個別）" : ""}</span>
+                      <span className="tabular">
+                        {formatJPY(subscription.priceOverride ?? plan.amount)}
+                      </span>
                     </div>
                     {selectedOptions(plan, subscription.optionKeys).map((o) => (
                       <div key={o.key} className="flex justify-between">
@@ -267,19 +299,19 @@ export default async function CustomerDetailPage({
                   <div className="flex justify-between border-t border-border pt-1.5 text-xs text-muted-foreground">
                     <span>小計（税抜）</span>
                     <span className="tabular">
-                      {formatJPY(subscriptionMonthly(plan, subscription.optionKeys))}
+                      {formatJPY(subscriptionMonthly(plan, subscription.optionKeys, subscription.priceOverride))}
                     </span>
                   </div>
                   <div className="flex justify-between text-xs text-muted-foreground">
                     <span>消費税（{Math.round(plan.taxRate * 100)}%）</span>
                     <span className="tabular">
-                      {formatJPY(taxAmount(subscriptionMonthly(plan, subscription.optionKeys), plan.taxRate))}
+                      {formatJPY(taxAmount(subscriptionMonthly(plan, subscription.optionKeys, subscription.priceOverride), plan.taxRate))}
                     </span>
                   </div>
                   <div className="flex justify-between border-t border-border pt-1.5 font-semibold">
                     <span>月額合計（税込）</span>
                     <span className="tabular">
-                      {formatJPY(withTax(subscriptionMonthly(plan, subscription.optionKeys), plan.taxRate))}
+                      {formatJPY(withTax(subscriptionMonthly(plan, subscription.optionKeys, subscription.priceOverride), plan.taxRate))}
                     </span>
                   </div>
                   <div className="text-xs text-muted-foreground">

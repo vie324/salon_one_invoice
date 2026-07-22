@@ -1,6 +1,7 @@
+import type { AgencyStatement } from "@/lib/domain/agency";
 import { paymentMethodLabels } from "@/lib/domain/constants";
 import type { Contract, Invoice, Organization } from "@/lib/domain/types";
-import { formatDate, formatDateTime, formatJPY } from "@/lib/utils";
+import { formatDate, formatDateTime, formatJPY, formatPercent } from "@/lib/utils";
 
 /** 請求書送付メールの本文(HTML)。 */
 export function invoiceEmailHtml(params: {
@@ -135,6 +136,81 @@ export function contractSignedEmailHtml(params: {
         <a href="${signUrl}" style="background:#0d3b33;color:#fff;text-decoration:none;padding:10px 24px;border-radius:8px;display:inline-block">締結済み契約書を表示</a>
       </div>
       <p style="color:#999;font-size:12px;margin-top:20px">${escapeHtml(org.name)}　${escapeHtml(org.address)}　${org.tel}</p>
+    </div>
+  </div>`;
+}
+
+/** 営業代理店向けの月次支払明細メール。 */
+export function agencyStatementEmailHtml(params: {
+  statement: AgencyStatement;
+  org: Organization;
+}): string {
+  const { statement, org } = params;
+  const [y, m] = statement.month.split("-");
+  const monthLabel = `${y}年${Number(m)}月`;
+
+  const memberRows = statement.members
+    .map(
+      (mem) => `
+      <tr>
+        <td style="padding:8px 4px;border-bottom:1px solid #eee">${escapeHtml(mem.memberName)}</td>
+        <td style="padding:8px 4px;border-bottom:1px solid #eee;text-align:right">${mem.customerCount}件</td>
+        <td style="padding:8px 4px;border-bottom:1px solid #eee;text-align:right">${formatJPY(mem.paidSubtotal)}</td>
+        <td style="padding:8px 4px;border-bottom:1px solid #eee;text-align:right;font-weight:600">${formatJPY(mem.commission)}</td>
+      </tr>`,
+    )
+    .join("");
+
+  const lineRows = statement.lines
+    .map(
+      (l) => `
+      <tr>
+        <td style="padding:6px 4px;border-bottom:1px solid #f2f2f2;font-size:12px">${escapeHtml(l.customerName)}</td>
+        <td style="padding:6px 4px;border-bottom:1px solid #f2f2f2;font-size:12px">${escapeHtml(l.memberName)}</td>
+        <td style="padding:6px 4px;border-bottom:1px solid #f2f2f2;font-size:12px;text-align:right">${formatJPY(l.subtotal)}</td>
+        <td style="padding:6px 4px;border-bottom:1px solid #f2f2f2;font-size:12px;text-align:right">${l.paid ? "入金済" : "未入金(対象外)"}</td>
+      </tr>`,
+    )
+    .join("");
+
+  return `
+  <div style="font-family:'Hiragino Sans','Noto Sans JP',sans-serif;max-width:640px;margin:0 auto;color:#152a26">
+    <div style="background:#0d3b33;color:#fff;padding:20px 24px;border-radius:12px 12px 0 0;border-bottom:3px solid #c2a15c">
+      <div style="font-size:13px;color:#c2a15c">${escapeHtml(org.name)}</div>
+      <div style="font-size:20px;font-weight:700;margin-top:2px">${monthLabel}分 支払明細のご案内</div>
+    </div>
+    <div style="border:1px solid #eee;border-top:none;padding:24px;border-radius:0 0 12px 12px">
+      <p>${escapeHtml(statement.agency.name)}<br/>${escapeHtml(statement.agency.contactName)} 様</p>
+      <p>いつもお世話になっております。${monthLabel}分の紹介手数料の明細をお送りします。</p>
+
+      <div style="background:#f1f6f4;border-radius:8px;padding:14px 18px;margin:16px 0;border-left:3px solid #c2a15c">
+        <div style="font-size:13px;color:#555">お支払金額（税抜売上 ${formatJPY(statement.paidSubtotal)} × 手数料率 ${formatPercent(statement.agency.commissionRate, 0)}）</div>
+        <div style="font-size:24px;font-weight:700;margin-top:4px">${formatJPY(statement.commission)}</div>
+      </div>
+
+      <h3 style="font-size:14px;margin:16px 0 6px">営業担当別の内訳</h3>
+      <table style="width:100%;border-collapse:collapse">
+        <tr style="font-size:12px;color:#888;text-align:left">
+          <th style="padding:4px">営業担当</th><th style="padding:4px;text-align:right">顧客数</th>
+          <th style="padding:4px;text-align:right">入金済売上(税抜)</th><th style="padding:4px;text-align:right">支払額</th>
+        </tr>
+        ${memberRows}
+      </table>
+
+      <h3 style="font-size:14px;margin:18px 0 6px">明細（対象請求）</h3>
+      <table style="width:100%;border-collapse:collapse">
+        <tr style="font-size:11px;color:#888;text-align:left">
+          <th style="padding:4px">顧客</th><th style="padding:4px">営業担当</th>
+          <th style="padding:4px;text-align:right">金額(税抜)</th><th style="padding:4px;text-align:right">入金状況</th>
+        </tr>
+        ${lineRows}
+      </table>
+
+      <p style="color:#777;font-size:12px;margin-top:16px">
+        ※ 支払額は入金済み売上(税抜)に手数料率を乗じて算出しています。未入金分は入金確認後の明細に計上されます。<br/>
+        ※ 内容に相違がある場合は、お手数ですが1週間以内にご連絡ください。
+      </p>
+      <p style="color:#999;font-size:12px;margin-top:16px">${escapeHtml(org.name)}　${escapeHtml(org.address)}　${org.tel}</p>
     </div>
   </div>`;
 }

@@ -12,6 +12,9 @@ import { PlanEditButton } from "./plan-dialog";
 
 export const metadata = { title: "定期請求" };
 
+// 一覧はデータ依存のため常にサーバーで描画する(静的化するとビルド時データが焼き込まれる)
+export const dynamic = "force-dynamic";
+
 export default async function SubscriptionsPage() {
   const repo = await getRepository();
   const [subscriptions, plans, customers, metrics] = await Promise.all([
@@ -26,11 +29,13 @@ export default async function SubscriptionsPage() {
   const rows = subscriptions
     .map((s) => {
       const plan = planById.get(s.planId);
-      const monthlyExcl = plan ? subscriptionMonthly(plan, s.optionKeys) : 0;
+      const monthlyExcl = plan ? subscriptionMonthly(plan, s.optionKeys, s.priceOverride) : 0;
       return {
         ...s,
         customerName: customerName(s.customerId),
         planName: plan ? `${plan.name}（${plan.term === "annual" ? "年間" : "月額"}）` : "—",
+        planAmount: plan?.amount ?? 0,
+        planOptions: plan?.options ?? [],
         monthlyTotal: monthlyExcl,
         monthlyInclTotal: plan ? withTax(monthlyExcl, plan.taxRate) : 0,
       };

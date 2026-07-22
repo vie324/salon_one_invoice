@@ -28,6 +28,9 @@ import { daysUntil, formatDate, formatJPY } from "@/lib/utils";
 
 export const metadata = { title: "ダッシュボード" };
 
+// 一覧はデータ依存のため常にサーバーで描画する(静的化するとビルド時データが焼き込まれる)
+export const dynamic = "force-dynamic";
+
 const methodColor: Record<PaymentMethod | "adjustment", number> = {
   direct_debit: 1,
   bank_transfer: 2,

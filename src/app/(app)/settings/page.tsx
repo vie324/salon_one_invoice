@@ -10,6 +10,9 @@ import { SignOutButton } from "./sign-out-button";
 
 export const metadata = { title: "設定" };
 
+// 一覧はデータ依存のため常にサーバーで描画する(静的化するとビルド時データが焼き込まれる)
+export const dynamic = "force-dynamic";
+
 export default async function SettingsPage() {
   const [user, repo] = await Promise.all([getCurrentUser(), getRepository()]);
   const org = await repo.getOrganization();

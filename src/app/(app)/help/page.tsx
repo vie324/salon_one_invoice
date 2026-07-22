@@ -17,6 +17,9 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 
 export const metadata = { title: "ヘルプ（業務フロー）" };
 
+// 一覧はデータ依存のため常にサーバーで描画する(静的化するとビルド時データが焼き込まれる)
+export const dynamic = "force-dynamic";
+
 /**
  * 業務フローのヘルプページ。
  * 旧SATTOU運用（スプレッドシート・チャット中心）を本ツールに置き換えた

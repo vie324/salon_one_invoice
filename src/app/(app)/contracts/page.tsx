@@ -13,6 +13,9 @@ import { ContractFilters } from "./contract-filters";
 
 export const metadata = { title: "契約書" };
 
+// 一覧はデータ依存のため常にサーバーで描画する(静的化するとビルド時データが焼き込まれる)
+export const dynamic = "force-dynamic";
+
 export default async function ContractsPage({
   searchParams,
 }: {

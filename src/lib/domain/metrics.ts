@@ -58,7 +58,7 @@ export function computeDashboardMetrics(input: {
     .reduce((s, sub) => {
       const plan = input.plans.find((p) => p.id === sub.planId);
       if (!plan) return s;
-      const monthly = subscriptionMonthly(plan, sub.optionKeys ?? []);
+      const monthly = subscriptionMonthly(plan, sub.optionKeys ?? [], sub.priceOverride);
       // 年間プランは月換算(=月額合計)でMRRに計上
       return s + Math.round(monthly * (1 + plan.taxRate));
     }, 0);

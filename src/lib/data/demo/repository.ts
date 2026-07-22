@@ -12,6 +12,8 @@ import { CONTRACT_CODE_MAX_ATTEMPTS } from "@/lib/domain/constants";
 import { computeDashboardMetrics } from "@/lib/domain/metrics";
 import type {
   Activity,
+  Agency,
+  AgencyMember,
   BankTransaction,
   Contract,
   ContractEvent,
@@ -33,6 +35,8 @@ import type {
 } from "@/lib/domain/types";
 import { genId, toISODate } from "@/lib/utils";
 import type {
+  AgencyInput,
+  AgencyMemberInput,
   BankRowInput,
   ContractActionResult,
   ContractEventInput,
@@ -51,6 +55,7 @@ import type {
   StripeInvoiceInput,
   StripeSubscriptionInput,
   SubscriptionInput,
+  SubscriptionUpdateInput,
 } from "../repository";
 import { getStore } from "./store";
 
@@ -111,6 +116,8 @@ export class DemoRepository implements Repository {
       assignee: input.assignee ?? "",
       notes: input.notes ?? "",
       createdAt: toISODate(new Date()),
+      agencyId: input.agencyId ?? null,
+      agencyMemberId: input.agencyMemberId ?? null,
     };
     this.s.customers.push(customer);
     this.addActivity({
@@ -225,6 +232,7 @@ export class DemoRepository implements Repository {
       billingDay,
       canceledOn: null,
       optionKeys: input.optionKeys ?? [],
+      priceOverride: input.priceOverride ?? null,
     };
     this.s.subscriptions.push(sub);
     const cus = this.s.customers.find((c) => c.id === input.customerId);
@@ -245,6 +253,90 @@ export class DemoRepository implements Repository {
     sub.status = status;
     if (status === "canceled") sub.canceledOn = toISODate(new Date());
     return sub;
+  }
+
+  async updateSubscription(id: string, input: SubscriptionUpdateInput): Promise<Subscription> {
+    const sub = this.s.subscriptions.find((x) => x.id === id);
+    if (!sub) throw new Error("契約が見つかりません");
+    if (input.optionKeys !== undefined) sub.optionKeys = input.optionKeys;
+    if (input.priceOverride !== undefined) sub.priceOverride = input.priceOverride;
+    if (input.billingDay !== undefined) sub.billingDay = input.billingDay;
+    return sub;
+  }
+
+  // ---- 営業代理店 ----
+
+  async listAgencies(): Promise<Agency[]> {
+    return [...this.s.agencies].sort((a, b) => a.code.localeCompare(b.code));
+  }
+
+  async getAgency(id: string): Promise<Agency | null> {
+    return this.s.agencies.find((a) => a.id === id) ?? null;
+  }
+
+  async createAgency(input: AgencyInput): Promise<Agency> {
+    const code =
+      input.code || `AG-${String(this.s.agencies.length + 1).padStart(3, "0")}`;
+    const agency: Agency = {
+      id: genId("agc"),
+      code,
+      name: input.name,
+      contactName: input.contactName ?? "",
+      email: input.email ?? "",
+      phone: input.phone ?? "",
+      address: input.address ?? "",
+      commissionRate: input.commissionRate,
+      notes: input.notes ?? "",
+      active: input.active ?? true,
+      createdAt: toISODate(new Date()),
+    };
+    this.s.agencies.push(agency);
+    return agency;
+  }
+
+  async updateAgency(id: string, input: Partial<AgencyInput>): Promise<Agency> {
+    const a = this.s.agencies.find((x) => x.id === id);
+    if (!a) throw new Error("代理店が見つかりません");
+    if (input.name !== undefined) a.name = input.name;
+    if (input.contactName !== undefined) a.contactName = input.contactName;
+    if (input.email !== undefined) a.email = input.email;
+    if (input.phone !== undefined) a.phone = input.phone;
+    if (input.address !== undefined) a.address = input.address;
+    if (input.commissionRate !== undefined) a.commissionRate = input.commissionRate;
+    if (input.notes !== undefined) a.notes = input.notes;
+    if (input.active !== undefined) a.active = input.active;
+    return a;
+  }
+
+  async listAgencyMembers(agencyId?: string): Promise<AgencyMember[]> {
+    let list = [...this.s.agencyMembers];
+    if (agencyId) list = list.filter((m) => m.agencyId === agencyId);
+    return list.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async createAgencyMember(input: AgencyMemberInput): Promise<AgencyMember> {
+    const member: AgencyMember = {
+      id: genId("agm"),
+      agencyId: input.agencyId,
+      name: input.name,
+      email: input.email ?? "",
+      active: input.active ?? true,
+      createdAt: toISODate(new Date()),
+    };
+    this.s.agencyMembers.push(member);
+    return member;
+  }
+
+  async updateAgencyMember(
+    id: string,
+    input: Partial<Omit<AgencyMemberInput, "agencyId">>,
+  ): Promise<AgencyMember> {
+    const m = this.s.agencyMembers.find((x) => x.id === id);
+    if (!m) throw new Error("営業マンが見つかりません");
+    if (input.name !== undefined) m.name = input.name;
+    if (input.email !== undefined) m.email = input.email;
+    if (input.active !== undefined) m.active = input.active;
+    return m;
   }
 
   async listInvoices(filter?: InvoiceFilter): Promise<InvoiceWithCustomer[]> {
@@ -568,7 +660,7 @@ export class DemoRepository implements Repository {
         paymentMethod: customer?.paymentMethod ?? "direct_debit",
         billingPeriod: period,
         subscriptionId: sub.id,
-        items: subscriptionItems(plan, sub.optionKeys ?? [], period),
+        items: subscriptionItems(plan, sub.optionKeys ?? [], period, sub.priceOverride),
         status: customer?.paymentMethod === "direct_debit" ? "awaiting_payment" : "sent",
       });
       created.push(inv);
@@ -583,7 +675,7 @@ export class DemoRepository implements Repository {
     if (!this.s.contractTemplates.some((t) => t.slug === defaultTemplateInput.slug)) {
       const now = new Date().toISOString();
       this.s.contractTemplates.unshift({
-        id: genId("ctpl"),
+        id: "ctpl_default", // 固定ID(再起動やビルド時プリレンダとのID不一致による404を防ぐ)
         ...defaultTemplateInput,
         version: 1,
         active: true,

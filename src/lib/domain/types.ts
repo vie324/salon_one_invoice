@@ -87,10 +87,14 @@ export interface Customer {
   status: CustomerStatus;
   /** 社内担当者(スタッフ)名 */
   assignee: string;
+  /** メモ(特別待遇の理由・注記事項など) */
   notes: string;
   createdAt: string;
   /** Stripe 顧客ID（決済連携時） */
   stripeCustomerId?: string | null;
+  /** 獲得した営業代理店/営業マン(売上・手数料の集計に使用) */
+  agencyId?: string | null;
+  agencyMemberId?: string | null;
 }
 
 export interface DirectDebitMandate {
@@ -138,6 +142,11 @@ export interface Subscription {
   canceledOn: string | null;
   /** 選択中のオプション(plan.options の key) */
   optionKeys: string[];
+  /**
+   * 基本料金の個別価格(税抜)。特別待遇・紹介割引などプラン定価と異なる場合に設定。
+   * null/undefined ならプランの定価(plan.amount)を請求する。
+   */
+  priceOverride?: number | null;
   /** Stripe サブスクリプションID（決済連携時） */
   stripeSubscriptionId?: string | null;
 }
@@ -219,6 +228,34 @@ export interface BankTransaction {
   matchedInvoiceId: string | null;
   matchedPaymentId: string | null;
   importedAt: string;
+}
+
+/* ---- 営業代理店 ---- */
+
+/** 営業代理店。手数料率に基づき毎月の支払額(コミッション)を算出する。 */
+export interface Agency {
+  id: string;
+  code: string; // 代理店コード
+  name: string;
+  contactName: string;
+  email: string;
+  phone: string;
+  address: string;
+  /** 手数料率 (0.20 = 20%)。対象売上(税抜・入金済み)に乗じて支払額を算出 */
+  commissionRate: number;
+  notes: string;
+  active: boolean;
+  createdAt: string;
+}
+
+/** 代理店に所属する営業マン。顧客獲得の実績を個人単位で集計する。 */
+export interface AgencyMember {
+  id: string;
+  agencyId: string;
+  name: string;
+  email: string;
+  active: boolean;
+  createdAt: string;
 }
 
 /* ---- 契約書 / 電子契約 ---- */
