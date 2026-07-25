@@ -1521,6 +1521,26 @@ export class DemoRepository implements Repository {
     return profile;
   }
 
+  async updateUserName(userId: string, name: string): Promise<void> {
+    const p = this.s.profiles.find((x) => x.id === userId);
+    if (!p) throw new Error("アカウントが見つかりません");
+    p.name = name;
+  }
+
+  async updateAccountPassword(userId: string): Promise<void> {
+    // デモモードは認証がないため何もしない(操作フローの確認用)
+    const p = this.s.profiles.find((x) => x.id === userId);
+    if (!p) throw new Error("アカウントが見つかりません");
+  }
+
+  async deleteUserAccount(userId: string): Promise<void> {
+    const idx = this.s.profiles.findIndex((x) => x.id === userId);
+    if (idx < 0) throw new Error("アカウントが見つかりません");
+    this.s.profiles.splice(idx, 1);
+    // 本人宛の通知も削除(開発依頼の履歴は依頼者名を保持したまま残る)
+    this.s.notifications = this.s.notifications.filter((n) => n.userId !== userId);
+  }
+
   /** 開発依頼イベントの通知を該当ユーザーへ配信(操作者本人は除外) */
   private notifyDevIssue(
     type: NotificationType,

@@ -2399,7 +2399,11 @@ export class SupabaseRepository implements Repository {
   }
 
   async updateUserRole(userId: string, role: Role): Promise<void> {
-    const { error } = await this.db.from("profiles").update({ role }).eq("id", userId);
+    // プロフィール行が無いユーザー(トリガー導入前の作成など)でも成立するよう upsert。
+    // full_name は指定しないため既存行の名前は保持される。
+    const { error } = await this.db
+      .from("profiles")
+      .upsert({ id: userId, role }, { onConflict: "id" });
     if (error) throw error;
   }
 
@@ -2429,6 +2433,43 @@ export class SupabaseRepository implements Repository {
       .single();
     if (error) throw error;
     return mapProfile(data, input.email);
+  }
+
+  async updateUserName(userId: string, name: string): Promise<void> {
+    const { error } = await this.db
+      .from("profiles")
+      .update({ full_name: name })
+      .eq("id", userId);
+    if (error) throw error;
+  }
+
+  async updateAccountPassword(userId: string, password: string): Promise<void> {
+    // Supabase Auth のパスワード変更はサービスロールが必須
+    try {
+      const { error } = await this.db.auth.admin.updateUserById(userId, { password });
+      if (error) throw new Error(error.message);
+    } catch (e) {
+      throw new Error(
+        "パスワードの変更に失敗しました(SUPABASE_SERVICE_ROLE_KEY の設定が必要です): " +
+          (e as Error).message,
+      );
+    }
+  }
+
+  async deleteUserAccount(userId: string): Promise<void> {
+    // Auth ユーザー削除 → profiles は on delete cascade で消える。
+    // dev_issues.requester_id は set null になり、requester_name で履歴表示は残る。
+    try {
+      const { error } = await this.db.auth.admin.deleteUser(userId);
+      if (error) throw new Error(error.message);
+    } catch (e) {
+      throw new Error(
+        "アカウントの削除に失敗しました(SUPABASE_SERVICE_ROLE_KEY の設定が必要です): " +
+          (e as Error).message,
+      );
+    }
+    // 本人宛の通知を掃除(失敗しても削除自体は成立している)
+    await this.db.from("notifications").delete().eq("user_id", userId);
   }
 
   /** 開発依頼イベントの通知を該当ユーザーへ配信(操作者本人は除外)。best-effort。 */
