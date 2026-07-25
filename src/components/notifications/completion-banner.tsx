@@ -11,9 +11,15 @@ import { getServiceRepository } from "@/lib/data";
 export async function CompletionBanner() {
   const user = await getCurrentUser();
   if (!user.id) return null;
-  const repo = await getServiceRepository();
-  const unread = await repo.listNotifications(user.id, { unreadOnly: true, limit: 20 });
-  const done = unread.filter((n) => n.type === "issue_done");
+  // 通知の取得失敗(マイグレーション未適用など)でダッシュボード等を落とさない
+  let done;
+  try {
+    const repo = await getServiceRepository();
+    const unread = await repo.listNotifications(user.id, { unreadOnly: true, limit: 20 });
+    done = unread.filter((n) => n.type === "issue_done");
+  } catch {
+    return null;
+  }
   if (done.length === 0) return null;
 
   const doneIds = done.map((n) => n.id);
