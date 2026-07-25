@@ -1,11 +1,13 @@
-import { Building2, CreditCard, Database, Mail, ShieldCheck } from "lucide-react";
+import { Building2, CreditCard, Database, Mail, ShieldCheck, UsersRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { getCurrentUser } from "@/lib/auth";
 import { emailProvider, isDemoMode, paymentProvider } from "@/lib/config";
 import { getServiceRepository } from "@/lib/data";
-import { roleLabels } from "@/lib/domain/constants";
+import { isProductAdmin, roleLabels } from "@/lib/domain/constants";
+import type { UserProfile } from "@/lib/domain/types";
+import { AccountManager } from "./account-manager";
 import { SignOutButton } from "./sign-out-button";
 
 export const metadata = { title: "設定" };
@@ -17,9 +19,20 @@ export default async function SettingsPage() {
   const [user, repo] = await Promise.all([getCurrentUser(), getServiceRepository()]);
   const org = await repo.getOrganization();
 
+  // アカウント管理は全体管理者のみ(未マイグレーション環境では一覧が空でも落とさない)
+  let profiles: UserProfile[] = [];
+  const admin = isProductAdmin(user.role);
+  if (admin) {
+    try {
+      profiles = await repo.listUserProfiles();
+    } catch {
+      profiles = [];
+    }
+  }
+
   return (
     <div>
-      <PageHeader title="設定" description="自社情報・実行モード・連携プロバイダを確認します。" />
+      <PageHeader title="設定" description="自社情報・アカウント・実行モード・連携プロバイダを確認します。" />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
@@ -92,12 +105,12 @@ export default async function SettingsPage() {
               <Row label="名前" value={user.name} />
               <Row label="メール" value={user.email || "—"} />
               <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">権限</span>
+                <span className="text-muted-foreground">アカウント種別</span>
                 <Badge tone="primary">{roleLabels[user.role]}</Badge>
               </div>
               {isDemoMode ? (
                 <p className="text-xs text-muted-foreground">
-                  デモモードでは、右上のトグルで「経営者／担当者」の表示を切り替えられます。
+                  デモモードでは、右上の「デモ」セレクトで全体管理者／請求管理のみ／開発進捗のみを切り替えられます。
                 </p>
               ) : (
                 <div className="pt-1">
@@ -108,6 +121,18 @@ export default async function SettingsPage() {
           </Card>
         </div>
       </div>
+
+      {admin && (
+        <Card className="mt-6">
+          <CardHeader className="flex-row items-center gap-2">
+            <UsersRound className="h-5 w-5 text-primary" />
+            <CardTitle>アカウント管理（全体管理者のみ）</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AccountManager profiles={profiles} currentUserId={user.id} demo={isDemoMode} />
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

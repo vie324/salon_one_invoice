@@ -9,12 +9,18 @@ import {
   nextInvoiceNumber,
   subscriptionItems,
 } from "@/lib/domain/calculations";
-import { CONTRACT_CODE_MAX_ATTEMPTS } from "@/lib/domain/constants";
+import {
+  CONTRACT_CODE_MAX_ATTEMPTS,
+  computeDevExecution,
+  devIssueExecutionLabels,
+  devNotificationRecipients,
+} from "@/lib/domain/constants";
 import { computeDashboardMetrics } from "@/lib/domain/metrics";
 import type {
   Activity,
   Agency,
   AgencyMember,
+  AppNotification,
   BankTransaction,
   Contract,
   ContractEvent,
@@ -25,19 +31,26 @@ import type {
   Customer,
   CustomerStatus,
   DashboardMetrics,
+  DevApprovalDecision,
+  DevIssue,
+  DevIssueApproval,
   DirectDebitBatch,
   DirectDebitMandate,
   Invoice,
   InvoiceItem,
   InvoiceStatus,
   InvoiceWithCustomer,
+  NotificationType,
   Organization,
   Payment,
   Plan,
+  Role,
   Subscription,
+  UserProfile,
 } from "@/lib/domain/types";
 import { genId, toISODate } from "@/lib/utils";
 import type {
+  ActorRef,
   AgencyInput,
   AgencyMemberInput,
   BankRowInput,
@@ -48,7 +61,11 @@ import type {
   ContractSendParams,
   ContractSignParams,
   ContractTemplateInput,
+  CreateAccountInput,
   CustomerInput,
+  DevIssueFilter,
+  DevIssueInput,
+  DevIssueUpdateInput,
   InvoiceFilter,
   InvoiceInput,
   MandateInput,
@@ -374,8 +391,66 @@ function mapContractEvent(r: any): ContractEvent {
   };
 }
 
+function mapDevApproval(r: any): DevIssueApproval {
+  return {
+    id: r.id,
+    issueId: r.issue_id,
+    approverId: r.approver_id,
+    approverName: r.approver_name ?? "",
+    decision: r.decision,
+    createdAt: r.created_at,
+  };
+}
+
+function mapDevIssue(r: any): DevIssue {
+  const approvals = ((r.dev_issue_approvals ?? []) as any[])
+    .map(mapDevApproval)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return {
+    id: r.id,
+    issueNumber: Number(r.issue_number ?? 0),
+    title: r.title,
+    detail: r.detail ?? "",
+    category: r.category,
+    priority: r.priority,
+    status: r.status,
+    execution: r.execution ?? "undecided",
+    requesterId: r.requester_id ?? "",
+    requesterName: r.requester_name ?? "",
+    scheduledDate: r.scheduled_date,
+    completedDate: r.completed_date,
+    devNote: r.dev_note ?? "",
+    approvals,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+function mapNotification(r: any): AppNotification {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    type: r.type,
+    message: r.message,
+    issueId: r.issue_id,
+    read: r.read ?? false,
+    createdAt: r.created_at,
+  };
+}
+
+function mapProfile(r: any, email = ""): UserProfile {
+  return {
+    id: r.id,
+    name: r.full_name ?? "",
+    email,
+    role: (r.role as Role) ?? "staff",
+    createdAt: r.created_at,
+  };
+}
+
 const INVOICE_SELECT = "*, invoice_items(*)";
 const CONTRACT_SELECT = "*, customer:customers(*)";
+const DEV_ISSUE_SELECT = "*, dev_issue_approvals(*)";
 
 /** Supabase(Postgres) 実装。RLS 適用のクライアントを受け取る。 */
 export class SupabaseRepository implements Repository {
@@ -2105,4 +2180,289 @@ export class SupabaseRepository implements Repository {
     });
     return mapInvoice(invRow);
   }
+
+  // --- 開発依頼 / 進捗管理 ---
+
+  async listDevIssues(filter?: DevIssueFilter): Promise<DevIssue[]> {
+    let q = this.db
+      .from("dev_issues")
+      .select(DEV_ISSUE_SELECT)
+      .order("created_at", { ascending: false });
+    if (filter?.status && filter.status !== "all") q = q.eq("status", filter.status);
+    if (filter?.category && filter.category !== "all") q = q.eq("category", filter.category);
+    if (filter?.priority && filter.priority !== "all") q = q.eq("priority", filter.priority);
+    if (filter?.search) {
+      const s = `%${filter.search}%`;
+      q = q.or(`title.ilike.${s},detail.ilike.${s},dev_note.ilike.${s},requester_name.ilike.${s}`);
+    }
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []).map(mapDevIssue);
+  }
+
+  async getDevIssue(id: string): Promise<DevIssue | null> {
+    const { data, error } = await this.db
+      .from("dev_issues")
+      .select(DEV_ISSUE_SELECT)
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapDevIssue(data) : null;
+  }
+
+  async createDevIssue(input: DevIssueInput): Promise<DevIssue> {
+    const { data, error } = await this.db
+      .from("dev_issues")
+      .insert({
+        title: input.title,
+        detail: input.detail ?? "",
+        category: input.category,
+        priority: input.priority ?? "medium",
+        status: "open",
+        execution: "undecided",
+        // デモID等の uuid でない依頼者IDは NULL(表示は requester_name を使う)
+        requester_id: isUuid(input.requester.id) ? input.requester.id : null,
+        requester_name: input.requester.name,
+      })
+      .select(DEV_ISSUE_SELECT)
+      .single();
+    if (error) throw error;
+    const issue = mapDevIssue(data);
+    // 通知のための依頼者IDは元の値を保持する
+    issue.requesterId = input.requester.id;
+    await this.notifyDevIssue(
+      "issue_created",
+      issue,
+      `${input.requester.name} さんが #${issue.issueNumber}「${issue.title}」を登録しました`,
+      input.requester.id,
+    );
+    return issue;
+  }
+
+  async updateDevIssue(
+    id: string,
+    input: DevIssueUpdateInput,
+    actor: ActorRef,
+  ): Promise<DevIssue> {
+    const before = await this.getDevIssue(id);
+    if (!before) throw new Error("開発依頼が見つかりません");
+    const patch: Record<string, unknown> = {};
+    if (input.title !== undefined) patch.title = input.title;
+    if (input.detail !== undefined) patch.detail = input.detail;
+    if (input.category !== undefined) patch.category = input.category;
+    if (input.priority !== undefined) patch.priority = input.priority;
+    if (input.status !== undefined) patch.status = input.status;
+    if (input.scheduledDate !== undefined) patch.scheduled_date = input.scheduledDate;
+    if (input.completedDate !== undefined) patch.completed_date = input.completedDate;
+    if (input.devNote !== undefined) patch.dev_note = input.devNote;
+    // 対応完了にした場合、完了日が未入力なら当日を補完する
+    const nextStatus = (input.status ?? before.status) as DevIssue["status"];
+    const nextCompleted =
+      input.completedDate !== undefined ? input.completedDate : before.completedDate;
+    if (nextStatus === "done" && !nextCompleted) {
+      patch.completed_date = toISODate(new Date());
+    }
+    if (Object.keys(patch).length === 0) return before;
+    const { data, error } = await this.db
+      .from("dev_issues")
+      .update(patch)
+      .eq("id", id)
+      .select(DEV_ISSUE_SELECT)
+      .single();
+    if (error) throw error;
+    const issue = mapDevIssue(data);
+    if (issue.status !== before.status) {
+      if (issue.status === "done") {
+        await this.notifyDevIssue(
+          "issue_done",
+          issue,
+          `#${issue.issueNumber}「${issue.title}」が対応完了になりました（${actor.name}）`,
+          actor.id,
+        );
+      } else if (issue.status === "hearing") {
+        await this.notifyDevIssue(
+          "issue_hearing",
+          issue,
+          `#${issue.issueNumber}「${issue.title}」に追加ヒアリングがあります（${actor.name}）`,
+          actor.id,
+        );
+      }
+    }
+    return issue;
+  }
+
+  async setDevIssueApproval(
+    issueId: string,
+    approver: ActorRef,
+    decision: DevApprovalDecision | null,
+  ): Promise<DevIssue> {
+    const before = await this.getDevIssue(issueId);
+    if (!before) throw new Error("開発依頼が見つかりません");
+    // 自分の判定を入れ替える(取消は削除のみ)
+    const { error: delError } = await this.db
+      .from("dev_issue_approvals")
+      .delete()
+      .eq("issue_id", issueId)
+      .eq("approver_id", approver.id);
+    if (delError) throw delError;
+    if (decision) {
+      const { error: insError } = await this.db.from("dev_issue_approvals").insert({
+        issue_id: issueId,
+        approver_id: approver.id,
+        approver_name: approver.name,
+        decision,
+      });
+      if (insError) throw insError;
+    }
+    const { data: apRows, error: apError } = await this.db
+      .from("dev_issue_approvals")
+      .select("*")
+      .eq("issue_id", issueId);
+    if (apError) throw apError;
+    const execution = computeDevExecution(
+      (apRows ?? []).map((r: any) => r.decision as DevApprovalDecision),
+    );
+    const { data, error } = await this.db
+      .from("dev_issues")
+      .update({ execution })
+      .eq("id", issueId)
+      .select(DEV_ISSUE_SELECT)
+      .single();
+    if (error) throw error;
+    const issue = mapDevIssue(data);
+    if (issue.execution !== before.execution && issue.execution !== "undecided") {
+      await this.notifyDevIssue(
+        "issue_execution",
+        issue,
+        `#${issue.issueNumber}「${issue.title}」の実行有無が「${devIssueExecutionLabels[issue.execution]}」になりました`,
+        approver.id,
+      );
+    }
+    return issue;
+  }
+
+  // --- アプリ内通知 ---
+
+  async listNotifications(
+    userId: string,
+    opts?: { unreadOnly?: boolean; limit?: number },
+  ): Promise<AppNotification[]> {
+    let q = this.db
+      .from("notifications")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(opts?.limit ?? 50);
+    if (opts?.unreadOnly) q = q.eq("read", false);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []).map(mapNotification);
+  }
+
+  async countUnreadNotifications(userId: string): Promise<number> {
+    const { count, error } = await this.db
+      .from("notifications")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("read", false);
+    if (error) throw error;
+    return count ?? 0;
+  }
+
+  async markNotificationsRead(userId: string, ids?: string[]): Promise<void> {
+    let q = this.db.from("notifications").update({ read: true }).eq("user_id", userId);
+    if (ids && ids.length > 0) q = q.in("id", ids);
+    const { error } = await q;
+    if (error) throw error;
+  }
+
+  // --- アカウント(プロフィール) ---
+
+  async listUserProfiles(): Promise<UserProfile[]> {
+    const { data, error } = await this.db
+      .from("profiles")
+      .select("*")
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    // メールアドレスは auth.users 側にあるため、サービスロール時のみ突き合わせる
+    const emails = new Map<string, string>();
+    try {
+      const { data: usersData } = await this.db.auth.admin.listUsers({
+        page: 1,
+        perPage: 1000,
+      });
+      for (const u of usersData?.users ?? []) emails.set(u.id, u.email ?? "");
+    } catch {
+      // RLS クライアント(サービスロール未設定)では取得できない — 空欄表示にとどめる
+    }
+    return (data ?? []).map((r: any) => mapProfile(r, emails.get(r.id) ?? ""));
+  }
+
+  async updateUserRole(userId: string, role: Role): Promise<void> {
+    const { error } = await this.db.from("profiles").update({ role }).eq("id", userId);
+    if (error) throw error;
+  }
+
+  async createUserAccount(input: CreateAccountInput): Promise<UserProfile> {
+    // Supabase Auth のユーザー作成はサービスロールが必須
+    let created;
+    try {
+      created = await this.db.auth.admin.createUser({
+        email: input.email,
+        password: input.password,
+        email_confirm: true,
+        user_metadata: { full_name: input.name, role: input.role },
+      });
+    } catch (e) {
+      throw new Error(
+        "アカウント作成には SUPABASE_SERVICE_ROLE_KEY の設定が必要です: " + (e as Error).message,
+      );
+    }
+    if (created.error) throw new Error(created.error.message);
+    const user = created.data.user;
+    if (!user) throw new Error("アカウントの作成に失敗しました");
+    // トリガー(handle_new_user)で profiles は作成されるが、確実に反映する
+    const { data, error } = await this.db
+      .from("profiles")
+      .upsert({ id: user.id, full_name: input.name, role: input.role })
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapProfile(data, input.email);
+  }
+
+  /** 開発依頼イベントの通知を該当ユーザーへ配信(操作者本人は除外)。best-effort。 */
+  private async notifyDevIssue(
+    type: NotificationType,
+    issue: DevIssue,
+    message: string,
+    actorId: string,
+  ) {
+    try {
+      const { data: profRows, error } = await this.db.from("profiles").select("id, role");
+      if (error) throw error;
+      const recipients = devNotificationRecipients({
+        type,
+        profiles: (profRows ?? []).map((r: any) => ({ id: r.id, role: r.role as Role })),
+        requesterId: issue.requesterId,
+        actorId,
+      }).filter(isUuid); // notifications.user_id は uuid のため
+      if (recipients.length === 0) return;
+      await this.db.from("notifications").insert(
+        recipients.map((userId) => ({
+          user_id: userId,
+          type,
+          message,
+          issue_id: issue.id,
+        })),
+      );
+    } catch {
+      // 通知の失敗で本体の業務処理(依頼の登録・更新)を失敗させない
+    }
+  }
+}
+
+/** uuid 形式か(デモID等を uuid カラムへ入れないためのガード) */
+function isUuid(v: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 }

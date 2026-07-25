@@ -2,6 +2,7 @@ import type {
   Activity,
   Agency,
   AgencyMember,
+  AppNotification,
   BankTransaction,
   Contract,
   ContractEvent,
@@ -16,6 +17,11 @@ import type {
   Customer,
   CustomerStatus,
   DashboardMetrics,
+  DevApprovalDecision,
+  DevIssue,
+  DevIssueCategory,
+  DevIssuePriority,
+  DevIssueStatus,
   DirectDebitBatch,
   DirectDebitMandate,
   Invoice,
@@ -26,7 +32,9 @@ import type {
   PaymentMethod,
   Payment,
   Plan,
+  Role,
   Subscription,
+  UserProfile,
 } from "@/lib/domain/types";
 
 export interface InvoiceFilter {
@@ -246,6 +254,50 @@ export interface StripeSubscriptionInput {
   status: import("@/lib/domain/types").SubscriptionStatus;
 }
 
+/* ---- 開発依頼 / 進捗管理 ---- */
+
+/** 操作者(通知の発信元除外・記録に使用) */
+export interface ActorRef {
+  id: string;
+  name: string;
+}
+
+export interface DevIssueFilter {
+  status?: DevIssueStatus | "all";
+  category?: DevIssueCategory | "all";
+  priority?: DevIssuePriority | "all";
+  search?: string;
+}
+
+/** 新規依頼。記載日・依頼者はアカウントから自動記録する。 */
+export interface DevIssueInput {
+  title: string;
+  detail?: string;
+  category: DevIssueCategory;
+  priority?: DevIssuePriority;
+  requester: ActorRef;
+}
+
+/** 更新(エンジニア入力欄 + 依頼内容の編集)。undefined の項目は変更しない。 */
+export interface DevIssueUpdateInput {
+  title?: string;
+  detail?: string;
+  category?: DevIssueCategory;
+  priority?: DevIssuePriority;
+  status?: DevIssueStatus;
+  scheduledDate?: string | null;
+  completedDate?: string | null;
+  devNote?: string;
+}
+
+/** アカウント作成(全体管理者のみ)。本番は Supabase Auth のユーザーも作成する。 */
+export interface CreateAccountInput {
+  email: string;
+  password: string;
+  name: string;
+  role: Role;
+}
+
 /**
  * データアクセス契約。デモ(インメモリ) / Supabase の双方が実装する。
  * サーバーコンポーネント・サーバーアクションからのみ呼び出す。
@@ -398,6 +450,42 @@ export interface Repository {
   markStripeSubscriptionCanceled(stripeSubscriptionId: string): Promise<void>;
   /** Stripe請求書を同期(externalId で冪等)。作成した Invoice、既存なら null */
   recordStripeInvoice(input: StripeInvoiceInput): Promise<Invoice | null>;
+
+  // --- 開発依頼 / 進捗管理 ---
+  listDevIssues(filter?: DevIssueFilter): Promise<DevIssue[]>;
+  getDevIssue(id: string): Promise<DevIssue | null>;
+  /** 依頼を登録し、管理者・エンジニアへ通知する。 */
+  createDevIssue(input: DevIssueInput): Promise<DevIssue>;
+  /**
+   * 依頼の更新(ステータス・完了予定日・完了日・開発対応内容・依頼内容)。
+   * 対応完了/追加ヒアリングへの変更時は関係者へ通知する。
+   */
+  updateDevIssue(id: string, input: DevIssueUpdateInput, actor: ActorRef): Promise<DevIssue>;
+  /**
+   * プロダクト管理者の実行判定。decision=null で自分の判定を取り消す。
+   * 承諾2名 → 実行 / 停止1名 → 実行なし に execution を再計算し、
+   * 判定が確定(実行/実行なし)したら依頼者・エンジニアへ通知する。
+   */
+  setDevIssueApproval(
+    issueId: string,
+    approver: ActorRef,
+    decision: DevApprovalDecision | null,
+  ): Promise<DevIssue>;
+
+  // --- アプリ内通知 ---
+  listNotifications(
+    userId: string,
+    opts?: { unreadOnly?: boolean; limit?: number },
+  ): Promise<AppNotification[]>;
+  countUnreadNotifications(userId: string): Promise<number>;
+  /** ids 省略時は該当ユーザーの全通知を既読にする。 */
+  markNotificationsRead(userId: string, ids?: string[]): Promise<void>;
+
+  // --- アカウント(プロフィール) ---
+  listUserProfiles(): Promise<UserProfile[]>;
+  updateUserRole(userId: string, role: Role): Promise<void>;
+  /** アカウント作成(本番: Supabase Auth ユーザー + profiles)。 */
+  createUserAccount(input: CreateAccountInput): Promise<UserProfile>;
 }
 
 // re-export で利用側の import を簡潔に

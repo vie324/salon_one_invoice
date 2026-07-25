@@ -8,12 +8,18 @@ import {
   nextInvoiceNumber,
   subscriptionItems,
 } from "@/lib/domain/calculations";
-import { CONTRACT_CODE_MAX_ATTEMPTS } from "@/lib/domain/constants";
+import {
+  CONTRACT_CODE_MAX_ATTEMPTS,
+  computeDevExecution,
+  devIssueExecutionLabels,
+  devNotificationRecipients,
+} from "@/lib/domain/constants";
 import { computeDashboardMetrics } from "@/lib/domain/metrics";
 import type {
   Activity,
   Agency,
   AgencyMember,
+  AppNotification,
   BankTransaction,
   Contract,
   ContractEvent,
@@ -22,19 +28,25 @@ import type {
   Customer,
   CustomerStatus,
   DashboardMetrics,
+  DevApprovalDecision,
+  DevIssue,
   DirectDebitBatch,
   DirectDebitMandate,
   Invoice,
   InvoiceItem,
   InvoiceStatus,
   InvoiceWithCustomer,
+  NotificationType,
   Organization,
   Payment,
   Plan,
+  Role,
   Subscription,
+  UserProfile,
 } from "@/lib/domain/types";
 import { genId, toISODate } from "@/lib/utils";
 import type {
+  ActorRef,
   AgencyInput,
   AgencyMemberInput,
   BankRowInput,
@@ -45,7 +57,11 @@ import type {
   ContractSendParams,
   ContractSignParams,
   ContractTemplateInput,
+  CreateAccountInput,
   CustomerInput,
+  DevIssueFilter,
+  DevIssueInput,
+  DevIssueUpdateInput,
   InvoiceFilter,
   InvoiceInput,
   MandateInput,
@@ -1318,6 +1334,218 @@ export class DemoRepository implements Repository {
       linkInvoiceId: inv.id,
     });
     return inv;
+  }
+
+  // --- 開発依頼 / 進捗管理 ---
+
+  async listDevIssues(filter?: DevIssueFilter): Promise<DevIssue[]> {
+    let list = [...this.s.devIssues];
+    if (filter?.status && filter.status !== "all") {
+      list = list.filter((i) => i.status === filter.status);
+    }
+    if (filter?.category && filter.category !== "all") {
+      list = list.filter((i) => i.category === filter.category);
+    }
+    if (filter?.priority && filter.priority !== "all") {
+      list = list.filter((i) => i.priority === filter.priority);
+    }
+    if (filter?.search) {
+      const q = filter.search.toLowerCase();
+      list = list.filter(
+        (i) =>
+          i.title.toLowerCase().includes(q) ||
+          i.detail.toLowerCase().includes(q) ||
+          i.devNote.toLowerCase().includes(q) ||
+          i.requesterName.toLowerCase().includes(q) ||
+          `#${i.issueNumber}` === q,
+      );
+    }
+    return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async getDevIssue(id: string): Promise<DevIssue | null> {
+    return this.s.devIssues.find((i) => i.id === id) ?? null;
+  }
+
+  async createDevIssue(input: DevIssueInput): Promise<DevIssue> {
+    const now = new Date().toISOString();
+    const issue: DevIssue = {
+      id: genId("dvi"),
+      issueNumber: ++this.s.devIssueSeq,
+      title: input.title,
+      detail: input.detail ?? "",
+      category: input.category,
+      priority: input.priority ?? "medium",
+      status: "open",
+      execution: "undecided",
+      requesterId: input.requester.id,
+      requesterName: input.requester.name,
+      scheduledDate: null,
+      completedDate: null,
+      devNote: "",
+      approvals: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.s.devIssues.unshift(issue);
+    this.notifyDevIssue(
+      "issue_created",
+      issue,
+      `${input.requester.name} さんが #${issue.issueNumber}「${issue.title}」を登録しました`,
+      input.requester.id,
+    );
+    return issue;
+  }
+
+  async updateDevIssue(
+    id: string,
+    input: DevIssueUpdateInput,
+    actor: ActorRef,
+  ): Promise<DevIssue> {
+    const issue = this.s.devIssues.find((i) => i.id === id);
+    if (!issue) throw new Error("開発依頼が見つかりません");
+    const prevStatus = issue.status;
+    if (input.title !== undefined) issue.title = input.title;
+    if (input.detail !== undefined) issue.detail = input.detail;
+    if (input.category !== undefined) issue.category = input.category;
+    if (input.priority !== undefined) issue.priority = input.priority;
+    if (input.status !== undefined) issue.status = input.status;
+    if (input.scheduledDate !== undefined) issue.scheduledDate = input.scheduledDate;
+    if (input.completedDate !== undefined) issue.completedDate = input.completedDate;
+    if (input.devNote !== undefined) issue.devNote = input.devNote;
+    // 対応完了にした場合、完了日が未入力なら当日を補完する
+    if (issue.status === "done" && !issue.completedDate) {
+      issue.completedDate = toISODate(new Date());
+    }
+    issue.updatedAt = new Date().toISOString();
+    if (issue.status !== prevStatus) {
+      if (issue.status === "done") {
+        this.notifyDevIssue(
+          "issue_done",
+          issue,
+          `#${issue.issueNumber}「${issue.title}」が対応完了になりました（${actor.name}）`,
+          actor.id,
+        );
+      } else if (issue.status === "hearing") {
+        this.notifyDevIssue(
+          "issue_hearing",
+          issue,
+          `#${issue.issueNumber}「${issue.title}」に追加ヒアリングがあります（${actor.name}）`,
+          actor.id,
+        );
+      }
+    }
+    return issue;
+  }
+
+  async setDevIssueApproval(
+    issueId: string,
+    approver: ActorRef,
+    decision: DevApprovalDecision | null,
+  ): Promise<DevIssue> {
+    const issue = this.s.devIssues.find((i) => i.id === issueId);
+    if (!issue) throw new Error("開発依頼が見つかりません");
+    issue.approvals = issue.approvals.filter((a) => a.approverId !== approver.id);
+    if (decision) {
+      issue.approvals.push({
+        id: genId("apv"),
+        issueId: issue.id,
+        approverId: approver.id,
+        approverName: approver.name,
+        decision,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    const prev = issue.execution;
+    issue.execution = computeDevExecution(issue.approvals.map((a) => a.decision));
+    issue.updatedAt = new Date().toISOString();
+    if (issue.execution !== prev && issue.execution !== "undecided") {
+      this.notifyDevIssue(
+        "issue_execution",
+        issue,
+        `#${issue.issueNumber}「${issue.title}」の実行有無が「${devIssueExecutionLabels[issue.execution]}」になりました`,
+        approver.id,
+      );
+    }
+    return issue;
+  }
+
+  // --- アプリ内通知 ---
+
+  async listNotifications(
+    userId: string,
+    opts?: { unreadOnly?: boolean; limit?: number },
+  ): Promise<AppNotification[]> {
+    let list = this.s.notifications.filter((n) => n.userId === userId);
+    if (opts?.unreadOnly) list = list.filter((n) => !n.read);
+    list = list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return list.slice(0, opts?.limit ?? 50);
+  }
+
+  async countUnreadNotifications(userId: string): Promise<number> {
+    return this.s.notifications.filter((n) => n.userId === userId && !n.read).length;
+  }
+
+  async markNotificationsRead(userId: string, ids?: string[]): Promise<void> {
+    for (const n of this.s.notifications) {
+      if (n.userId !== userId) continue;
+      if (ids && !ids.includes(n.id)) continue;
+      n.read = true;
+    }
+  }
+
+  // --- アカウント(プロフィール) ---
+
+  async listUserProfiles(): Promise<UserProfile[]> {
+    return [...this.s.profiles];
+  }
+
+  async updateUserRole(userId: string, role: Role): Promise<void> {
+    const p = this.s.profiles.find((x) => x.id === userId);
+    if (!p) throw new Error("アカウントが見つかりません");
+    p.role = role;
+  }
+
+  async createUserAccount(input: CreateAccountInput): Promise<UserProfile> {
+    if (this.s.profiles.some((p) => p.email === input.email)) {
+      throw new Error("同じメールアドレスのアカウントが既に存在します");
+    }
+    const profile: UserProfile = {
+      id: genId("usr"),
+      name: input.name,
+      email: input.email,
+      role: input.role,
+      createdAt: new Date().toISOString(),
+    };
+    this.s.profiles.push(profile);
+    return profile;
+  }
+
+  /** 開発依頼イベントの通知を該当ユーザーへ配信(操作者本人は除外) */
+  private notifyDevIssue(
+    type: NotificationType,
+    issue: DevIssue,
+    message: string,
+    actorId: string,
+  ) {
+    const recipients = devNotificationRecipients({
+      type,
+      profiles: this.s.profiles,
+      requesterId: issue.requesterId,
+      actorId,
+    });
+    const now = new Date().toISOString();
+    for (const userId of recipients) {
+      this.s.notifications.unshift({
+        id: genId("ntf"),
+        userId,
+        type,
+        message,
+        issueId: issue.id,
+        read: false,
+        createdAt: now,
+      });
+    }
   }
 
   private addActivity(a: {

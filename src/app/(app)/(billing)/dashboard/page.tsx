@@ -14,6 +14,7 @@ import {
 import Link from "next/link";
 import { DonutChart, type DonutSlice } from "@/components/charts/donut-chart";
 import { RevenueChart } from "@/components/charts/revenue-chart";
+import { CompletionBanner } from "@/components/notifications/completion-banner";
 import { InvoiceStatusBadge } from "@/components/status-badge";
 import { buttonClasses } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -63,6 +64,9 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* エラー対応完了などのお知らせ(未読があるあいだトップに表示) */}
+      <CompletionBanner />
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-bold tracking-tight sm:text-2xl">

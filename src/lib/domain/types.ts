@@ -3,7 +3,14 @@
  * DB(Supabase) / デモ(インメモリ) 双方で共通の形。
  */
 
-export type Role = "owner" | "staff" | "admin";
+/**
+ * アカウント種別。
+ * - admin:   全体管理者(請求管理・開発進捗の両方 + アカウント管理・実行承認)
+ * - billing: 請求管理のみ
+ * - dev:     開発進捗のみ(エンジニア)
+ * - owner/staff: 旧ロール(後方互換)。owner=全体管理者相当 / staff=請求管理相当。
+ */
+export type Role = "admin" | "billing" | "dev" | "owner" | "staff";
 
 export type PaymentMethod =
   | "direct_debit" // 口座振替(引き落とし)
@@ -476,4 +483,97 @@ export interface DashboardMetrics {
 /* 一覧に顧客名などを添えた表示用の複合型 */
 export interface InvoiceWithCustomer extends Invoice {
   customer: Customer;
+}
+
+/* ---- 開発依頼 / 進捗管理 (Salon One 開発対応表) ---- */
+
+/** 分類: 不具合 / 要望 */
+export type DevIssueCategory = "bug" | "request";
+
+/** 優先度: 高 / 中 / 低 */
+export type DevIssuePriority = "high" | "medium" | "low";
+
+/**
+ * ステータス。
+ * open(未対応) → in_progress(対応中) → done(対応完了)。
+ * hearing(追加ヒアリング) はエンジニアが依頼者へ追加確認したい場合。
+ */
+export type DevIssueStatus = "open" | "in_progress" | "hearing" | "done";
+
+/**
+ * 実行有無(要望の実行判定)。
+ * プロダクト管理者(全体管理者)2名が承諾 → approved(実行)。
+ * どちらか1名でも停止 → rejected(実行なし)。それまでは undecided(未定)。
+ */
+export type DevIssueExecution = "undecided" | "approved" | "rejected";
+
+/** プロダクト管理者の個別判定 */
+export type DevApprovalDecision = "approve" | "reject";
+
+export interface DevIssueApproval {
+  id: string;
+  issueId: string;
+  approverId: string;
+  approverName: string;
+  decision: DevApprovalDecision;
+  createdAt: string;
+}
+
+/** 開発依頼(不具合報告・機能要望)。スプレッドシートの1行に相当する。 */
+export interface DevIssue {
+  id: string;
+  /** 表示用の連番 (#12) */
+  issueNumber: number;
+  /** 課題名 */
+  title: string;
+  /** 詳細(修正や不具合の中身) */
+  detail: string;
+  category: DevIssueCategory;
+  priority: DevIssuePriority;
+  status: DevIssueStatus;
+  /** 実行有無(承認状況から導出した結果を保存) */
+  execution: DevIssueExecution;
+  /** 依頼者(入力したアカウント) */
+  requesterId: string;
+  requesterName: string;
+  /** 対応完了予定日(エンジニアが入力) */
+  scheduledDate: string | null;
+  /** 対応完了日(エンジニアが入力) */
+  completedDate: string | null;
+  /** 開発対応内容(エンジニアの追記) */
+  devNote: string;
+  /** プロダクト管理者の実行判定(要望のみ使用) */
+  approvals: DevIssueApproval[];
+  /** 記載日 */
+  createdAt: string;
+  updatedAt: string;
+}
+
+/* ---- アプリ内通知 ---- */
+
+export type NotificationType =
+  | "issue_created" // 新しい開発依頼
+  | "issue_done" // 対応完了
+  | "issue_hearing" // 追加ヒアリング(依頼者への確認)
+  | "issue_execution"; // 実行有無の判定確定
+
+export interface AppNotification {
+  id: string;
+  /** 受信者(profiles.id / デモユーザーID) */
+  userId: string;
+  type: NotificationType;
+  message: string;
+  issueId: string | null;
+  read: boolean;
+  createdAt: string;
+}
+
+/* ---- アカウント(プロフィール) ---- */
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  createdAt: string;
 }
