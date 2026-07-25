@@ -9,6 +9,7 @@ import type {
   ContractTemplate,
   Customer,
   DevIssue,
+  DevIssueAttachment,
   DirectDebitBatch,
   DirectDebitMandate,
   Invoice,
@@ -38,6 +39,7 @@ export interface DataStore {
   agencyMembers: AgencyMember[];
   profiles: UserProfile[];
   devIssues: DevIssue[];
+  devIssueAttachments: DevIssueAttachment[];
   notifications: AppNotification[];
   /** 開発依頼の連番採番 (#1 から) */
   devIssueSeq: number;
@@ -178,6 +180,7 @@ export function buildSeed(): DataStore {
     // デモアカウントはマスタ扱いで投入(開発依頼・通知は空から開始)
     profiles: DEMO_PROFILES.map((p) => ({ ...p })),
     devIssues: [],
+    devIssueAttachments: [],
     notifications: [],
     devIssueSeq: 0,
   };

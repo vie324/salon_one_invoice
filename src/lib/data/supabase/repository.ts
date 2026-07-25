@@ -34,6 +34,7 @@ import type {
   DevApprovalDecision,
   DevIssue,
   DevIssueApproval,
+  DevIssueAttachment,
   DirectDebitBatch,
   DirectDebitMandate,
   Invoice,
@@ -63,6 +64,7 @@ import type {
   ContractTemplateInput,
   CreateAccountInput,
   CustomerInput,
+  DevIssueAttachmentInput,
   DevIssueFilter,
   DevIssueInput,
   DevIssueUpdateInput,
@@ -451,6 +453,23 @@ function mapProfile(r: any, email = ""): UserProfile {
 const INVOICE_SELECT = "*, invoice_items(*)";
 const CONTRACT_SELECT = "*, customer:customers(*)";
 const DEV_ISSUE_SELECT = "*, dev_issue_approvals(*)";
+const ATTACHMENT_BUCKET = "dev-issue-attachments";
+/** 署名付きURLの有効期限(秒)。ページは都度サーバー描画のため1時間で十分 */
+const ATTACHMENT_URL_TTL = 3600;
+
+function mapAttachment(r: any, url: string): DevIssueAttachment {
+  return {
+    id: r.id,
+    issueId: r.issue_id,
+    fileName: r.file_name ?? "",
+    contentType: r.content_type ?? "image/png",
+    url,
+    kind: r.kind === "mock" ? "mock" : "screenshot",
+    uploadedById: r.uploaded_by_id ?? "",
+    uploadedByName: r.uploaded_by_name ?? "",
+    createdAt: r.created_at,
+  };
+}
 
 /** Supabase(Postgres) 実装。RLS 適用のクライアントを受け取る。 */
 export class SupabaseRepository implements Repository {
@@ -2339,6 +2358,129 @@ export class SupabaseRepository implements Repository {
       );
     }
     return issue;
+  }
+
+  // --- 開発依頼の添付画像 (Supabase Storage) ---
+
+  /** バケットが無ければ作成(マイグレーションで作成済みなら何もしない) */
+  private attachmentBucketReady = false;
+  private async ensureAttachmentBucket(): Promise<void> {
+    if (this.attachmentBucketReady) return;
+    try {
+      const { error } = await this.db.storage.createBucket(ATTACHMENT_BUCKET, {
+        public: false,
+      });
+      // 既存(重複)エラーは成功扱い
+      if (error && !/already exists|duplicate/i.test(error.message)) throw error;
+      this.attachmentBucketReady = true;
+    } catch (e) {
+      const msg = (e as Error).message ?? "";
+      if (/already exists|duplicate/i.test(msg)) {
+        this.attachmentBucketReady = true;
+        return;
+      }
+      throw new Error(
+        "添付画像の保存先(Storageバケット)を作成できませんでした。" +
+          "SUPABASE_SERVICE_ROLE_KEY の設定を確認してください: " + msg,
+      );
+    }
+  }
+
+  async listDevIssueAttachments(issueId: string): Promise<DevIssueAttachment[]> {
+    const { data, error } = await this.db
+      .from("dev_issue_attachments")
+      .select("*")
+      .eq("issue_id", issueId)
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    const rows = data ?? [];
+    if (rows.length === 0) return [];
+    const { data: signed, error: signError } = await this.db.storage
+      .from(ATTACHMENT_BUCKET)
+      .createSignedUrls(rows.map((r: any) => r.storage_path), ATTACHMENT_URL_TTL);
+    if (signError) throw signError;
+    const urlByPath = new Map<string, string>();
+    for (const s of signed ?? []) {
+      if (s.path && s.signedUrl) urlByPath.set(s.path, s.signedUrl);
+    }
+    return rows.map((r: any) => mapAttachment(r, urlByPath.get(r.storage_path) ?? ""));
+  }
+
+  async addDevIssueAttachment(
+    issueId: string,
+    input: DevIssueAttachmentInput,
+  ): Promise<DevIssueAttachment> {
+    const match = /^data:([^;,]+);base64,(.+)$/s.exec(input.dataUrl);
+    if (!match) throw new Error("画像データの形式が不正です");
+    const contentType = input.contentType || match[1];
+    const bytes = Buffer.from(match[2], "base64");
+    if (bytes.byteLength > 6 * 1024 * 1024) {
+      throw new Error("画像が大きすぎます(6MBまで)。縮小して再度お試しください");
+    }
+    await this.ensureAttachmentBucket();
+    const id = genId("att");
+    const ext = contentType === "image/jpeg" ? "jpg" : contentType === "image/webp" ? "webp" : "png";
+    const path = `${issueId}/${id}.${ext}`;
+    const { error: upError } = await this.db.storage
+      .from(ATTACHMENT_BUCKET)
+      .upload(path, bytes, { contentType, upsert: false });
+    if (upError) throw new Error("画像のアップロードに失敗しました: " + upError.message);
+    const { data, error } = await this.db
+      .from("dev_issue_attachments")
+      .insert({
+        issue_id: issueId,
+        file_name: input.fileName,
+        content_type: contentType,
+        storage_path: path,
+        kind: input.kind,
+        uploaded_by_id: isUuid(input.uploadedBy.id) ? input.uploadedBy.id : null,
+        uploaded_by_name: input.uploadedBy.name,
+      })
+      .select("*")
+      .single();
+    if (error) {
+      // メタデータ登録に失敗したら実体も掃除して再送可能にする
+      await this.db.storage.from(ATTACHMENT_BUCKET).remove([path]);
+      throw error;
+    }
+    const { data: signed } = await this.db.storage
+      .from(ATTACHMENT_BUCKET)
+      .createSignedUrl(path, ATTACHMENT_URL_TTL);
+    const att = mapAttachment(data, signed?.signedUrl ?? "");
+    // 削除権限の判定にはデモID等も使うため元の値を保持
+    att.uploadedById = input.uploadedBy.id;
+    return att;
+  }
+
+  async getDevIssueAttachment(id: string): Promise<DevIssueAttachment | null> {
+    const { data, error } = await this.db
+      .from("dev_issue_attachments")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    const { data: signed } = await this.db.storage
+      .from(ATTACHMENT_BUCKET)
+      .createSignedUrl(data.storage_path, ATTACHMENT_URL_TTL);
+    return mapAttachment(data, signed?.signedUrl ?? "");
+  }
+
+  async deleteDevIssueAttachment(id: string): Promise<void> {
+    const { data, error } = await this.db
+      .from("dev_issue_attachments")
+      .select("id, storage_path")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("添付画像が見つかりません");
+    const { error: delError } = await this.db
+      .from("dev_issue_attachments")
+      .delete()
+      .eq("id", id);
+    if (delError) throw delError;
+    // 実体の削除は best-effort(メタデータが消えていれば表示されない)
+    await this.db.storage.from(ATTACHMENT_BUCKET).remove([data.storage_path]);
   }
 
   // --- アプリ内通知 ---

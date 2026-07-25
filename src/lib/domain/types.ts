@@ -549,6 +549,24 @@ export interface DevIssue {
   updatedAt: string;
 }
 
+/**
+ * 開発依頼の添付画像(スクリーンショット・注釈入り画像・AIモック)。
+ * デモは data URL、本番は Supabase Storage(表示は署名付きURL)。
+ */
+export interface DevIssueAttachment {
+  id: string;
+  issueId: string;
+  fileName: string;
+  contentType: string;
+  /** 表示用URL(デモ: data URL / 本番: 署名付きURL・約1時間有効) */
+  url: string;
+  /** 添付の種類: screenshot(スクショ等) / mock(AI生成モック) */
+  kind: "screenshot" | "mock";
+  uploadedById: string;
+  uploadedByName: string;
+  createdAt: string;
+}
+
 /* ---- アプリ内通知 ---- */
 
 export type NotificationType =

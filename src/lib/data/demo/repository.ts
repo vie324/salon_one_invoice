@@ -30,6 +30,7 @@ import type {
   DashboardMetrics,
   DevApprovalDecision,
   DevIssue,
+  DevIssueAttachment,
   DirectDebitBatch,
   DirectDebitMandate,
   Invoice,
@@ -59,6 +60,7 @@ import type {
   ContractTemplateInput,
   CreateAccountInput,
   CustomerInput,
+  DevIssueAttachmentInput,
   DevIssueFilter,
   DevIssueInput,
   DevIssueUpdateInput,
@@ -1468,6 +1470,45 @@ export class DemoRepository implements Repository {
       );
     }
     return issue;
+  }
+
+  // --- 開発依頼の添付画像 ---
+
+  async listDevIssueAttachments(issueId: string): Promise<DevIssueAttachment[]> {
+    return this.s.devIssueAttachments
+      .filter((a) => a.issueId === issueId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async addDevIssueAttachment(
+    issueId: string,
+    input: DevIssueAttachmentInput,
+  ): Promise<DevIssueAttachment> {
+    const issue = this.s.devIssues.find((i) => i.id === issueId);
+    if (!issue) throw new Error("開発依頼が見つかりません");
+    const attachment: DevIssueAttachment = {
+      id: genId("att"),
+      issueId,
+      fileName: input.fileName,
+      contentType: input.contentType,
+      url: input.dataUrl,
+      kind: input.kind,
+      uploadedById: input.uploadedBy.id,
+      uploadedByName: input.uploadedBy.name,
+      createdAt: new Date().toISOString(),
+    };
+    this.s.devIssueAttachments.push(attachment);
+    return attachment;
+  }
+
+  async getDevIssueAttachment(id: string): Promise<DevIssueAttachment | null> {
+    return this.s.devIssueAttachments.find((a) => a.id === id) ?? null;
+  }
+
+  async deleteDevIssueAttachment(id: string): Promise<void> {
+    const idx = this.s.devIssueAttachments.findIndex((a) => a.id === id);
+    if (idx < 0) throw new Error("添付画像が見つかりません");
+    this.s.devIssueAttachments.splice(idx, 1);
   }
 
   // --- アプリ内通知 ---

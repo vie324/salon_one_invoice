@@ -35,3 +35,7 @@ export const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
 /** 定期請求の自動生成時に請求書メールも自動送付するか(既定: 有効) */
 export const invoiceAutoEmail =
   (process.env.INVOICE_AUTO_EMAIL ?? "true").toLowerCase() !== "false";
+
+/** AIモック生成(Claude API)。未設定時はデモ用サンプル生成のみ */
+export const anthropicApiKey = process.env.ANTHROPIC_API_KEY ?? "";
+export const anthropicModel = process.env.ANTHROPIC_MODEL ?? "claude-opus-5";

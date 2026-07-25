@@ -19,6 +19,7 @@ import type {
   DashboardMetrics,
   DevApprovalDecision,
   DevIssue,
+  DevIssueAttachment,
   DevIssueCategory,
   DevIssuePriority,
   DevIssueStatus,
@@ -298,6 +299,15 @@ export interface CreateAccountInput {
   role: Role;
 }
 
+/** 添付画像の追加。dataUrl は data:image/...;base64,xxx 形式。 */
+export interface DevIssueAttachmentInput {
+  fileName: string;
+  contentType: string;
+  dataUrl: string;
+  kind: import("@/lib/domain/types").DevIssueAttachment["kind"];
+  uploadedBy: ActorRef;
+}
+
 /**
  * データアクセス契約。デモ(インメモリ) / Supabase の双方が実装する。
  * サーバーコンポーネント・サーバーアクションからのみ呼び出す。
@@ -471,6 +481,15 @@ export interface Repository {
     approver: ActorRef,
     decision: DevApprovalDecision | null,
   ): Promise<DevIssue>;
+
+  // --- 開発依頼の添付画像 ---
+  listDevIssueAttachments(issueId: string): Promise<DevIssueAttachment[]>;
+  addDevIssueAttachment(
+    issueId: string,
+    input: DevIssueAttachmentInput,
+  ): Promise<DevIssueAttachment>;
+  getDevIssueAttachment(id: string): Promise<DevIssueAttachment | null>;
+  deleteDevIssueAttachment(id: string): Promise<void>;
 
   // --- アプリ内通知 ---
   listNotifications(

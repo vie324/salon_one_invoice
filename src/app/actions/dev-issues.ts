@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { generateMockSpec } from "@/lib/ai/mock";
 import { getCurrentUser } from "@/lib/auth";
 import { getServiceRepository } from "@/lib/data";
 import type { DevIssueUpdateInput } from "@/lib/data/repository";
@@ -70,6 +71,73 @@ export async function updateDevIssueAction(id: string, input: DevIssueUpdateInpu
     }
     await repo.updateDevIssue(id, input, { id: user.id, name: user.name });
     revalidateDev(id);
+    return { ok: true as const };
+  } catch (e) {
+    return { ok: false as const, error: (e as Error).message };
+  }
+}
+
+/**
+ * 添付画像の追加(スクリーンショット・注釈入り画像・AIモック)。
+ * dataUrl はクライアント側で縮小済みの data:image/... を想定。
+ */
+export async function addDevIssueAttachmentAction(
+  issueId: string,
+  input: { fileName: string; contentType: string; dataUrl: string; kind: "screenshot" | "mock" },
+) {
+  try {
+    const user = await getCurrentUser();
+    if (!canAccessDev(user.role)) throw new Error("開発進捗へのアクセス権限がありません");
+    if (!/^data:image\/(png|jpeg|webp);base64,/.test(input.dataUrl)) {
+      throw new Error("対応していない画像形式です(PNG/JPEG/WebP)");
+    }
+    const repo = await getServiceRepository();
+    const attachment = await repo.addDevIssueAttachment(issueId, {
+      fileName: input.fileName || "image.png",
+      contentType: input.contentType,
+      dataUrl: input.dataUrl,
+      kind: input.kind,
+      uploadedBy: { id: user.id, name: user.name },
+    });
+    revalidatePath(`/dev/${issueId}`);
+    return { ok: true as const, id: attachment.id };
+  } catch (e) {
+    return { ok: false as const, error: (e as Error).message };
+  }
+}
+
+/**
+ * AIモック(ワイヤーフレーム定義)の生成。
+ * 消費を抑えるため軽量なレイアウトJSONのみ生成し、画像化はブラウザ側で行う。
+ */
+export async function generateUiMockAction(
+  description: string,
+  device: "mobile" | "desktop",
+) {
+  try {
+    const user = await getCurrentUser();
+    if (!canAccessDev(user.role)) throw new Error("開発進捗へのアクセス権限がありません");
+    if (!description.trim()) throw new Error("どんな画面にしたいか入力してください");
+    const { spec, sample } = await generateMockSpec(description.trim(), device);
+    return { ok: true as const, spec, sample };
+  } catch (e) {
+    return { ok: false as const, error: (e as Error).message };
+  }
+}
+
+/** 添付画像の削除(アップロードした本人または全体管理者)。 */
+export async function deleteDevIssueAttachmentAction(id: string) {
+  try {
+    const user = await getCurrentUser();
+    if (!canAccessDev(user.role)) throw new Error("開発進捗へのアクセス権限がありません");
+    const repo = await getServiceRepository();
+    const attachment = await repo.getDevIssueAttachment(id);
+    if (!attachment) throw new Error("添付画像が見つかりません");
+    if (attachment.uploadedById !== user.id && !isProductAdmin(user.role)) {
+      throw new Error("削除はアップロードした本人または全体管理者のみ可能です");
+    }
+    await repo.deleteDevIssueAttachment(id);
+    revalidatePath(`/dev/${attachment.issueId}`);
     return { ok: true as const };
   } catch (e) {
     return { ok: false as const, error: (e as Error).message };
