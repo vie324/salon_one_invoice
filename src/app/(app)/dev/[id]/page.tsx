@@ -1,6 +1,7 @@
 import { ArrowLeft, CalendarCheck, CalendarClock, User } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AttachmentsPanel } from "@/components/dev/attachments-panel";
 import {
   DevIssueCategoryBadge,
   DevIssueExecutionBadge,
@@ -17,6 +18,8 @@ import { ApprovalPanel, EngineerForm, RequestEditForm } from "./issue-detail-cli
 export const metadata = { title: "開発依頼の詳細" };
 
 export const dynamic = "force-dynamic";
+// AIモック生成(Claude API 呼び出し)が10秒を超えることがあるため延長
+export const maxDuration = 60;
 
 export default async function DevIssueDetailPage({
   params,
@@ -27,6 +30,7 @@ export default async function DevIssueDetailPage({
   const [user, repo] = await Promise.all([getCurrentUser(), getServiceRepository()]);
   const issue = await repo.getDevIssue(id);
   if (!issue) notFound();
+  const attachments = await repo.listDevIssueAttachments(issue.id);
 
   const admin = isProductAdmin(user.role);
   const canEditRequest = admin || issue.requesterId === user.id;
@@ -85,6 +89,14 @@ export default async function DevIssueDetailPage({
               )}
             </CardContent>
           </Card>
+
+          <AttachmentsPanel
+            issueId={issue.id}
+            issueTitle={issue.title}
+            attachments={attachments}
+            currentUserId={user.id}
+            isAdmin={admin}
+          />
 
           {canEditRequest && (
             <RequestEditForm
