@@ -149,6 +149,8 @@ export default async function DevIssueDetailPage({
             <ApprovalPanel
               issueId={issue.id}
               execution={issue.execution}
+              executionSetByName={issue.executionSetByName}
+              executionSetAt={issue.executionSetAt}
               approvals={issue.approvals}
               currentUserId={user.id}
               isAdmin={admin}

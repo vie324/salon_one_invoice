@@ -2,8 +2,11 @@
 
 /**
  * 画像のクライアント側ユーティリティ。
- * アップロード前の縮小(通信・保存量の削減)と、SVG→PNG 変換(AIモックの画像化)。
+ * アップロード前の縮小(通信・保存量の削減)、ドラッグ&ドロップ/貼り付けの取り込み、
+ * SVG→PNG 変換(AIモックの画像化)。
  */
+
+import * as React from "react";
 
 /** 添付画像の長辺の上限(px)。スクショの文字が読める範囲で縮小する */
 export const MAX_IMAGE_DIMENSION = 1600;
@@ -53,6 +56,64 @@ export function imageFilesFromClipboard(e: ClipboardEvent): File[] {
     }
   }
   return files;
+}
+
+/** ドラッグ&ドロップから画像ファイルを取り出す */
+export function imageFilesFromDrop(e: React.DragEvent): File[] {
+  const dt = e.dataTransfer;
+  if (!dt) return [];
+  const files = Array.from(dt.files ?? []).filter((f) => f.type.startsWith("image/"));
+  if (files.length > 0) return files;
+  // 一部のブラウザ/ドラッグ元は items 側にしか入らない
+  return Array.from(dt.items ?? [])
+    .filter((i) => i.kind === "file" && i.type.startsWith("image/"))
+    .map((i) => i.getAsFile())
+    .filter((f): f is File => f !== null);
+}
+
+/**
+ * 画像のドラッグ&ドロップ受け口。
+ * 返り値の dropProps を要素に展開すると、その領域へ画像をドロップして取り込める。
+ * dragging はドロップ可能な状態のハイライト表示に使う。
+ */
+export function useImageDropzone(onFiles: (files: File[]) => void) {
+  const [dragging, setDragging] = React.useState(false);
+  // dragenter/leave は子要素をまたぐたびに発火するため、深さで判定する
+  const depth = React.useRef(0);
+
+  const hasImage = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer?.types ?? []).includes("Files");
+
+  const dropProps = {
+    onDragEnter: (e: React.DragEvent) => {
+      if (!hasImage(e)) return;
+      e.preventDefault();
+      depth.current += 1;
+      setDragging(true);
+    },
+    onDragOver: (e: React.DragEvent) => {
+      if (!hasImage(e)) return;
+      // preventDefault しないとブラウザが画像を開いてしまう
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (!hasImage(e)) return;
+      e.preventDefault();
+      depth.current = Math.max(0, depth.current - 1);
+      if (depth.current === 0) setDragging(false);
+    },
+    onDrop: (e: React.DragEvent) => {
+      if (!hasImage(e)) return;
+      e.preventDefault();
+      depth.current = 0;
+      setDragging(false);
+      const files = imageFilesFromDrop(e);
+      if (files.length > 0) onFiles(files);
+    },
+  };
+
+  return { dragging, dropProps };
 }
 
 /** SVG 要素を PNG の data URL に変換する(AIモックの画像化に使用) */

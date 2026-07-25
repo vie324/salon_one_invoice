@@ -35,6 +35,7 @@ import type {
   DevIssue,
   DevIssueApproval,
   DevIssueAttachment,
+  DevIssueExecution,
   DirectDebitBatch,
   DirectDebitMandate,
   Invoice,
@@ -417,6 +418,8 @@ function mapDevIssue(r: any): DevIssue {
     priority: r.priority,
     status: r.status,
     execution: r.execution ?? "undecided",
+    executionSetByName: r.execution_set_by_name ?? null,
+    executionSetAt: r.execution_set_at ?? null,
     requesterId: r.requester_id ?? "",
     requesterName: r.requester_name ?? "",
     scheduledDate: r.scheduled_date,
@@ -2341,9 +2344,11 @@ export class SupabaseRepository implements Repository {
     const execution = computeDevExecution(
       (apRows ?? []).map((r: any) => r.decision as DevApprovalDecision),
     );
+    // 全体管理者が直接設定している間は、承諾の増減で実行有無を上書きしない
+    const patch = before.executionSetByName ? {} : { execution };
     const { data, error } = await this.db
       .from("dev_issues")
-      .update({ execution })
+      .update({ ...patch, updated_at: new Date().toISOString() })
       .eq("id", issueId)
       .select(DEV_ISSUE_SELECT)
       .single();
@@ -2355,6 +2360,54 @@ export class SupabaseRepository implements Repository {
         issue,
         `#${issue.issueNumber}「${issue.title}」の実行有無が「${devIssueExecutionLabels[issue.execution]}」になりました`,
         approver.id,
+      );
+    }
+    return issue;
+  }
+
+  async setDevIssueExecution(
+    issueId: string,
+    execution: DevIssueExecution | null,
+    actor: ActorRef,
+  ): Promise<DevIssue> {
+    const before = await this.getDevIssue(issueId);
+    if (!before) throw new Error("開発依頼が見つかりません");
+    let patch: Record<string, unknown>;
+    if (execution === null) {
+      // 直接設定を解除し、承諾状況からの自動判定に戻す
+      const { data: apRows, error: apError } = await this.db
+        .from("dev_issue_approvals")
+        .select("decision")
+        .eq("issue_id", issueId);
+      if (apError) throw apError;
+      patch = {
+        execution: computeDevExecution(
+          (apRows ?? []).map((r: any) => r.decision as DevApprovalDecision),
+        ),
+        execution_set_by_name: null,
+        execution_set_at: null,
+      };
+    } else {
+      patch = {
+        execution,
+        execution_set_by_name: actor.name,
+        execution_set_at: new Date().toISOString(),
+      };
+    }
+    const { data, error } = await this.db
+      .from("dev_issues")
+      .update(patch)
+      .eq("id", issueId)
+      .select(DEV_ISSUE_SELECT)
+      .single();
+    if (error) throw error;
+    const issue = mapDevIssue(data);
+    if (issue.execution !== before.execution && issue.execution !== "undecided") {
+      await this.notifyDevIssue(
+        "issue_execution",
+        issue,
+        `#${issue.issueNumber}「${issue.title}」の実行有無が「${devIssueExecutionLabels[issue.execution]}」になりました（${actor.name}）`,
+        actor.id,
       );
     }
     return issue;

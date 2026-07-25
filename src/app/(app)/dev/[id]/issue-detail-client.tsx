@@ -3,7 +3,11 @@
 import { Ban, Check, Pencil, RotateCcw, Wrench } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
-import { setDevIssueApprovalAction, updateDevIssueAction } from "@/app/actions/dev-issues";
+import {
+  setDevIssueApprovalAction,
+  setDevIssueExecutionAction,
+  updateDevIssueAction,
+} from "@/app/actions/dev-issues";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -113,16 +117,24 @@ export function EngineerForm({
   );
 }
 
-/** 実行有無の判定パネル(要望のみ)。プロダクト管理者2名の承諾で「実行」。 */
+/**
+ * 実行有無のパネル(要望のみ)。
+ * 通常はプロダクト管理者2名の承諾で「実行」。全体管理者は直接変更もできる
+ * (直接変更している間は承諾の増減で上書きされない)。
+ */
 export function ApprovalPanel({
   issueId,
   execution,
+  executionSetByName,
+  executionSetAt,
   approvals,
   currentUserId,
   isAdmin,
 }: {
   issueId: string;
   execution: DevIssueExecution;
+  executionSetByName: string | null;
+  executionSetAt: string | null;
   approvals: DevIssueApproval[];
   currentUserId: string;
   isAdmin: boolean;
@@ -134,16 +146,22 @@ export function ApprovalPanel({
   const mine = approvals.find((a) => a.approverId === currentUserId);
   const approveCount = approvals.filter((a) => a.decision === "approve").length;
 
-  const act = (decision: "approve" | "reject" | null) =>
+  const run = (fn: () => Promise<{ ok: boolean; error?: string }>) =>
     startTransition(async () => {
       setError(null);
-      const res = await setDevIssueApprovalAction(issueId, decision);
+      const res = await fn();
       if (!res.ok) {
-        setError(res.error);
+        setError(res.error ?? "エラーが発生しました");
         return;
       }
       router.refresh();
     });
+
+  const act = (decision: "approve" | "reject" | null) =>
+    run(() => setDevIssueApprovalAction(issueId, decision));
+
+  const setExecution = (value: DevIssueExecution | null) =>
+    run(() => setDevIssueExecutionAction(issueId, value));
 
   return (
     <Card>
@@ -156,6 +174,44 @@ export function ApprovalPanel({
         </Badge>
       </CardHeader>
       <CardContent className="space-y-3">
+        {/* 全体管理者による直接変更(2名承諾を待たずに確定できる) */}
+        {isAdmin && (
+          <div className="space-y-2 rounded-md border border-primary/30 bg-primary/[0.04] px-3 py-2.5">
+            <Field label="実行有無を直接変更（全体管理者のみ）">
+              <Select
+                value={execution}
+                disabled={pending}
+                onChange={(e) => setExecution(e.target.value as DevIssueExecution)}
+                aria-label="実行有無を直接変更"
+              >
+                <option value="undecided">{devIssueExecutionLabels.undecided}</option>
+                <option value="approved">{devIssueExecutionLabels.approved}</option>
+                <option value="rejected">{devIssueExecutionLabels.rejected}</option>
+              </Select>
+            </Field>
+            {executionSetByName ? (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] text-muted-foreground">
+                  {executionSetByName} が直接設定
+                  {executionSetAt ? ` ・ ${formatDateTime(executionSetAt)}` : ""}
+                </span>
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => setExecution(null)}
+                  className="text-[11px] text-primary hover:underline disabled:opacity-50"
+                >
+                  承諾状況からの自動判定に戻す
+                </button>
+              </div>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">
+                未設定のあいだは、下の承諾状況から自動で判定されます。
+              </p>
+            )}
+          </div>
+        )}
+
         <p className="text-xs text-muted-foreground">
           プロダクト管理者{DEV_EXECUTION_REQUIRED_APPROVALS}名の承諾で「実行」になります。どちらか1名が停止した場合は「実行なし」です。
           （承諾 {approveCount}/{DEV_EXECUTION_REQUIRED_APPROVALS}）

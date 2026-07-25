@@ -21,6 +21,7 @@ import type {
   DevIssue,
   DevIssueAttachment,
   DevIssueCategory,
+  DevIssueExecution,
   DevIssuePriority,
   DevIssueStatus,
   DirectDebitBatch,
@@ -480,6 +481,15 @@ export interface Repository {
     issueId: string,
     approver: ActorRef,
     decision: DevApprovalDecision | null,
+  ): Promise<DevIssue>;
+  /**
+   * 実行有無の直接設定(全体管理者のみ)。承諾状況より優先され、誰がいつ設定したかを記録する。
+   * execution=null で直接設定を解除し、承諾状況からの自動判定に戻す。
+   */
+  setDevIssueExecution(
+    issueId: string,
+    execution: DevIssueExecution | null,
+    actor: ActorRef,
   ): Promise<DevIssue>;
 
   // --- 開発依頼の添付画像 ---

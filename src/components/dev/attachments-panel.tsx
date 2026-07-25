@@ -13,9 +13,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
-import { fileToProcessedDataUrl, imageFilesFromClipboard } from "@/lib/images";
+import {
+  fileToProcessedDataUrl,
+  imageFilesFromClipboard,
+  useImageDropzone,
+} from "@/lib/images";
 import type { DevIssueAttachment } from "@/lib/domain/types";
-import { formatDateTime } from "@/lib/utils";
+import { cn, formatDateTime } from "@/lib/utils";
 
 /**
  * 添付画像パネル(詳細ページ)。
@@ -65,6 +69,8 @@ export function AttachmentsPanel({
       setUploading(false);
     }
   };
+
+  const { dragging, dropProps } = useImageDropzone((files) => void upload(files));
 
   // ページ上でのクリップボード貼り付け(input への貼り付けは除外)
   React.useEffect(() => {
@@ -138,7 +144,21 @@ export function AttachmentsPanel({
           </Button>
         </div>
       </CardHeader>
-      <CardContent>
+      {/* ドラッグ&ドロップ受け口(カード全体) */}
+      <CardContent
+        {...dropProps}
+        className={cn(
+          "relative rounded-b-lg transition-colors",
+          dragging && "bg-primary/[0.06] ring-2 ring-inset ring-primary/50",
+        )}
+      >
+        {dragging && (
+          <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-md border-2 border-dashed border-primary bg-card/85">
+            <span className="text-sm font-medium text-primary">
+              ここにドロップして画像を追加
+            </span>
+          </div>
+        )}
         <input
           ref={fileRef}
           type="file"
@@ -153,7 +173,8 @@ export function AttachmentsPanel({
 
         {attachments.length === 0 ? (
           <p className="rounded-md border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-            スクリーンショットを「画像を追加」か、この画面で <kbd className="rounded border border-border bg-muted px-1">Ctrl+V</kbd> 貼り付けで添付できます。
+            スクリーンショットは<span className="font-medium">ここにドラッグ&ドロップ</span>、「画像を追加」、
+            またはこの画面で <kbd className="rounded border border-border bg-muted px-1">Ctrl+V</kbd> 貼り付けで添付できます。
             「AIモック生成」で理想UIの画像モックも作れます。
           </p>
         ) : (

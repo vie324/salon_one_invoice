@@ -9,6 +9,7 @@ import { canAccessDev, isProductAdmin } from "@/lib/domain/constants";
 import type {
   DevApprovalDecision,
   DevIssueCategory,
+  DevIssueExecution,
   DevIssuePriority,
 } from "@/lib/domain/types";
 
@@ -162,6 +163,36 @@ export async function setDevIssueApprovalAction(
     }
     const repo = await getServiceRepository();
     await repo.setDevIssueApproval(id, { id: user.id, name: user.name }, decision);
+    revalidateDev(id);
+    return { ok: true as const };
+  } catch (e) {
+    return { ok: false as const, error: (e as Error).message };
+  }
+}
+
+/**
+ * 実行有無の直接変更(全体管理者のみ)。
+ * execution=null で直接設定を解除し、承諾状況からの自動判定に戻す。
+ */
+export async function setDevIssueExecutionAction(
+  id: string,
+  execution: DevIssueExecution | null,
+) {
+  try {
+    const user = await getCurrentUser();
+    if (!isProductAdmin(user.role)) {
+      throw new Error("実行有無の変更はプロダクト管理者(全体管理者)のみ可能です");
+    }
+    if (
+      execution !== null &&
+      execution !== "approved" &&
+      execution !== "rejected" &&
+      execution !== "undecided"
+    ) {
+      throw new Error("不正な実行有無です");
+    }
+    const repo = await getServiceRepository();
+    await repo.setDevIssueExecution(id, execution, { id: user.id, name: user.name });
     revalidateDev(id);
     return { ok: true as const };
   } catch (e) {

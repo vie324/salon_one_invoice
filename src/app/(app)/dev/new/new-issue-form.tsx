@@ -15,7 +15,12 @@ import {
   devIssuePriorityLabels,
 } from "@/lib/domain/constants";
 import type { DevIssueCategory, DevIssuePriority } from "@/lib/domain/types";
-import { fileToProcessedDataUrl, imageFilesFromClipboard } from "@/lib/images";
+import {
+  fileToProcessedDataUrl,
+  imageFilesFromClipboard,
+  useImageDropzone,
+} from "@/lib/images";
+import { cn } from "@/lib/utils";
 
 interface PendingImage {
   dataUrl: string;
@@ -56,6 +61,8 @@ export function NewIssueForm() {
       setError((e as Error).message);
     }
   };
+
+  const { dragging, dropProps } = useImageDropzone((files) => void addFiles(files));
 
   // フォーム上でのクリップボード貼り付け(スクショを Ctrl+V で添付)
   React.useEffect(() => {
@@ -135,10 +142,10 @@ export function NewIssueForm() {
         />
       </Field>
 
-      {/* スクリーンショット添付 */}
+      {/* スクリーンショット添付(ドラッグ&ドロップ / 選択 / 貼り付け) */}
       <Field
         label="スクリーンショット（任意）"
-        hint="エラー画面などを添付できます。この画面で Ctrl+V（⌘+V）貼り付けも可能。✏️で画像に書き込みできます。"
+        hint="エラー画面などを添付できます。ドラッグ&ドロップ、この画面で Ctrl+V（⌘+V）貼り付けも可能。✏️で画像に書き込みできます。"
       >
         <input
           ref={fileRef}
@@ -151,7 +158,22 @@ export function NewIssueForm() {
             e.target.value = "";
           }}
         />
-        <div className="flex flex-wrap items-start gap-3">
+        <div
+          {...dropProps}
+          className={cn(
+            "relative flex flex-wrap items-start gap-3 rounded-md p-2 transition-colors",
+            dragging
+              ? "bg-primary/[0.06] ring-2 ring-inset ring-primary/50"
+              : "ring-1 ring-inset ring-transparent",
+          )}
+        >
+          {dragging && (
+            <div className="pointer-events-none absolute inset-1 z-10 flex items-center justify-center rounded-md border-2 border-dashed border-primary bg-card/85">
+              <span className="text-sm font-medium text-primary">
+                ここにドロップして画像を追加
+              </span>
+            </div>
+          )}
           {images.map((img, i) => (
             <div key={i} className="relative w-28">
               {/* eslint-disable-next-line @next/next/no-img-element */}

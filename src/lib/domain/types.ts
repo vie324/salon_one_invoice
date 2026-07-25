@@ -531,8 +531,14 @@ export interface DevIssue {
   category: DevIssueCategory;
   priority: DevIssuePriority;
   status: DevIssueStatus;
-  /** 実行有無(承認状況から導出した結果を保存) */
+  /** 実行有無(承認状況から導出、または全体管理者の直接設定) */
   execution: DevIssueExecution;
+  /**
+   * 実行有無を直接設定した全体管理者の氏名。null = 承諾状況からの自動判定。
+   * 設定されている間は承諾の増減で実行有無が上書きされない。
+   */
+  executionSetByName: string | null;
+  executionSetAt: string | null;
   /** 依頼者(入力したアカウント) */
   requesterId: string;
   requesterName: string;
