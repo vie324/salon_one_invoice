@@ -13,16 +13,20 @@ const DEMO_ROLE_COOKIE = "demo_role";
 
 /**
  * 現在のユーザーを取得。
- * デモモードでは cookie のロール(既定 owner)を用いる。
+ * デモモードでは cookie のロールに応じたデモアカウント(既定: 全体管理者)になりきる。
  * 本番では Supabase Auth のユーザー + profiles.role を用いる。
  */
 export async function getCurrentUser(): Promise<CurrentUser> {
   if (isDemoMode) {
+    const { cookies } = await import("next/headers");
+    const { getDemoProfile } = await import("@/lib/data/demo/store");
+    const store = await cookies();
+    const profile = getDemoProfile(store.get(DEMO_ROLE_COOKIE)?.value);
     return {
-      id: "demo-user",
-      name: "佐々木 涼",
-      email: "demo@salon-one.example.jp",
-      role: "admin",
+      id: profile.id,
+      name: profile.name,
+      email: profile.email,
+      role: profile.role,
       demo: true,
     };
   }

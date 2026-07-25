@@ -2,11 +2,13 @@ import type {
   Activity,
   Agency,
   AgencyMember,
+  AppNotification,
   BankTransaction,
   Contract,
   ContractEvent,
   ContractTemplate,
   Customer,
+  DevIssue,
   DirectDebitBatch,
   DirectDebitMandate,
   Invoice,
@@ -15,6 +17,7 @@ import type {
   Plan,
   PlanOption,
   Subscription,
+  UserProfile,
 } from "@/lib/domain/types";
 
 export interface DataStore {
@@ -33,6 +36,62 @@ export interface DataStore {
   contractEvents: ContractEvent[];
   agencies: Agency[];
   agencyMembers: AgencyMember[];
+  profiles: UserProfile[];
+  devIssues: DevIssue[];
+  notifications: AppNotification[];
+  /** 開発依頼の連番採番 (#1 から) */
+  devIssueSeq: number;
+}
+
+/**
+ * デモモードのアカウント。右上の切替でこの3名(+2人目の管理者)になりきれる。
+ * 実行有無の「プロダクト管理者2名の承諾」を試せるよう、全体管理者は2名用意する。
+ */
+export const DEMO_PROFILES: UserProfile[] = [
+  {
+    id: "demo-admin-1",
+    name: "佐々木 涼",
+    email: "sasaki@salon-one.example.jp",
+    role: "admin",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+  {
+    id: "demo-admin-2",
+    name: "高橋 誠",
+    email: "takahashi@salon-one.example.jp",
+    role: "admin",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+  {
+    id: "demo-billing-1",
+    name: "田中 美咲",
+    email: "tanaka@salon-one.example.jp",
+    role: "billing",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+  {
+    id: "demo-dev-1",
+    name: "山田 健",
+    email: "yamada@salon-one.example.jp",
+    role: "dev",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+];
+
+/**
+ * デモモードで cookie のペルソナ値からなりきるアカウントIDを決める(旧ロールも許容)。
+ * "admin2" は2人目のプロダクト管理者(実行有無の2名承諾を試すため)。
+ */
+export function demoProfileIdForRole(role: string | undefined): string {
+  const map: Record<string, string> = {
+    admin: "demo-admin-1",
+    admin2: "demo-admin-2",
+    owner: "demo-admin-1",
+    billing: "demo-billing-1",
+    staff: "demo-billing-1",
+    dev: "demo-dev-1",
+  };
+  return map[role ?? "admin"] ?? "demo-admin-1";
 }
 
 const opt = (key: string, name: string, monthly: number): PlanOption => ({ key, name, monthly });
@@ -116,5 +175,10 @@ export function buildSeed(): DataStore {
     contractEvents: [],
     agencies: [],
     agencyMembers: [],
+    // デモアカウントはマスタ扱いで投入(開発依頼・通知は空から開始)
+    profiles: DEMO_PROFILES.map((p) => ({ ...p })),
+    devIssues: [],
+    notifications: [],
+    devIssueSeq: 0,
   };
 }
