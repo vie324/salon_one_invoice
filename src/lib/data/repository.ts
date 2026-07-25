@@ -483,9 +483,19 @@ export interface Repository {
 
   // --- アカウント(プロフィール) ---
   listUserProfiles(): Promise<UserProfile[]>;
+  /** 種別の変更。プロフィール行が無い場合は作成する(初期セットアップ対応)。 */
   updateUserRole(userId: string, role: Role): Promise<void>;
   /** アカウント作成(本番: Supabase Auth ユーザー + profiles)。 */
   createUserAccount(input: CreateAccountInput): Promise<UserProfile>;
+  /** 表示名の変更。 */
+  updateUserName(userId: string, name: string): Promise<void>;
+  /** パスワードの再設定(本番: Supabase Auth。デモは何もしない)。 */
+  updateAccountPassword(userId: string, password: string): Promise<void>;
+  /**
+   * アカウント削除(本番: Supabase Auth ユーザーごと削除)。
+   * 過去の開発依頼は依頼者名を保持したまま残る(requester_id は null になる)。
+   */
+  deleteUserAccount(userId: string): Promise<void>;
 }
 
 // re-export で利用側の import を簡潔に

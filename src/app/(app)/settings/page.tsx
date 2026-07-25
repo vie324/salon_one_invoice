@@ -8,6 +8,8 @@ import { getServiceRepository } from "@/lib/data";
 import { isProductAdmin, roleLabels } from "@/lib/domain/constants";
 import type { UserProfile } from "@/lib/domain/types";
 import { AccountManager } from "./account-manager";
+import { ClaimAdminCard } from "./claim-admin-card";
+import { SelfAccountActions } from "./self-account-actions";
 import { SignOutButton } from "./sign-out-button";
 
 export const metadata = { title: "設定" };
@@ -19,16 +21,20 @@ export default async function SettingsPage() {
   const [user, repo] = await Promise.all([getCurrentUser(), getServiceRepository()]);
   const org = await repo.getOrganization();
 
-  // アカウント管理は全体管理者のみ(未マイグレーション環境では一覧が空でも落とさない)
+  // アカウント一覧。全体管理者の管理画面と「全体管理者が不在か」の判定に使う
+  // (プロフィール読み取り失敗でも設定画面ごと落とさない)
   let profiles: UserProfile[] = [];
-  const admin = isProductAdmin(user.role);
-  if (admin) {
-    try {
-      profiles = await repo.listUserProfiles();
-    } catch {
-      profiles = [];
-    }
+  let profilesLoaded = false;
+  try {
+    profiles = await repo.listUserProfiles();
+    profilesLoaded = true;
+  } catch {
+    profiles = [];
   }
+  const admin = isProductAdmin(user.role);
+  const hasAdmin = profiles.some((p) => isProductAdmin(p.role));
+  // 初期セットアップ: ログイン済みで全体管理者が1人もいないときだけ表示
+  const showClaim = !admin && !!user.id && profilesLoaded && !hasAdmin;
 
   return (
     <div>
@@ -108,6 +114,11 @@ export default async function SettingsPage() {
                 <span className="text-muted-foreground">アカウント種別</span>
                 <Badge tone="primary">{roleLabels[user.role]}</Badge>
               </div>
+              {user.id && (
+                <div className="pt-1">
+                  <SelfAccountActions userId={user.id} userName={user.name} demo={isDemoMode} />
+                </div>
+              )}
               {isDemoMode ? (
                 <p className="text-xs text-muted-foreground">
                   デモモードでは、右上の「デモ」セレクトで全体管理者／請求管理のみ／開発進捗のみを切り替えられます。
@@ -121,6 +132,8 @@ export default async function SettingsPage() {
           </Card>
         </div>
       </div>
+
+      {showClaim && <ClaimAdminCard />}
 
       {admin && (
         <Card className="mt-6">
