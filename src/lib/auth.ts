@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { isDemoMode } from "@/lib/config";
 import type { Role } from "@/lib/domain/types";
 
@@ -9,19 +10,31 @@ export interface CurrentUser {
   demo: boolean;
 }
 
+/**
+ * デモモードのログイン中アカウント(どのデモアカウントでログインしたか)。
+ * 本番の Supabase セッションに相当する。未設定 = 未ログイン。
+ */
 const DEMO_ROLE_COOKIE = "demo_role";
 
 /**
- * 現在のユーザーを取得。
- * デモモードでは cookie のロールに応じたデモアカウント(既定: 全体管理者)になりきる。
+ * 現在のユーザーを取得。未ログインなら null。
+ *
+ * ゲスト(匿名)としてアプリを利用することはできない。認証が確認できない場合は
+ * 必ず null を返し、呼び出し側(ページは requireUser、サーバーアクションは
+ * requireActionUser)でログイン画面へ誘導する。
+ *
+ * デモモードでは cookie に記録したデモアカウントでログイン状態を表す。
  * 本番では Supabase Auth のユーザー + profiles.role を用いる。
  */
-export async function getCurrentUser(): Promise<CurrentUser> {
+export async function getCurrentUser(): Promise<CurrentUser | null> {
   if (isDemoMode) {
     const { cookies } = await import("next/headers");
     const { getDemoProfile } = await import("@/lib/data/demo/store");
     const store = await cookies();
-    const profile = getDemoProfile(store.get(DEMO_ROLE_COOKIE)?.value);
+    const persona = store.get(DEMO_ROLE_COOKIE)?.value;
+    // cookie が無い = 未ログイン(デモでもログイン操作を必須にする)
+    if (!persona) return null;
+    const profile = getDemoProfile(persona);
     return {
       id: profile.id,
       name: profile.name,
@@ -38,16 +51,13 @@ export async function getCurrentUser(): Promise<CurrentUser> {
   } = await supabase.auth.getUser();
   if (!user) {
     // Auth サーバーへの検証呼び出しが失敗する環境でも、cookie のセッションから
-    // 表示用のユーザー情報を得る。呼び出し元は middleware で認証ゲート済みの
-    // 画面・アクションのみのため、ここでは表示・記録(操作者名)用途に限られる。
+    // ログイン中のユーザーを判定する(セッションが無ければ未ログイン)。
     const {
       data: { session },
     } = await supabase.auth.getSession();
     user = session?.user ?? null;
   }
-  if (!user) {
-    return { id: "", name: "ゲスト", email: "", role: "staff", demo: false };
-  }
+  if (!user) return null;
 
   // profiles は RLS クライアントだと anon 扱いで読めない環境があるため、
   // サービスロールがあればそちらで参照する(自分のプロフィール表示のみ)。
@@ -69,6 +79,29 @@ export async function getCurrentUser(): Promise<CurrentUser> {
     role: (profile?.role as Role) || "staff",
     demo: false,
   };
+}
+
+/**
+ * ページ・レイアウト用。未ログインならログイン画面へ送る。
+ * (middleware でもゲートしているが、URL を直接開いた場合や
+ * セッション失効直後にも確実にログイン状態を確認するための二重チェック)
+ */
+export async function requireUser(): Promise<CurrentUser> {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  return user;
+}
+
+/**
+ * サーバーアクション用。未ログインなら分かりやすいエラーを投げる。
+ * (アクションは try/catch でエラー文言を画面へ返すため、redirect ではなく throw)
+ */
+export async function requireActionUser(): Promise<CurrentUser> {
+  const user = await getCurrentUser();
+  if (!user) {
+    throw new Error("ログインの有効期限が切れました。再度ログインしてください");
+  }
+  return user;
 }
 
 export { DEMO_ROLE_COOKIE };

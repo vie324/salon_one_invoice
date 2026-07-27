@@ -2,7 +2,7 @@ import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
-import { getCurrentUser } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { formatDate } from "@/lib/utils";
 import { NewIssueForm } from "./new-issue-form";
 
@@ -11,7 +11,7 @@ export const metadata = { title: "新規開発依頼" };
 export const dynamic = "force-dynamic";
 
 export default async function NewDevIssuePage() {
-  const user = await getCurrentUser();
+  const user = await requireUser();
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader

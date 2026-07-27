@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { generateMockSpec } from "@/lib/ai/mock";
-import { getCurrentUser } from "@/lib/auth";
+import { requireActionUser } from "@/lib/auth";
 import { getServiceRepository } from "@/lib/data";
 import type { DevIssueUpdateInput } from "@/lib/data/repository";
 import { canAccessDev, isProductAdmin } from "@/lib/domain/constants";
@@ -28,7 +28,7 @@ export async function createDevIssueAction(input: {
   priority?: DevIssuePriority;
 }) {
   try {
-    const user = await getCurrentUser();
+    const user = await requireActionUser();
     if (!canAccessDev(user.role)) {
       throw new Error("開発進捗へのアクセス権限がありません");
     }
@@ -55,7 +55,7 @@ export async function createDevIssueAction(input: {
  */
 export async function updateDevIssueAction(id: string, input: DevIssueUpdateInput) {
   try {
-    const user = await getCurrentUser();
+    const user = await requireActionUser();
     if (!canAccessDev(user.role)) throw new Error("開発進捗へのアクセス権限がありません");
     const repo = await getServiceRepository();
     const editsRequest =
@@ -87,7 +87,7 @@ export async function addDevIssueAttachmentAction(
   input: { fileName: string; contentType: string; dataUrl: string; kind: "screenshot" | "mock" },
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await requireActionUser();
     if (!canAccessDev(user.role)) throw new Error("開発進捗へのアクセス権限がありません");
     if (!/^data:image\/(png|jpeg|webp);base64,/.test(input.dataUrl)) {
       throw new Error("対応していない画像形式です(PNG/JPEG/WebP)");
@@ -116,7 +116,7 @@ export async function generateUiMockAction(
   device: "mobile" | "desktop",
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await requireActionUser();
     if (!canAccessDev(user.role)) throw new Error("開発進捗へのアクセス権限がありません");
     if (!description.trim()) throw new Error("どんな画面にしたいか入力してください");
     const { spec, sample } = await generateMockSpec(description.trim(), device);
@@ -129,7 +129,7 @@ export async function generateUiMockAction(
 /** 添付画像の削除(アップロードした本人または全体管理者)。 */
 export async function deleteDevIssueAttachmentAction(id: string) {
   try {
-    const user = await getCurrentUser();
+    const user = await requireActionUser();
     if (!canAccessDev(user.role)) throw new Error("開発進捗へのアクセス権限がありません");
     const repo = await getServiceRepository();
     const attachment = await repo.getDevIssueAttachment(id);
@@ -154,7 +154,7 @@ export async function setDevIssueApprovalAction(
   decision: DevApprovalDecision | null,
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await requireActionUser();
     if (!isProductAdmin(user.role)) {
       throw new Error("実行有無の判定はプロダクト管理者(全体管理者)のみ可能です");
     }
@@ -179,7 +179,7 @@ export async function setDevIssueExecutionAction(
   execution: DevIssueExecution | null,
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await requireActionUser();
     if (!isProductAdmin(user.role)) {
       throw new Error("実行有無の変更はプロダクト管理者(全体管理者)のみ可能です");
     }

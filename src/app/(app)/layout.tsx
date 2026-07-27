@@ -1,5 +1,5 @@
 import { AppShell } from "@/components/layout/app-shell";
-import { getCurrentUser } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { getServiceRepository } from "@/lib/data";
 import type { AppNotification } from "@/lib/domain/types";
 
@@ -8,7 +8,7 @@ import type { AppNotification } from "@/lib/domain/types";
 export const dynamic = "force-dynamic";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const user = await getCurrentUser();
+  const user = await requireUser();
 
   // 通知(ヘッダーのベル)。取得失敗でアプリ全体を落とさない
   let notifications: AppNotification[] = [];

@@ -1,13 +1,13 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
+import { safeRedirectPath } from "@/lib/redirect";
 import { createClient } from "@/lib/supabase/client";
 
 export function LoginForm() {
-  const router = useRouter();
   const params = useSearchParams();
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -25,8 +25,9 @@ export function LoginForm() {
       setLoading(false);
       return;
     }
-    router.push(params.get("redirect") || "/dashboard");
-    router.refresh();
+    // フルナビゲーションで遷移し、新しいセッションでサーバー側の振り分け
+    // (種別に応じた入口)とアクセス制御を確実に通す
+    window.location.assign(safeRedirectPath(params.get("redirect")));
   }
 
   return (

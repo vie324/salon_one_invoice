@@ -7,7 +7,7 @@ import type {
   ContractInput,
   ContractTemplateInput,
 } from "@/lib/data/repository";
-import { getCurrentUser } from "@/lib/auth";
+import { requireActionUser } from "@/lib/auth";
 import { appUrl } from "@/lib/config";
 import { sanitizeContractForSigner } from "@/lib/contracts/build";
 import {
@@ -54,7 +54,7 @@ async function signBaseUrl(): Promise<string> {
 export async function createContractAction(input: ContractInput) {
   try {
     const repo = await getServiceRepository();
-    const user = await getCurrentUser();
+    const user = await requireActionUser();
     const contract = await repo.createContract({ ...input, createdBy: user.name });
     revalidateContractViews();
     return { ok: true as const, id: contract.id };
@@ -66,7 +66,7 @@ export async function createContractAction(input: ContractInput) {
 export async function updateContractDraftAction(id: string, input: Partial<ContractInput>) {
   try {
     const repo = await getServiceRepository();
-    const user = await getCurrentUser();
+    const user = await requireActionUser();
     await repo.updateContractDraft(id, { ...input, createdBy: user.name });
     revalidateContractViews(id);
     return { ok: true as const };
@@ -88,7 +88,7 @@ export async function sendContractAction(
 ) {
   try {
     const repo = await getServiceRepository();
-    const user = await getCurrentUser();
+    const user = await requireActionUser();
     const meta = await clientMeta();
     const contract = await repo.getContract(id);
     if (!contract) return { ok: false as const, error: "契約書が見つかりません" };
@@ -141,7 +141,7 @@ export async function sendContractAction(
 export async function remindContractAction(id: string) {
   try {
     const repo = await getServiceRepository();
-    const user = await getCurrentUser();
+    const user = await requireActionUser();
     const contract = await repo.getContract(id);
     if (!contract?.signToken || !contract.signerEmail) {
       return { ok: false as const, error: "送付済みの契約書ではありません" };
@@ -174,7 +174,7 @@ export async function remindContractAction(id: string) {
 export async function cancelContractAction(id: string, reason: string) {
   try {
     const repo = await getServiceRepository();
-    const user = await getCurrentUser();
+    const user = await requireActionUser();
     await repo.cancelContract(id, reason || "取消", user.name);
     revalidateContractViews(id);
     return { ok: true as const };
@@ -190,7 +190,7 @@ export async function markContractSignedManuallyAction(
 ) {
   try {
     const repo = await getServiceRepository();
-    const user = await getCurrentUser();
+    const user = await requireActionUser();
     if (!params.signerName) return { ok: false as const, error: "署名者名を入力してください" };
     await repo.markContractSignedManually(id, { ...params, actor: user.name });
     revalidateContractViews(id);
@@ -208,7 +208,7 @@ export async function markContractSignedManuallyAction(
 export async function startContractBillingAction(id: string, params: { startedOn: string }) {
   try {
     const repo = await getServiceRepository();
-    const user = await getCurrentUser();
+    const user = await requireActionUser();
     const contract = await repo.getContract(id);
     if (!contract) return { ok: false as const, error: "契約書が見つかりません" };
     if (contract.status !== "signed") {
