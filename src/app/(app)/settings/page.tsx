@@ -2,7 +2,7 @@ import { Building2, CreditCard, Database, Mail, ShieldCheck, UsersRound } from "
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
-import { getCurrentUser } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { emailProvider, isDemoMode, paymentProvider } from "@/lib/config";
 import { getServiceRepository } from "@/lib/data";
 import { isProductAdmin, roleLabels } from "@/lib/domain/constants";
@@ -18,7 +18,7 @@ export const metadata = { title: "設定" };
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const [user, repo] = await Promise.all([getCurrentUser(), getServiceRepository()]);
+  const [user, repo] = await Promise.all([requireUser(), getServiceRepository()]);
   const org = await repo.getOrganization();
 
   // アカウント一覧。全体管理者の管理画面と「全体管理者が不在か」の判定に使う
@@ -33,8 +33,8 @@ export default async function SettingsPage() {
   }
   const admin = isProductAdmin(user.role);
   const hasAdmin = profiles.some((p) => isProductAdmin(p.role));
-  // 初期セットアップ: ログイン済みで全体管理者が1人もいないときだけ表示
-  const showClaim = !admin && !!user.id && profilesLoaded && !hasAdmin;
+  // 初期セットアップ: 全体管理者が1人もいないときだけ表示
+  const showClaim = !admin && profilesLoaded && !hasAdmin;
 
   return (
     <div>
@@ -114,20 +114,17 @@ export default async function SettingsPage() {
                 <span className="text-muted-foreground">アカウント種別</span>
                 <Badge tone="primary">{roleLabels[user.role]}</Badge>
               </div>
-              {user.id && (
-                <div className="pt-1">
-                  <SelfAccountActions userId={user.id} userName={user.name} demo={isDemoMode} />
-                </div>
-              )}
-              {isDemoMode ? (
+              <div className="pt-1">
+                <SelfAccountActions userId={user.id} userName={user.name} demo={isDemoMode} />
+              </div>
+              {isDemoMode && (
                 <p className="text-xs text-muted-foreground">
-                  デモモードでは、右上の「デモ」セレクトで全体管理者／請求管理のみ／開発進捗のみを切り替えられます。
+                  デモモードでは、右上の「デモ」セレクトでログイン中のアカウントを切り替えられます。
                 </p>
-              ) : (
-                <div className="pt-1">
-                  <SignOutButton />
-                </div>
               )}
+              <div className="pt-1">
+                <SignOutButton />
+              </div>
             </CardContent>
           </Card>
         </div>

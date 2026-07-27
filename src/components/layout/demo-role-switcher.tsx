@@ -28,6 +28,7 @@ export function DemoRoleSwitcher({ currentId }: { currentId: string }) {
         disabled={pending}
         onChange={(e) =>
           startTransition(async () => {
+            // ログイン中のデモアカウントを切り替える(ログイン状態は維持)
             await switchDemoRole(e.target.value);
             router.push("/");
             router.refresh();

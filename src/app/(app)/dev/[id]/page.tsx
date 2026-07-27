@@ -9,7 +9,7 @@ import {
   DevIssueStatusBadge,
 } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getCurrentUser } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { getServiceRepository } from "@/lib/data";
 import { isProductAdmin } from "@/lib/domain/constants";
 import { formatDate, formatDateTime } from "@/lib/utils";
@@ -27,7 +27,7 @@ export default async function DevIssueDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [user, repo] = await Promise.all([getCurrentUser(), getServiceRepository()]);
+  const [user, repo] = await Promise.all([requireUser(), getServiceRepository()]);
   const issue = await repo.getDevIssue(id);
   if (!issue) notFound();
   const attachments = await repo.listDevIssueAttachments(issue.id);

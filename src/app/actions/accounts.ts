@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getCurrentUser } from "@/lib/auth";
+import { requireActionUser } from "@/lib/auth";
 import { getServiceRepository } from "@/lib/data";
 import { ASSIGNABLE_ROLES, isProductAdmin } from "@/lib/domain/constants";
 import type { Role } from "@/lib/domain/types";
@@ -17,7 +17,7 @@ function revalidateAccounts() {
 /** アカウント種別の変更(全体管理者のみ)。 */
 export async function updateUserRoleAction(userId: string, role: Role) {
   try {
-    const user = await getCurrentUser();
+    const user = await requireActionUser();
     if (!isProductAdmin(user.role)) {
       throw new Error("アカウント管理は全体管理者のみ可能です");
     }
@@ -40,8 +40,7 @@ export async function updateUserRoleAction(userId: string, role: Role) {
  */
 export async function claimFirstAdminAction() {
   try {
-    const user = await getCurrentUser();
-    if (!user.id) throw new Error("ログインが必要です");
+    const user = await requireActionUser();
     const repo = await getServiceRepository();
     const profiles = await repo.listUserProfiles();
     if (profiles.some((p) => isProductAdmin(p.role))) {
@@ -58,7 +57,7 @@ export async function claimFirstAdminAction() {
 /** 表示名の変更(本人または全体管理者)。 */
 export async function updateAccountNameAction(userId: string, name: string) {
   try {
-    const user = await getCurrentUser();
+    const user = await requireActionUser();
     if (userId !== user.id && !isProductAdmin(user.role)) {
       throw new Error("他のアカウントの変更は全体管理者のみ可能です");
     }
@@ -75,7 +74,7 @@ export async function updateAccountNameAction(userId: string, name: string) {
 /** パスワードの再設定(本人または全体管理者)。 */
 export async function resetAccountPasswordAction(userId: string, password: string) {
   try {
-    const user = await getCurrentUser();
+    const user = await requireActionUser();
     if (userId !== user.id && !isProductAdmin(user.role)) {
       throw new Error("他のアカウントのパスワード再設定は全体管理者のみ可能です");
     }
@@ -91,7 +90,7 @@ export async function resetAccountPasswordAction(userId: string, password: strin
 /** アカウントの削除(全体管理者のみ・自分自身は不可)。 */
 export async function deleteAccountAction(userId: string) {
   try {
-    const user = await getCurrentUser();
+    const user = await requireActionUser();
     if (!isProductAdmin(user.role)) {
       throw new Error("アカウントの削除は全体管理者のみ可能です");
     }
@@ -115,7 +114,7 @@ export async function createAccountAction(input: {
   role: Role;
 }) {
   try {
-    const user = await getCurrentUser();
+    const user = await requireActionUser();
     if (!isProductAdmin(user.role)) {
       throw new Error("アカウント管理は全体管理者のみ可能です");
     }

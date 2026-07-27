@@ -10,7 +10,7 @@ import { getServiceRepository } from "@/lib/data";
  */
 export async function CompletionBanner() {
   const user = await getCurrentUser();
-  if (!user.id) return null;
+  if (!user) return null;
   // 通知の取得失敗(マイグレーション未適用など)でダッシュボード等を落とさない
   let done;
   try {
