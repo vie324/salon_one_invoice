@@ -31,6 +31,7 @@ import type {
   DevApprovalDecision,
   DevIssue,
   DevIssueAttachment,
+  DevIssueExecution,
   DirectDebitBatch,
   DirectDebitMandate,
   Invoice,
@@ -1380,6 +1381,8 @@ export class DemoRepository implements Repository {
       priority: input.priority ?? "medium",
       status: "open",
       execution: "undecided",
+      executionSetByName: null,
+      executionSetAt: null,
       requesterId: input.requester.id,
       requesterName: input.requester.name,
       scheduledDate: null,
@@ -1459,7 +1462,10 @@ export class DemoRepository implements Repository {
       });
     }
     const prev = issue.execution;
-    issue.execution = computeDevExecution(issue.approvals.map((a) => a.decision));
+    // 全体管理者が直接設定している間は、承諾の増減で実行有無を上書きしない
+    if (!issue.executionSetByName) {
+      issue.execution = computeDevExecution(issue.approvals.map((a) => a.decision));
+    }
     issue.updatedAt = new Date().toISOString();
     if (issue.execution !== prev && issue.execution !== "undecided") {
       this.notifyDevIssue(
@@ -1467,6 +1473,36 @@ export class DemoRepository implements Repository {
         issue,
         `#${issue.issueNumber}「${issue.title}」の実行有無が「${devIssueExecutionLabels[issue.execution]}」になりました`,
         approver.id,
+      );
+    }
+    return issue;
+  }
+
+  async setDevIssueExecution(
+    issueId: string,
+    execution: DevIssueExecution | null,
+    actor: ActorRef,
+  ): Promise<DevIssue> {
+    const issue = this.s.devIssues.find((i) => i.id === issueId);
+    if (!issue) throw new Error("開発依頼が見つかりません");
+    const prev = issue.execution;
+    if (execution === null) {
+      // 直接設定を解除し、承諾状況からの自動判定に戻す
+      issue.executionSetByName = null;
+      issue.executionSetAt = null;
+      issue.execution = computeDevExecution(issue.approvals.map((a) => a.decision));
+    } else {
+      issue.execution = execution;
+      issue.executionSetByName = actor.name;
+      issue.executionSetAt = new Date().toISOString();
+    }
+    issue.updatedAt = new Date().toISOString();
+    if (issue.execution !== prev && issue.execution !== "undecided") {
+      this.notifyDevIssue(
+        "issue_execution",
+        issue,
+        `#${issue.issueNumber}「${issue.title}」の実行有無が「${devIssueExecutionLabels[issue.execution]}」になりました（${actor.name}）`,
+        actor.id,
       );
     }
     return issue;
