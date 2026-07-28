@@ -305,6 +305,38 @@ export const notificationTypeTone: Record<NotificationType, BadgeTone> = {
   issue_execution: "primary",
 };
 
+/* ---- 申込 ---- */
+
+export const applicationStatusLabels: Record<
+  import("./types").ApplicationStatus,
+  string
+> = {
+  submitted: "未対応",
+  customer_created: "顧客登録済",
+  archived: "対応不要",
+};
+
+export const applicationStatusTone: Record<
+  import("./types").ApplicationStatus,
+  BadgeTone
+> = {
+  submitted: "warning",
+  customer_created: "success",
+  archived: "neutral",
+};
+
+/** 申込URLの既定有効日数(0 = 無期限) */
+export const APPLICATION_LINK_EXPIRY_DAYS = 30;
+
+/** 申込フォームで受け付ける外部サービス連携(表示名つき) */
+export const APPLICATION_SERVICES = [
+  { key: "hotpepper", label: "ホットペッパービューティ" },
+  { key: "minimo", label: "minimo" },
+  { key: "epark", label: "EPARK" },
+] as const;
+
+export type ApplicationServiceKey = (typeof APPLICATION_SERVICES)[number]["key"];
+
 /** 署名依頼の既定有効日数 */
 export const CONTRACT_SIGN_EXPIRY_DAYS = 14;
 

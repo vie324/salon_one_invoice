@@ -5,6 +5,7 @@ import {
   CircleDollarSign,
   Clock,
   FileText,
+  Inbox,
   Plus,
   Repeat,
   TrendingUp,
@@ -294,6 +295,7 @@ function ActivityIcon({ kind }: { kind: string }) {
     batch_processed: <Banknote className="h-4 w-4" />,
     subscription_created: <Repeat className="h-4 w-4" />,
     customer_created: <Users className="h-4 w-4" />,
+    application_submitted: <Inbox className="h-4 w-4" />,
   };
   return (
     <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-secondary text-secondary-foreground">

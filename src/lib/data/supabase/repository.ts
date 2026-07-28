@@ -2,6 +2,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { effectiveContractStatus } from "@/lib/contracts/build";
 import { defaultTemplateInput } from "@/lib/contracts/default-template";
 import { computeContractHash } from "@/lib/contracts/hash";
+import { encryptCredential, maskCredential, revealCredential } from "@/lib/crypto/secrets";
+import {
+  applicationLinkAvailability,
+  applicationNotes,
+  generateApplicationToken,
+} from "@/lib/domain/application";
 import {
   calcInvoiceTotals,
   computeNextBillingDate,
@@ -21,6 +27,9 @@ import type {
   Agency,
   AgencyMember,
   AppNotification,
+  Application,
+  ApplicationLink,
+  ApplicationStatus,
   BankTransaction,
   Contract,
   ContractEvent,
@@ -55,6 +64,10 @@ import type {
   ActorRef,
   AgencyInput,
   AgencyMemberInput,
+  ApplicationCredentials,
+  ApplicationInput,
+  ApplicationLinkInput,
+  ApplicationLinkState,
   BankRowInput,
   ContractActionResult,
   ContractEventInput,
@@ -471,6 +484,53 @@ function mapAttachment(r: any, url: string): DevIssueAttachment {
     uploadedById: r.uploaded_by_id ?? "",
     uploadedByName: r.uploaded_by_name ?? "",
     createdAt: r.created_at,
+  };
+}
+
+function mapApplicationLink(r: any): ApplicationLink {
+  // applications(count) は [{ count: n }] 形式で返る(select に含めない場合は 0)
+  const counts = Array.isArray(r.applications) ? r.applications : [];
+  return {
+    id: r.id,
+    token: r.token,
+    name: r.name ?? "",
+    active: Boolean(r.active),
+    expiresAt: r.expires_at ?? null,
+    submissionCount: Number(counts[0]?.count ?? 0),
+    createdBy: r.created_by ?? "",
+    createdAt: r.created_at,
+  };
+}
+
+/** DB 行から暗号化済みの連携情報を取り出す(復号・マスクは呼び出し側) */
+function rawCredential(
+  r: any,
+  key: "hotpepper" | "minimo" | "epark",
+): { loginId: string | null; password: string | null } | null {
+  const loginId = r[`${key}_login_id`] ?? null;
+  const password = r[`${key}_password`] ?? null;
+  if (!loginId && !password) return null;
+  return { loginId, password };
+}
+
+/** 申込を画面表示用にマップする(連携情報はマスク済み。平文は含まない) */
+function mapApplicationMasked(r: any): Application {
+  return {
+    id: r.id,
+    linkId: r.link_id ?? null,
+    linkName: r.link_name ?? "",
+    companyName: r.company_name ?? "",
+    address: r.address ?? "",
+    representativeTitle: r.representative_title ?? "",
+    representativeName: r.representative_name ?? "",
+    hotpepper: maskCredential(rawCredential(r, "hotpepper")),
+    minimo: maskCredential(rawCredential(r, "minimo")),
+    epark: maskCredential(rawCredential(r, "epark")),
+    lineRequested: Boolean(r.line_requested),
+    status: r.status,
+    customerId: r.customer_id ?? null,
+    submittedAt: r.submitted_at,
+    submittedIp: r.submitted_ip ?? "",
   };
 }
 
@@ -2534,6 +2594,178 @@ export class SupabaseRepository implements Repository {
     if (delError) throw delError;
     // 実体の削除は best-effort(メタデータが消えていれば表示されない)
     await this.db.storage.from(ATTACHMENT_BUCKET).remove([data.storage_path]);
+  }
+
+  // --- 申込用URL ---
+
+  async listApplicationLinks(): Promise<ApplicationLink[]> {
+    const { data, error } = await this.db
+      .from("application_links")
+      .select("*, applications(count)")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map(mapApplicationLink);
+  }
+
+  async createApplicationLink(input: ApplicationLinkInput): Promise<ApplicationLink> {
+    const days = input.expiryDays ?? 0;
+    const { data, error } = await this.db
+      .from("application_links")
+      .insert({
+        token: generateApplicationToken(),
+        name: input.name.trim(),
+        active: true,
+        expires_at:
+          days > 0
+            ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
+            : null,
+        created_by: input.createdBy,
+      })
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapApplicationLink(data);
+  }
+
+  async setApplicationLinkActive(id: string, active: boolean): Promise<ApplicationLink> {
+    const { data, error } = await this.db
+      .from("application_links")
+      .update({ active })
+      .eq("id", id)
+      .select("*, applications(count)")
+      .single();
+    if (error) throw error;
+    return mapApplicationLink(data);
+  }
+
+  async deleteApplicationLink(id: string): Promise<void> {
+    // 受付済みの申込は残す(link_id は on delete set null。linkName は保持済み)
+    const { error } = await this.db.from("application_links").delete().eq("id", id);
+    if (error) throw error;
+  }
+
+  async getApplicationLinkByToken(
+    token: string,
+  ): Promise<{ link: ApplicationLink | null; state: ApplicationLinkState }> {
+    if (!token) return { link: null, state: "not_found" };
+    const { data, error } = await this.db
+      .from("application_links")
+      .select("*, applications(count)")
+      .eq("token", token)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return { link: null, state: "not_found" };
+    const link = mapApplicationLink(data);
+    return { link, state: applicationLinkAvailability(link) };
+  }
+
+  // --- 申込 ---
+
+  async listApplications(filter?: { status?: ApplicationStatus | "all" }): Promise<Application[]> {
+    let q = this.db.from("applications").select("*").order("submitted_at", { ascending: false });
+    if (filter?.status && filter.status !== "all") q = q.eq("status", filter.status);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []).map(mapApplicationMasked);
+  }
+
+  async getApplication(id: string): Promise<Application | null> {
+    const { data, error } = await this.db
+      .from("applications")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapApplicationMasked(data) : null;
+  }
+
+  async submitApplication(token: string, input: ApplicationInput): Promise<Application> {
+    const { link, state } = await this.getApplicationLinkByToken(token);
+    if (!link || state === "not_found") throw new Error("申込URLが見つかりません");
+    if (state === "inactive") throw new Error("この申込URLは現在受付を停止しています");
+    if (state === "expired") throw new Error("この申込URLは有効期限が切れています");
+
+    // ID・パスワードは平文で保存しない(AES-256-GCM で暗号化した文字列を格納)
+    const hpb = encryptCredential(input.hotpepper);
+    const min = encryptCredential(input.minimo);
+    const epk = encryptCredential(input.epark);
+    const { data, error } = await this.db
+      .from("applications")
+      .insert({
+        link_id: link.id,
+        link_name: link.name,
+        company_name: input.companyName.trim(),
+        address: input.address.trim(),
+        representative_title: input.representativeTitle.trim(),
+        representative_name: input.representativeName.trim(),
+        hotpepper_login_id: hpb?.loginId ?? null,
+        hotpepper_password: hpb?.password ?? null,
+        minimo_login_id: min?.loginId ?? null,
+        minimo_password: min?.password ?? null,
+        epark_login_id: epk?.loginId ?? null,
+        epark_password: epk?.password ?? null,
+        line_requested: input.lineRequested,
+        status: "submitted",
+        submitted_ip: input.submittedIp ?? "",
+      })
+      .select("*")
+      .single();
+    if (error) throw error;
+    const app = mapApplicationMasked(data);
+    await this.logActivity({
+      kind: "application_submitted",
+      message: `申込フォームから「${app.companyName}」の申込がありました`,
+      actor: app.companyName,
+      amount: null,
+      linkInvoiceId: null,
+    });
+    return app;
+  }
+
+  async revealApplicationCredentials(id: string): Promise<ApplicationCredentials | null> {
+    const { data, error } = await this.db
+      .from("applications")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return {
+      hotpepper: revealCredential(rawCredential(data, "hotpepper")),
+      minimo: revealCredential(rawCredential(data, "minimo")),
+      epark: revealCredential(rawCredential(data, "epark")),
+    };
+  }
+
+  async updateApplicationStatus(id: string, status: ApplicationStatus): Promise<Application> {
+    const { data, error } = await this.db
+      .from("applications")
+      .update({ status })
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapApplicationMasked(data);
+  }
+
+  async createCustomerFromApplication(id: string, actor: string): Promise<Customer> {
+    const app = await this.getApplication(id);
+    if (!app) throw new Error("申込が見つかりません");
+    if (app.customerId) throw new Error("この申込は既に顧客として登録されています");
+    const customer = await this.createCustomer({
+      name: app.companyName,
+      contactName: app.representativeName,
+      address: app.address,
+      paymentMethod: "direct_debit",
+      notes: applicationNotes(app),
+      assignee: actor,
+    });
+    const { error } = await this.db
+      .from("applications")
+      .update({ customer_id: customer.id, status: "customer_created" })
+      .eq("id", id);
+    if (error) throw error;
+    return customer;
   }
 
   // --- アプリ内通知 ---

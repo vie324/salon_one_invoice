@@ -6,6 +6,7 @@ import {
   FileSignature,
   FileText,
   Handshake,
+  Inbox,
   LayoutDashboard,
   Landmark,
   LifeBuoy,
@@ -30,6 +31,7 @@ import { cn } from "@/lib/utils";
 
 const billingNav = [
   { href: "/dashboard", label: "ダッシュボード", icon: LayoutDashboard },
+  { href: "/applications", label: "申込", icon: Inbox },
   { href: "/contracts", label: "契約書", icon: FileSignature },
   { href: "/invoices", label: "請求書", icon: FileText },
   { href: "/customers", label: "顧客", icon: Users },

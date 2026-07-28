@@ -1,6 +1,12 @@
 import { effectiveContractStatus } from "@/lib/contracts/build";
 import { defaultTemplateInput } from "@/lib/contracts/default-template";
 import { computeContractHash } from "@/lib/contracts/hash";
+import { encryptCredential, maskCredential, revealCredential } from "@/lib/crypto/secrets";
+import {
+  applicationLinkAvailability,
+  applicationNotes,
+  generateApplicationToken,
+} from "@/lib/domain/application";
 import {
   calcInvoiceTotals,
   computeNextBillingDate,
@@ -20,6 +26,9 @@ import type {
   Agency,
   AgencyMember,
   AppNotification,
+  Application,
+  ApplicationLink,
+  ApplicationStatus,
   BankTransaction,
   Contract,
   ContractEvent,
@@ -51,6 +60,10 @@ import type {
   ActorRef,
   AgencyInput,
   AgencyMemberInput,
+  ApplicationCredentials,
+  ApplicationInput,
+  ApplicationLinkInput,
+  ApplicationLinkState,
   BankRowInput,
   ContractActionResult,
   ContractEventInput,
@@ -1545,6 +1558,158 @@ export class DemoRepository implements Repository {
     const idx = this.s.devIssueAttachments.findIndex((a) => a.id === id);
     if (idx < 0) throw new Error("添付画像が見つかりません");
     this.s.devIssueAttachments.splice(idx, 1);
+  }
+
+  // --- 申込用URL ---
+
+  async listApplicationLinks(): Promise<ApplicationLink[]> {
+    return this.s.applicationLinks
+      .map((l) => ({ ...l, submissionCount: this.countApplications(l.id) }))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async createApplicationLink(input: ApplicationLinkInput): Promise<ApplicationLink> {
+    const days = input.expiryDays ?? 0;
+    const link: ApplicationLink = {
+      id: genId("alk"),
+      token: generateApplicationToken(),
+      name: input.name.trim(),
+      active: true,
+      expiresAt:
+        days > 0 ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString() : null,
+      submissionCount: 0,
+      createdBy: input.createdBy,
+      createdAt: new Date().toISOString(),
+    };
+    this.s.applicationLinks.unshift(link);
+    return link;
+  }
+
+  async setApplicationLinkActive(id: string, active: boolean): Promise<ApplicationLink> {
+    const link = this.s.applicationLinks.find((l) => l.id === id);
+    if (!link) throw new Error("申込URLが見つかりません");
+    link.active = active;
+    return { ...link, submissionCount: this.countApplications(link.id) };
+  }
+
+  async deleteApplicationLink(id: string): Promise<void> {
+    const idx = this.s.applicationLinks.findIndex((l) => l.id === id);
+    if (idx < 0) throw new Error("申込URLが見つかりません");
+    this.s.applicationLinks.splice(idx, 1);
+    // 受付済みの申込は残す(発行元が分かるよう linkName は保持済み)
+    for (const app of this.s.applications) {
+      if (app.linkId === id) app.linkId = null;
+    }
+  }
+
+  async getApplicationLinkByToken(
+    token: string,
+  ): Promise<{ link: ApplicationLink | null; state: ApplicationLinkState }> {
+    const link = this.s.applicationLinks.find((l) => l.token === token);
+    if (!link) return { link: null, state: "not_found" };
+    return {
+      link: { ...link, submissionCount: this.countApplications(link.id) },
+      state: applicationLinkAvailability(link),
+    };
+  }
+
+  // --- 申込 ---
+
+  async listApplications(filter?: { status?: ApplicationStatus | "all" }): Promise<Application[]> {
+    let list = [...this.s.applications];
+    if (filter?.status && filter.status !== "all") {
+      list = list.filter((a) => a.status === filter.status);
+    }
+    return list
+      .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))
+      .map((a) => this.presentApplication(a));
+  }
+
+  async getApplication(id: string): Promise<Application | null> {
+    const app = this.s.applications.find((a) => a.id === id);
+    return app ? this.presentApplication(app) : null;
+  }
+
+  async submitApplication(token: string, input: ApplicationInput): Promise<Application> {
+    const link = this.s.applicationLinks.find((l) => l.token === token);
+    if (!link) throw new Error("申込URLが見つかりません");
+    const state = applicationLinkAvailability(link);
+    if (state === "inactive") throw new Error("この申込URLは現在受付を停止しています");
+    if (state === "expired") throw new Error("この申込URLは有効期限が切れています");
+
+    const app: Application = {
+      id: genId("app"),
+      linkId: link.id,
+      linkName: link.name,
+      companyName: input.companyName.trim(),
+      address: input.address.trim(),
+      representativeTitle: input.representativeTitle.trim(),
+      representativeName: input.representativeName.trim(),
+      hotpepper: encryptCredential(input.hotpepper),
+      minimo: encryptCredential(input.minimo),
+      epark: encryptCredential(input.epark),
+      lineRequested: input.lineRequested,
+      status: "submitted",
+      customerId: null,
+      submittedAt: new Date().toISOString(),
+      submittedIp: input.submittedIp ?? "",
+    };
+    this.s.applications.unshift(app);
+    this.addActivity({
+      kind: "application_submitted",
+      message: `申込フォームから「${app.companyName}」の申込がありました`,
+      actor: app.companyName,
+    });
+    return this.presentApplication(app);
+  }
+
+  async revealApplicationCredentials(id: string): Promise<ApplicationCredentials | null> {
+    const app = this.s.applications.find((a) => a.id === id);
+    if (!app) return null;
+    return {
+      hotpepper: revealCredential(app.hotpepper),
+      minimo: revealCredential(app.minimo),
+      epark: revealCredential(app.epark),
+    };
+  }
+
+  async updateApplicationStatus(id: string, status: ApplicationStatus): Promise<Application> {
+    const app = this.s.applications.find((a) => a.id === id);
+    if (!app) throw new Error("申込が見つかりません");
+    app.status = status;
+    return this.presentApplication(app);
+  }
+
+  async createCustomerFromApplication(id: string, actor: string): Promise<Customer> {
+    const app = this.s.applications.find((a) => a.id === id);
+    if (!app) throw new Error("申込が見つかりません");
+    if (app.customerId) throw new Error("この申込は既に顧客として登録されています");
+    const customer = await this.createCustomer({
+      name: app.companyName,
+      contactName: app.representativeName,
+      address: app.address,
+      paymentMethod: "direct_debit",
+      notes: applicationNotes(app),
+      assignee: actor,
+    });
+    app.customerId = customer.id;
+    app.status = "customer_created";
+    return customer;
+  }
+
+  /** 申込URLごとの受付件数 */
+  private countApplications(linkId: string): number {
+    return this.s.applications.filter((a) => a.linkId === linkId).length;
+  }
+
+  /** 保存済み(暗号化済み)の申込を、画面表示用にマスクして返す */
+  private presentApplication(app: Application): Application {
+    return {
+      ...app,
+      hotpepper: maskCredential(app.hotpepper),
+      minimo: maskCredential(app.minimo),
+      epark: maskCredential(app.epark),
+    };
   }
 
   // --- アプリ内通知 ---
