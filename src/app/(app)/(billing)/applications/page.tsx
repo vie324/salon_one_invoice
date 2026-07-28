@@ -60,7 +60,8 @@ export default async function ApplicationsPage() {
             <THead>
               <TR>
                 <TH>法人名 / 個人名</TH>
-                <TH>代表者</TH>
+                <TH>代表者 / ご担当者</TH>
+                <TH>連絡先</TH>
                 <TH>希望連携</TH>
                 <TH>ステータス</TH>
                 <TH>受付日時</TH>
@@ -84,9 +85,18 @@ export default async function ApplicationsPage() {
                       </div>
                     </TD>
                     <TD>
-                      <div>{a.representativeName || "—"}</div>
+                      <div>
+                        {a.representativeTitle ? `${a.representativeTitle} ` : ""}
+                        {a.representativeName || "—"}
+                      </div>
                       <div className="text-xs text-muted-foreground">
-                        {a.representativeTitle || "—"}
+                        {a.contactName ? `担当: ${a.contactName}` : "担当: 代表者と同じ"}
+                      </div>
+                    </TD>
+                    <TD className="text-xs">
+                      <div className="tabular">{a.phone || "—"}</div>
+                      <div className="max-w-[14rem] truncate text-muted-foreground">
+                        {a.email || "—"}
                       </div>
                     </TD>
                     <TD className="text-xs">

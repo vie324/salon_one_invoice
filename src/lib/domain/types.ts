@@ -640,6 +640,12 @@ export interface Application {
   representativeTitle: string;
   /** 代表者名 */
   representativeName: string;
+  /** ご担当者名(任意。未入力なら代表者名を引き継ぐ) */
+  contactName: string;
+  /** 電話番号 */
+  phone: string;
+  /** メールアドレス(請求書・連絡の送付先) */
+  email: string;
   /** ホットペッパービューティ連携情報(任意) */
   hotpepper: ServiceCredential | null;
   /** minimo 連携情報(任意) */

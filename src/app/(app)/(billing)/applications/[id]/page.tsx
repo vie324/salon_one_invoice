@@ -1,4 +1,4 @@
-import { ArrowLeft, Building2, MapPin, User } from "lucide-react";
+import { ArrowLeft, Building2, Mail, MapPin, Phone, User, UserRound } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ApplicationStatusBadge } from "@/components/status-badge";
@@ -75,6 +75,29 @@ export default async function ApplicationDetailPage({
               </Row>
               <Row icon={<User className="h-4 w-4" />} label="代表者">
                 {[app.representativeTitle, app.representativeName].filter(Boolean).join(" ") || "—"}
+              </Row>
+              <Row icon={<UserRound className="h-4 w-4" />} label="ご担当者名">
+                {app.contactName || (
+                  <span className="text-muted-foreground">代表者と同じ</span>
+                )}
+              </Row>
+              <Row icon={<Phone className="h-4 w-4" />} label="電話番号">
+                {app.phone ? (
+                  <a href={`tel:${app.phone}`} className="text-primary hover:underline">
+                    {app.phone}
+                  </a>
+                ) : (
+                  "—"
+                )}
+              </Row>
+              <Row icon={<Mail className="h-4 w-4" />} label="メールアドレス">
+                {app.email ? (
+                  <a href={`mailto:${app.email}`} className="text-primary hover:underline">
+                    {app.email}
+                  </a>
+                ) : (
+                  "—"
+                )}
               </Row>
             </CardContent>
           </Card>

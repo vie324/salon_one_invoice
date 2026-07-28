@@ -143,6 +143,9 @@ export async function submitApplicationAction(
     address: string;
     representativeTitle: string;
     representativeName: string;
+    contactName: string;
+    phone: string;
+    email: string;
     hotpepperId?: string;
     hotpepperPassword?: string;
     minimoId?: string;
@@ -154,9 +157,16 @@ export async function submitApplicationAction(
 ) {
   try {
     const companyName = input.companyName.trim();
+    const email = input.email.trim();
     if (!companyName) throw new Error("法人名(個人の場合は個人名)を入力してください");
     if (!input.address.trim()) throw new Error("住所を入力してください");
     if (!input.representativeName.trim()) throw new Error("代表者名を入力してください");
+    if (!input.phone.trim()) throw new Error("電話番号を入力してください");
+    if (!email) throw new Error("メールアドレスを入力してください");
+    // ブラウザ側の type="email" に加えてサーバーでも最低限の形式を確認する
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new Error("メールアドレスの形式が正しくありません");
+    }
 
     const h = await headers();
     const forwarded = h.get("x-forwarded-for") ?? "";
@@ -165,6 +175,9 @@ export async function submitApplicationAction(
       address: input.address,
       representativeTitle: input.representativeTitle,
       representativeName: input.representativeName,
+      contactName: input.contactName,
+      phone: input.phone,
+      email,
       hotpepper: toCredential(input.hotpepperId, input.hotpepperPassword),
       minimo: toCredential(input.minimoId, input.minimoPassword),
       epark: toCredential(input.eparkId, input.eparkPassword),

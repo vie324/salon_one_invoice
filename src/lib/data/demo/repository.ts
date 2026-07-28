@@ -1645,6 +1645,9 @@ export class DemoRepository implements Repository {
       address: input.address.trim(),
       representativeTitle: input.representativeTitle.trim(),
       representativeName: input.representativeName.trim(),
+      contactName: input.contactName.trim(),
+      phone: input.phone.trim(),
+      email: input.email.trim(),
       hotpepper: encryptCredential(input.hotpepper),
       minimo: encryptCredential(input.minimo),
       epark: encryptCredential(input.epark),
@@ -1686,7 +1689,9 @@ export class DemoRepository implements Repository {
     if (app.customerId) throw new Error("この申込は既に顧客として登録されています");
     const customer = await this.createCustomer({
       name: app.companyName,
-      contactName: app.representativeName,
+      contactName: app.contactName || app.representativeName,
+      email: app.email,
+      phone: app.phone,
       address: app.address,
       paymentMethod: "direct_debit",
       notes: applicationNotes(app),
