@@ -3,6 +3,8 @@ import type {
   Agency,
   AgencyMember,
   AppNotification,
+  Application,
+  ApplicationLink,
   BankTransaction,
   Contract,
   ContractEvent,
@@ -40,6 +42,8 @@ export interface DataStore {
   profiles: UserProfile[];
   devIssues: DevIssue[];
   devIssueAttachments: DevIssueAttachment[];
+  applicationLinks: ApplicationLink[];
+  applications: Application[];
   notifications: AppNotification[];
   /** 開発依頼の連番採番 (#1 から) */
   devIssueSeq: number;
@@ -181,6 +185,8 @@ export function buildSeed(): DataStore {
     profiles: DEMO_PROFILES.map((p) => ({ ...p })),
     devIssues: [],
     devIssueAttachments: [],
+    applicationLinks: [],
+    applications: [],
     notifications: [],
     devIssueSeq: 0,
   };

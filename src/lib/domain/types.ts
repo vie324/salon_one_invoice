@@ -436,7 +436,8 @@ export type ActivityKind =
   | "customer_created"
   | "contract_created"
   | "contract_sent"
-  | "contract_signed";
+  | "contract_signed"
+  | "application_submitted";
 
 export interface Activity {
   id: string;
@@ -590,6 +591,68 @@ export interface AppNotification {
   issueId: string | null;
   read: boolean;
   createdAt: string;
+}
+
+/* ---- 申込(お客様に渡す申込URLからの入力) ---- */
+
+/**
+ * 申込URL。トークン付きのURLを発行してお客様に渡し、そこから申込を受け付ける。
+ * 無効化・有効期限で受付を止められる。
+ */
+export interface ApplicationLink {
+  id: string;
+  /** URL に使うトークン(crypto乱数) */
+  token: string;
+  /** 宛先メモ(例: ○○サロン様)。管理画面での識別用 */
+  name: string;
+  active: boolean;
+  /** 受付期限(null = 無期限) */
+  expiresAt: string | null;
+  /** これまでの申込件数 */
+  submissionCount: number;
+  createdBy: string;
+  createdAt: string;
+}
+
+/** 外部サービスの連携情報(ID・パスワード)。保存時は暗号化する。 */
+export interface ServiceCredential {
+  loginId: string;
+  password: string;
+}
+
+/**
+ * 申込のステータス。
+ * submitted(受付) → customer_created(顧客登録済) / archived(対応不要)
+ */
+export type ApplicationStatus = "submitted" | "customer_created" | "archived";
+
+/** 申込フォームの入力内容 */
+export interface Application {
+  id: string;
+  linkId: string | null;
+  /** 申込時のリンク名(リンク削除後も分かるように保持) */
+  linkName: string;
+  /** 法人名(個人の場合は個人名) */
+  companyName: string;
+  /** 住所(法人の場合は登記住所) */
+  address: string;
+  /** 代表者役職 */
+  representativeTitle: string;
+  /** 代表者名 */
+  representativeName: string;
+  /** ホットペッパービューティ連携情報(任意) */
+  hotpepper: ServiceCredential | null;
+  /** minimo 連携情報(任意) */
+  minimo: ServiceCredential | null;
+  /** EPARK 連携情報(任意) */
+  epark: ServiceCredential | null;
+  /** LINE連携の申込有無 */
+  lineRequested: boolean;
+  status: ApplicationStatus;
+  /** 顧客として取り込んだ場合の紐付け */
+  customerId: string | null;
+  submittedAt: string;
+  submittedIp: string;
 }
 
 /* ---- アカウント(プロフィール) ---- */

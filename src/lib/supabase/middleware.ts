@@ -4,12 +4,13 @@ import { NextResponse, type NextRequest } from "next/server";
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 import { isSupabaseConfigured, supabaseAnonKey, supabaseUrl } from "@/lib/config";
 
-/** 認証不要で開けるパス(ログイン画面・決済の戻り先・トークンで保護された署名ページ) */
+/** 認証不要で開けるパス(ログイン画面・決済の戻り先・トークンで保護された公開ページ) */
 function isPublicPath(path: string): boolean {
   return (
     isAuthPath(path) ||
     path.startsWith("/billing") ||
-    path.startsWith("/sign") // 電子契約の署名ページ(トークンで保護)
+    path.startsWith("/sign") || // 電子契約の署名ページ(トークンで保護)
+    path.startsWith("/apply") // 申込フォーム(お客様に渡すURL。トークンで保護)
   );
   // /print(顧客情報を含む印刷ページ)と /api/direct-debit(口座情報CSV)は
   // スタッフ専用のため認証ゲートの対象。公開したままだと、データ取得の

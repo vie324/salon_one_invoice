@@ -1,5 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import {
+  applicationStatusLabels,
+  applicationStatusTone,
   batchItemResultLabels,
   batchItemResultTone,
   batchStatusLabels,
@@ -22,6 +24,7 @@ import {
   subscriptionStatusTone,
 } from "@/lib/domain/constants";
 import type {
+  ApplicationStatus,
   BatchItemResult,
   BatchStatus,
   ContractStatus,
@@ -68,6 +71,16 @@ export function BatchStatusBadge({ status }: { status: BatchStatus }) {
 
 export function BatchItemResultBadge({ result }: { result: BatchItemResult }) {
   return <Badge tone={batchItemResultTone[result]}>{batchItemResultLabels[result]}</Badge>;
+}
+
+/* ---- 申込 ---- */
+
+export function ApplicationStatusBadge({ status }: { status: ApplicationStatus }) {
+  return (
+    <Badge tone={applicationStatusTone[status]} dot>
+      {applicationStatusLabels[status]}
+    </Badge>
+  );
 }
 
 /* ---- 開発依頼 / 進捗管理 ---- */

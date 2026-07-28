@@ -3,6 +3,9 @@ import type {
   Agency,
   AgencyMember,
   AppNotification,
+  Application,
+  ApplicationLink,
+  ApplicationStatus,
   BankTransaction,
   Contract,
   ContractEvent,
@@ -35,6 +38,7 @@ import type {
   Payment,
   Plan,
   Role,
+  ServiceCredential,
   Subscription,
   UserProfile,
 } from "@/lib/domain/types";
@@ -300,6 +304,44 @@ export interface CreateAccountInput {
   role: Role;
 }
 
+/* ---- 申込用URL / 申込 ---- */
+
+/** 申込URLの発行 */
+export interface ApplicationLinkInput {
+  /** 宛先メモ(管理画面での識別用) */
+  name: string;
+  /** 有効日数(0 または未指定で無期限) */
+  expiryDays?: number;
+  createdBy: string;
+}
+
+/**
+ * 申込フォームの送信内容(平文)。
+ * ID・パスワードはリポジトリ側で暗号化してから保存する。
+ */
+export interface ApplicationInput {
+  companyName: string;
+  address: string;
+  representativeTitle: string;
+  representativeName: string;
+  hotpepper: ServiceCredential | null;
+  minimo: ServiceCredential | null;
+  epark: ServiceCredential | null;
+  lineRequested: boolean;
+  /** 送信元IP(証跡用) */
+  submittedIp?: string;
+}
+
+/** 復号済みの連携情報(担当者が「表示」を押した時だけ取得する) */
+export interface ApplicationCredentials {
+  hotpepper: ServiceCredential | null;
+  minimo: ServiceCredential | null;
+  epark: ServiceCredential | null;
+}
+
+/** 申込URLの受付可否(停止・期限切れの判定結果) */
+export type ApplicationLinkState = "ok" | "not_found" | "inactive" | "expired";
+
 /** 添付画像の追加。dataUrl は data:image/...;base64,xxx 形式。 */
 export interface DevIssueAttachmentInput {
   fileName: string;
@@ -500,6 +542,46 @@ export interface Repository {
   ): Promise<DevIssueAttachment>;
   getDevIssueAttachment(id: string): Promise<DevIssueAttachment | null>;
   deleteDevIssueAttachment(id: string): Promise<void>;
+
+  // --- 申込用URL ---
+  listApplicationLinks(): Promise<ApplicationLink[]>;
+  /** 申込URLを発行する(トークンは暗号乱数)。 */
+  createApplicationLink(input: ApplicationLinkInput): Promise<ApplicationLink>;
+  /** 受付の停止・再開。 */
+  setApplicationLinkActive(id: string, active: boolean): Promise<ApplicationLink>;
+  /** 申込URLの削除(受付済みの申込は残る)。 */
+  deleteApplicationLink(id: string): Promise<void>;
+  /**
+   * 公開フォーム用。トークンから申込URLを取得する。
+   * 停止中・期限切れでもリンク自体は返し、受付可否は state で示す。
+   */
+  getApplicationLinkByToken(
+    token: string,
+  ): Promise<{ link: ApplicationLink | null; state: ApplicationLinkState }>;
+
+  // --- 申込 ---
+  /** 申込の一覧。連携情報はマスク済みの値が入る(平文は含まない)。 */
+  listApplications(filter?: { status?: ApplicationStatus | "all" }): Promise<Application[]>;
+  /** 申込の詳細。連携情報はマスク済み。 */
+  getApplication(id: string): Promise<Application | null>;
+  /**
+   * 公開フォームからの申込を登録する。
+   * 連携情報(ID・パスワード)は暗号化して保存し、最近の動きにも記録する。
+   * 受付できないトークンの場合はエラーを投げる。
+   */
+  submitApplication(token: string, input: ApplicationInput): Promise<Application>;
+  /**
+   * 連携情報を復号して返す(連携作業を行う担当者の明示操作時のみ)。
+   * 鍵の変更などで復号できない項目は空文字になる。
+   */
+  revealApplicationCredentials(id: string): Promise<ApplicationCredentials | null>;
+  /** 対応状況の変更(顧客登録済 / 対応不要 など)。 */
+  updateApplicationStatus(id: string, status: ApplicationStatus): Promise<Application>;
+  /**
+   * 申込内容から顧客を作成して紐付ける(ステータスは customer_created になる)。
+   * 既に顧客登録済みの場合はエラーを投げる。
+   */
+  createCustomerFromApplication(id: string, actor: string): Promise<Customer>;
 
   // --- アプリ内通知 ---
   listNotifications(
