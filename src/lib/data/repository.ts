@@ -324,6 +324,9 @@ export interface ApplicationInput {
   address: string;
   representativeTitle: string;
   representativeName: string;
+  contactName: string;
+  phone: string;
+  email: string;
   hotpepper: ServiceCredential | null;
   minimo: ServiceCredential | null;
   epark: ServiceCredential | null;

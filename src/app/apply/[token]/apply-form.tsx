@@ -25,6 +25,9 @@ export function ApplyForm({ token, orgName }: { token: string; orgName: string }
   const [address, setAddress] = React.useState("");
   const [representativeTitle, setRepresentativeTitle] = React.useState("");
   const [representativeName, setRepresentativeName] = React.useState("");
+  const [contactName, setContactName] = React.useState("");
+  const [phone, setPhone] = React.useState("");
+  const [email, setEmail] = React.useState("");
   const [creds, setCreds] = React.useState<Record<ServiceKey, { id: string; password: string }>>({
     hotpepper: { id: "", password: "" },
     minimo: { id: "", password: "" },
@@ -47,6 +50,9 @@ export function ApplyForm({ token, orgName }: { token: string; orgName: string }
         address,
         representativeTitle,
         representativeName,
+        contactName,
+        phone,
+        email,
         hotpepperId: creds.hotpepper.id,
         hotpepperPassword: creds.hotpepper.password,
         minimoId: creds.minimo.id,
@@ -121,6 +127,38 @@ export function ApplyForm({ token, orgName }: { token: string; orgName: string }
                 placeholder="山田 太郎"
                 required
                 autoComplete="name"
+              />
+            </Field>
+          </div>
+          <Field
+            label="ご担当者名"
+            hint="日々のやり取りをさせていただく方。未入力の場合は代表者名でご連絡します。"
+          >
+            <Input
+              value={contactName}
+              onChange={(e) => setContactName(e.target.value)}
+              placeholder="山田 花子"
+            />
+          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="電話番号 *">
+              <Input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="03-1234-5678"
+                required
+                autoComplete="tel"
+              />
+            </Field>
+            <Field label="メールアドレス *" hint="ご連絡・請求書の送付先になります。">
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="info@example.com"
+                required
+                autoComplete="email"
               />
             </Field>
           </div>
