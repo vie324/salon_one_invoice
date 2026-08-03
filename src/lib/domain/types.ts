@@ -350,6 +350,13 @@ export interface ContractTemplate {
 }
 
 /** 契約書(申込書)。送付後は内容(条文・料金・当事者)が凍結される。 */
+/**
+ * 署名依頼の渡し方。
+ * - email: 契約者へメールで署名リンクを送付する
+ * - link: メールを送らずに署名リンクを発行し、担当者が別経路(LINE・SMS・対面・QR)で渡す
+ */
+export type ContractDeliveryMethod = "email" | "link";
+
 export interface Contract {
   id: string;
   contractNumber: string; // CTR-YYYYMM-####
@@ -458,11 +465,15 @@ export interface MonthlyRevenuePoint {
 }
 
 export interface DashboardMetrics {
-  /** 今月の請求額(税込) */
+  /** 集計対象の月 (YYYY-MM)。ダッシュボードの月タブで切り替える。 */
+  month: string;
+  /** 対象月の請求額(税込) */
   monthInvoiced: number;
-  /** 今月の入金額 */
+  /** 対象月の入金額 */
   monthCollected: number;
-  /** 未収金(送付済〜期限超過の未入金残高) */
+  /** 対象月に発行した請求のうち、現時点で未入金の残高 */
+  monthOutstanding: number;
+  /** 未収金(送付済〜期限超過の未入金残高)。対象月に関係なく現時点の全体。 */
   outstanding: number;
   /** 期限超過の件数と金額 */
   overdueCount: number;
@@ -474,10 +485,11 @@ export interface DashboardMetrics {
   /** 入金待ち(引き落とし予定含む)の件数 */
   awaitingCount: number;
   awaitingAmount: number;
-  /** 前月比(請求額) */
+  /** 前月比(請求額。対象月とその前月の比較) */
   invoicedMoM: number;
+  /** 対象月を末尾とする直近6ヶ月の推移 */
   monthlyTrend: MonthlyRevenuePoint[];
-  /** 支払方法別の入金内訳(今月) */
+  /** 支払方法別の入金内訳(対象月) */
   collectionByMethod: { method: PaymentMethod | "adjustment"; amount: number }[];
 }
 

@@ -136,15 +136,3 @@ export function computeAgencyStatement(input: {
     commission,
   };
 }
-
-/** 今月 (YYYY-MM) */
-export function currentMonth(now = new Date()): string {
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
-
-/** 月の加減算 (YYYY-MM ± n) */
-export function addMonths(month: string, n: number): string {
-  const [y, m] = month.split("-").map(Number);
-  const d = new Date(y, m - 1 + n, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}

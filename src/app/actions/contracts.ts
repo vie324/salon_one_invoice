@@ -22,6 +22,7 @@ import {
 } from "@/lib/email/templates";
 import { CONTRACT_SIGN_EXPIRY_DAYS } from "@/lib/domain/constants";
 import { computeDueDate } from "@/lib/domain/calculations";
+import type { ContractDeliveryMethod } from "@/lib/domain/types";
 import { toISODate } from "@/lib/utils";
 
 function revalidateContractViews(id?: string) {
@@ -79,12 +80,21 @@ export async function updateContractDraftAction(id: string, input: Partial<Contr
  * 署名依頼の送付(または再送)。
  * 1) 契約内容の SHA-256 ハッシュを計算して固定化
  * 2) 暗号乱数トークン(署名URL)と任意のアクセスコードを発行
- * 3) 契約者へ署名依頼メールを送付
+ * 3) deliveryMethod に応じて、メール送付するか、リンクだけ発行する
+ *
+ * deliveryMethod="link" はメールを一切送らず、担当者が LINE・SMS・対面(QR)などで
+ * 署名リンクを渡す運用。メール送信が未設定・使えない場合でも契約を進められる。
  * アクセスコードはメールに記載せず、担当者が別経路(電話等)で伝達する(2要素)。
  */
 export async function sendContractAction(
   id: string,
-  options: { email: string; requireCode: boolean; expiresInDays?: number },
+  options: {
+    email: string;
+    requireCode: boolean;
+    expiresInDays?: number;
+    /** 省略時はメール送付(従来動作) */
+    deliveryMethod?: ContractDeliveryMethod;
+  },
 ) {
   try {
     const repo = await getServiceRepository();
@@ -92,7 +102,9 @@ export async function sendContractAction(
     const meta = await clientMeta();
     const contract = await repo.getContract(id);
     if (!contract) return { ok: false as const, error: "契約書が見つかりません" };
-    if (!options.email) {
+    const deliveryMethod = options.deliveryMethod ?? "email";
+    // リンク発行はメールを送らないため、宛先の入力は任意
+    if (deliveryMethod === "email" && !options.email) {
       return { ok: false as const, error: "送付先メールアドレスを入力してください" };
     }
 
@@ -109,14 +121,26 @@ export async function sendContractAction(
       expiresAt,
       accessCode,
       contentHash,
-      signerEmail: options.email,
+      signerEmail: options.email.trim(),
+      deliveryMethod,
       actor: user.name,
       ip: meta.ip,
       userAgent: meta.userAgent,
     });
 
-    const org = await repo.getOrganization();
     const signUrl = `${await signBaseUrl()}/sign/${token}`;
+    if (deliveryMethod === "link") {
+      revalidateContractViews(id);
+      return {
+        ok: true as const,
+        accessCode,
+        signUrl,
+        deliveryMethod,
+        emailResult: "署名リンクを発行しました（メールは送信していません）",
+      };
+    }
+
+    const org = await repo.getOrganization();
     const res = await getEmailProvider().send({
       to: options.email,
       subject: `【${org.name}】${updated.title}（${updated.contractNumber}）ご署名のお願い`,
@@ -128,6 +152,7 @@ export async function sendContractAction(
       ok: true as const,
       accessCode,
       signUrl,
+      deliveryMethod,
       emailResult: res.ok
         ? (res.message ?? "署名依頼メールを送信しました")
         : `メール送信失敗: ${res.message}`,

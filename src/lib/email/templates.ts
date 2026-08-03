@@ -215,6 +215,33 @@ export function agencyStatementEmailHtml(params: {
   </div>`;
 }
 
+/** 設定確認用のテスト送信メール。 */
+export function testEmailHtml(params: {
+  org: Organization;
+  actor: string;
+  sentAt: string;
+}): string {
+  const { org, actor, sentAt } = params;
+  return `
+  <div style="font-family:'Hiragino Sans','Noto Sans JP',sans-serif;max-width:600px;margin:0 auto;color:#152a26">
+    <div style="background:#0d3b33;color:#fff;padding:20px 24px;border-radius:12px 12px 0 0;border-bottom:3px solid #c2a15c">
+      <div style="font-size:13px;color:#c2a15c">${escapeHtml(org.name)}</div>
+      <div style="font-size:20px;font-weight:700;margin-top:2px">メール送信テスト</div>
+    </div>
+    <div style="border:1px solid #eee;border-top:none;padding:24px;border-radius:0 0 12px 12px">
+      <p>このメールが届いていれば、契約書の署名依頼・請求書・代理店明細のメールが<strong>実際に送信できる状態</strong>です。</p>
+      <div style="background:#f1f6f4;border-radius:8px;padding:12px 16px;margin-top:16px;font-size:14px;border-left:3px solid #c2a15c">
+        <div>送信日時: ${formatDateTime(sentAt)}</div>
+        <div>実行者: ${escapeHtml(actor)}</div>
+      </div>
+      <p style="color:#777;font-size:12px;margin-top:20px">
+        設定画面の「メール送信」から送信したテストメールです。お客様へは送信されていません。
+      </p>
+      <p style="color:#999;font-size:12px;margin-top:16px">${escapeHtml(org.name)}　${escapeHtml(org.address)}　${org.tel}</p>
+    </div>
+  </div>`;
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")

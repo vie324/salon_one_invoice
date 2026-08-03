@@ -2,8 +2,8 @@
 
 import {
   Ban,
-  Copy,
   ExternalLink,
+  Link2,
   Mail,
   PenLine,
   Printer,
@@ -21,17 +21,20 @@ import {
   sendContractAction,
   startContractBillingAction,
 } from "@/app/actions/contracts";
+import { ShareLink } from "@/components/share/share-link";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Textarea } from "@/components/ui/input";
 import { CONTRACT_SIGN_EXPIRY_DAYS } from "@/lib/domain/constants";
-import { toISODate } from "@/lib/utils";
+import type { ContractDeliveryMethod } from "@/lib/domain/types";
+import { cn, toISODate } from "@/lib/utils";
 
 /** 契約書詳細の操作パネル(送付・リマインド・取消・手動締結・請求開始)。 */
 export function ContractActions({
   id,
   status,
   defaultEmail,
+  signerEmail,
   signToken,
   accessCode,
   hasPlan,
@@ -39,10 +42,13 @@ export function ContractActions({
   billingLinked,
   defaultSignerName,
   defaultStartDate,
+  emailReady,
 }: {
   id: string;
   status: string;
   defaultEmail: string;
+  /** 送付済みの契約に記録された宛先(リンク発行のみの場合は空) */
+  signerEmail: string;
   signToken: string | null;
   accessCode: string | null;
   hasPlan: boolean;
@@ -50,6 +56,8 @@ export function ContractActions({
   billingLinked: boolean;
   defaultSignerName: string;
   defaultStartDate: string | null;
+  /** メールの実送信が設定済みか。未設定ならリンク発行を既定にする。 */
+  emailReady: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = React.useTransition();
@@ -89,15 +97,15 @@ export function ContractActions({
             内容を編集
           </Link>
           <Button className="w-full" disabled={pending} onClick={() => setSendOpen(true)}>
-            <Send className="h-4 w-4" />
-            署名依頼を送付
+            {emailReady ? <Send className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
+            {emailReady ? "署名依頼を送付" : "署名リンクを発行"}
           </Button>
         </>
       )}
 
       {(isAwaiting || isExpired) && (
         <>
-          {isAwaiting && (
+          {isAwaiting && signerEmail && (
             <Button
               className="w-full"
               variant="outline"
@@ -110,42 +118,26 @@ export function ContractActions({
           )}
           <Button className="w-full" variant="outline" disabled={pending} onClick={() => setSendOpen(true)}>
             <Send className="h-4 w-4" />
-            再送信（リンク再発行）
+            {emailReady ? "再送信（リンク再発行）" : "リンクを再発行"}
           </Button>
           {signUrl && (
-            <div className="rounded-md bg-muted/60 p-3 text-xs">
-              <div className="mb-1 font-medium">署名リンク</div>
-              <div className="flex items-center gap-1.5">
-                <a
-                  href={signUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="truncate text-primary hover:underline"
-                >
-                  {signUrl}
-                </a>
-                <button
-                  type="button"
-                  className="shrink-0 rounded p-1 hover:bg-muted"
-                  onClick={() => {
-                    void navigator.clipboard.writeText(signUrl);
-                    setFlash("署名リンクをコピーしました");
-                  }}
-                  aria-label="リンクをコピー"
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              {accessCode && (
-                <div className="mt-2">
-                  <span className="font-medium">アクセスコード: </span>
-                  <span className="tabular tracking-widest">{accessCode}</span>
-                  <p className="mt-1 text-muted-foreground">
-                    メールには記載されません。お電話等の別経路でお伝えください（2要素の本人確認）。
-                  </p>
-                </div>
-              )}
-            </div>
+            <ShareLink
+              url={signUrl}
+              label="署名リンク"
+              hint={
+                accessCode ? (
+                  <>
+                    <span className="font-medium text-foreground">アクセスコード: </span>
+                    <span className="tabular tracking-widest text-foreground">{accessCode}</span>
+                    <p className="mt-1">
+                      リンクとは別経路（お電話等）でお伝えください（2要素の本人確認）。
+                    </p>
+                  </>
+                ) : (
+                  "LINE・SMS・対面（QRコード）など、お客様に届く方法でお渡しください。"
+                )
+              }
+            />
           )}
         </>
       )}
@@ -212,7 +204,7 @@ export function ContractActions({
         <div className="rounded-md border border-warning/50 bg-warning/10 px-3 py-2 text-xs">
           <div className="font-semibold">アクセスコード: <span className="tabular tracking-widest">{issuedCode}</span></div>
           <p className="mt-1 text-muted-foreground">
-            契約者へお電話等の別経路でお伝えください。メールには記載されていません。
+            契約者へお電話等の別経路でお伝えください。メール・署名リンクには記載されていません。
           </p>
         </div>
       )}
@@ -223,6 +215,7 @@ export function ContractActions({
         defaultEmail={defaultEmail}
         pending={pending}
         isResend={!isDraft}
+        emailReady={emailReady}
         onSubmit={(input) =>
           run(async () => {
             const res = await sendContractAction(id, input);
@@ -288,31 +281,74 @@ function SendDialog({
   onSubmit,
   pending,
   isResend,
+  emailReady,
 }: {
   open: boolean;
   onClose: () => void;
   defaultEmail: string;
-  onSubmit: (input: { email: string; requireCode: boolean; expiresInDays: number }) => void;
+  onSubmit: (input: {
+    email: string;
+    requireCode: boolean;
+    expiresInDays: number;
+    deliveryMethod: ContractDeliveryMethod;
+  }) => void;
   pending: boolean;
   isResend: boolean;
+  emailReady: boolean;
 }) {
   const [email, setEmail] = React.useState(defaultEmail);
   const [requireCode, setRequireCode] = React.useState(true);
   const [days, setDays] = React.useState(CONTRACT_SIGN_EXPIRY_DAYS);
+  // メール送信が未設定の環境では「リンクを発行して自分で渡す」を既定にする
+  const [method, setMethod] = React.useState<ContractDeliveryMethod>(
+    emailReady ? "email" : "link",
+  );
+  const isLink = method === "link";
 
   React.useEffect(() => {
-    if (open) setEmail(defaultEmail);
-  }, [open, defaultEmail]);
+    if (open) {
+      setEmail(defaultEmail);
+      setMethod(emailReady ? "email" : "link");
+    }
+  }, [open, defaultEmail, emailReady]);
 
   return (
     <Dialog
       open={open}
       onClose={onClose}
-      title={isResend ? "署名依頼の再送信" : "署名依頼の送付"}
+      title={isResend ? "署名依頼の再発行" : "署名依頼"}
       description="契約内容はSHA-256ハッシュで固定化され、以降は変更できなくなります。"
     >
       <div className="space-y-4">
-        <Field label="送付先メールアドレス" hint="契約者本人のメールアドレス(本人確認の1要素になります)">
+        <Field label="渡し方">
+          <div className="grid gap-2">
+            <MethodOption
+              checked={method === "email"}
+              onSelect={() => setMethod("email")}
+              title="メールで送る"
+              description={
+                emailReady
+                  ? "契約者のメールアドレスへ署名リンクを送信します。"
+                  : "現在メール送信は未設定のため、実際には届きません（設定 → メール送信）。"
+              }
+              warn={!emailReady}
+            />
+            <MethodOption
+              checked={isLink}
+              onSelect={() => setMethod("link")}
+              title="リンクを発行して自分で渡す（メールを送りません）"
+              description="発行後にURLとQRコードを表示します。LINE・SMS・対面など、お客様に届く方法でお渡しください。"
+            />
+          </div>
+        </Field>
+        <Field
+          label={isLink ? "契約者のメールアドレス（任意）" : "送付先メールアドレス"}
+          hint={
+            isLink
+              ? "空欄でも発行できます。入力すると締結完了のお知らせ先として記録されます。"
+              : "契約者本人のメールアドレス(本人確認の1要素になります)"
+          }
+        >
           <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         </Field>
         <Field label="署名期限">
@@ -338,7 +374,7 @@ function SendDialog({
           <span>
             <span className="font-medium">アクセスコードで保護する（推奨）</span>
             <span className="mt-0.5 block text-xs text-muted-foreground">
-              6桁のコードを発行します。メールとは別の経路(電話等)で契約者へ伝えることで、
+              6桁のコードを発行します。{isLink ? "リンク" : "メール"}とは別の経路(電話等)で契約者へ伝えることで、
               2要素の本人確認となり電子署名の証拠力を高めます。
             </span>
           </span>
@@ -348,15 +384,65 @@ function SendDialog({
             キャンセル
           </Button>
           <Button
-            onClick={() => onSubmit({ email: email.trim(), requireCode, expiresInDays: days })}
-            disabled={pending || !email.trim()}
+            onClick={() =>
+              onSubmit({
+                email: email.trim(),
+                requireCode,
+                expiresInDays: days,
+                deliveryMethod: method,
+              })
+            }
+            disabled={pending || (!isLink && !email.trim())}
           >
-            <Send className="h-4 w-4" />
-            {isResend ? "再送信する" : "送付する"}
+            {isLink ? <Link2 className="h-4 w-4" /> : <Send className="h-4 w-4" />}
+            {isLink ? (isResend ? "リンクを再発行する" : "リンクを発行する") : isResend ? "再送信する" : "送付する"}
           </Button>
         </div>
       </div>
     </Dialog>
+  );
+}
+
+/** 渡し方の選択肢(ラジオ)。 */
+function MethodOption({
+  checked,
+  onSelect,
+  title,
+  description,
+  warn,
+}: {
+  checked: boolean;
+  onSelect: () => void;
+  title: string;
+  description: string;
+  warn?: boolean;
+}) {
+  return (
+    <label
+      className={cn(
+        "flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm transition-colors",
+        checked ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50",
+      )}
+    >
+      <input
+        type="radio"
+        name="contract-delivery-method"
+        className="mt-0.5 h-4 w-4 accent-[var(--color-primary)]"
+        checked={checked}
+        onChange={onSelect}
+      />
+      <span>
+        <span className="font-medium">{title}</span>
+        <span
+          className={cn(
+            "mt-0.5 block text-xs",
+            warn ? "text-warning" : "text-muted-foreground",
+          )}
+        >
+          {description}
+        </span>
+      </span>
+    </label>
   );
 }
 

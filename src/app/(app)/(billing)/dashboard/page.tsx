@@ -23,10 +23,18 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { StatCard } from "@/components/ui/stat-card";
 import { requireUser } from "@/lib/auth";
 import { getServiceRepository } from "@/lib/data";
-import { formatBillingPeriod, outstandingAmount } from "@/lib/domain/calculations";
+import { outstandingAmount } from "@/lib/domain/calculations";
 import { paymentMethodLabels } from "@/lib/domain/constants";
 import type { PaymentMethod } from "@/lib/domain/types";
-import { daysUntil, formatDate, formatJPY } from "@/lib/utils";
+import {
+  currentMonth,
+  daysUntil,
+  formatDate,
+  formatJPY,
+  formatMonthKey,
+  isMonthKey,
+} from "@/lib/utils";
+import { MonthTabs } from "./month-tabs";
 
 export const metadata = { title: "ダッシュボード" };
 
@@ -41,10 +49,22 @@ const methodColor: Record<PaymentMethod | "adjustment", number> = {
   adjustment: 5,
 };
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ month?: string }>;
+}) {
+  const sp = await searchParams;
+  const current = currentMonth();
+  // 未来の月は集計対象が無いため当月に丸める
+  const month = isMonthKey(sp.month) && sp.month <= current ? sp.month : current;
+  const monthLabel = formatMonthKey(month);
+  const shortLabel = formatMonthKey(month, { short: true });
+  const isCurrent = month === current;
+
   const [user, repo] = await Promise.all([requireUser(), getServiceRepository()]);
   const [metrics, activities, invoices, bankTxns] = await Promise.all([
-    repo.getDashboardMetrics(),
+    repo.getDashboardMetrics(month),
     repo.listActivities(8),
     repo.listInvoices(),
     repo.listBankTransactions(),
@@ -74,7 +94,9 @@ export default async function DashboardPage() {
             こんにちは、{user.name.replace(/（.*/, "")} さん
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            売上・入金の状況と、本日の要対応をまとめました。
+            {isCurrent
+              ? "今月の売上・入金の状況と、本日の要対応をまとめました。"
+              : `${monthLabel}の売上・入金の状況です。要対応タスクは現在の状況を表示しています。`}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -92,10 +114,13 @@ export default async function DashboardPage() {
         </div>
       </div>
 
+      {/* 月切替タブ */}
+      <MonthTabs month={month} current={current} />
+
       {/* KPI */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard
-          label="今月の請求額"
+          label={`${shortLabel}の請求額`}
           value={formatJPY(metrics.monthInvoiced)}
           delta={metrics.invoicedMoM}
           sub="前月比"
@@ -103,16 +128,16 @@ export default async function DashboardPage() {
           accent="primary"
         />
         <StatCard
-          label="今月の入金額"
+          label={`${shortLabel}の入金額`}
           value={formatJPY(metrics.monthCollected)}
           sub={`${paymentMethodLabels.direct_debit}中心`}
           icon={<CircleDollarSign className="h-5 w-5" />}
           accent="success"
         />
         <StatCard
-          label="未収金"
+          label="未収金（現在・全体）"
           value={formatJPY(metrics.outstanding)}
-          sub={`入金待ち ${metrics.awaitingCount}件`}
+          sub={`${shortLabel}発行分 ${formatJPY(metrics.monthOutstanding)}`}
           icon={<Clock className="h-5 w-5" />}
           accent="warning"
         />
@@ -131,7 +156,7 @@ export default async function DashboardPage() {
           <Card>
             <CardHeader className="flex-row items-center justify-between">
               <CardTitle>売上・入金の推移</CardTitle>
-              <span className="text-xs text-muted-foreground">直近6ヶ月</span>
+              <span className="text-xs text-muted-foreground">{shortLabel}までの6ヶ月</span>
             </CardHeader>
             <CardContent>
               <RevenueChart data={metrics.monthlyTrend} />
@@ -140,8 +165,13 @@ export default async function DashboardPage() {
 
           {/* 要対応 */}
           <Card>
-            <CardHeader className="flex-row items-center justify-between">
-              <CardTitle>要対応タスク</CardTitle>
+            <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
+              <CardTitle>
+                要対応タスク
+                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                  月に関わらず現在の状況
+                </span>
+              </CardTitle>
               <Link
                 href="/invoices"
                 className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
@@ -197,13 +227,13 @@ export default async function DashboardPage() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>今月の入金内訳</CardTitle>
+              <CardTitle>{shortLabel}の入金内訳</CardTitle>
             </CardHeader>
             <CardContent>
               {donutSlices.length > 0 ? (
-                <DonutChart slices={donutSlices} centerLabel="今月入金" />
+                <DonutChart slices={donutSlices} centerLabel={`${shortLabel}入金`} />
               ) : (
-                <EmptyState title="今月の入金はまだありません" />
+                <EmptyState title={`${shortLabel}の入金はまだありません`} />
               )}
             </CardContent>
           </Card>

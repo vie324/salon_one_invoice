@@ -8,6 +8,7 @@ import type {
   ApplicationStatus,
   BankTransaction,
   Contract,
+  ContractDeliveryMethod,
   ContractEvent,
   ContractEventType,
   ContractFeeTable,
@@ -234,7 +235,10 @@ export interface ContractSendParams {
   expiresAt: string;
   accessCode: string | null;
   contentHash: string;
+  /** link 発行時は未入力(空文字)を許容する */
   signerEmail: string;
+  /** メール送付か、リンク発行(メールなし)か。証跡に残す。 */
+  deliveryMethod: ContractDeliveryMethod;
   actor: string;
   ip?: string;
   userAgent?: string;
@@ -421,7 +425,8 @@ export interface Repository {
   matchBankTransaction(txnId: string, invoiceId: string): Promise<void>;
 
   // --- ダッシュボード / 活動 ---
-  getDashboardMetrics(): Promise<DashboardMetrics>;
+  /** @param month 集計対象の月 (YYYY-MM)。省略時は当月。 */
+  getDashboardMetrics(month?: string): Promise<DashboardMetrics>;
   listActivities(limit?: number): Promise<Activity[]>;
 
   // --- 定期請求バッチ生成 ---

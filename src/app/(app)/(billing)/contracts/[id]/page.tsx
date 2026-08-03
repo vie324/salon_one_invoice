@@ -16,6 +16,7 @@ import { ContractStatusBadge } from "@/components/status-badge";
 import { buttonClasses } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getServiceRepository } from "@/lib/data";
+import { getEmailStatus } from "@/lib/email";
 import { contractEventLabels } from "@/lib/domain/constants";
 import type { ContractEventType } from "@/lib/domain/types";
 import { formatDateTime, formatJPY } from "@/lib/utils";
@@ -85,6 +86,8 @@ export default async function ContractDetailPage({
                 id={contract.id}
                 status={contract.status}
                 defaultEmail={contract.signerEmail || contract.customerParty.email}
+                signerEmail={contract.signerEmail}
+                emailReady={getEmailStatus().mode === "send"}
                 signToken={contract.signToken}
                 accessCode={contract.accessCode}
                 hasPlan={!!contract.terms.planId}
