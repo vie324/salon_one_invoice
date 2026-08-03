@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { effectiveContractStatus } from "@/lib/contracts/build";
+import { contractSendDetail, effectiveContractStatus } from "@/lib/contracts/build";
 import { defaultTemplateInput } from "@/lib/contracts/default-template";
 import { computeContractHash } from "@/lib/contracts/hash";
 import { encryptCredential, maskCredential, revealCredential } from "@/lib/crypto/secrets";
@@ -1689,12 +1689,20 @@ export class SupabaseRepository implements Repository {
       actor: params.actor,
       ip: params.ip,
       userAgent: params.userAgent,
-      detail: `${isResend ? "再送信(トークン再発行)" : "署名依頼を送付"}: ${params.signerEmail}${params.accessCode ? " / アクセスコードあり" : ""}`,
+      detail: contractSendDetail({
+        deliveryMethod: params.deliveryMethod,
+        signerEmail: params.signerEmail,
+        hasAccessCode: !!params.accessCode,
+        isResend,
+      }),
       contentHash: params.contentHash,
     });
     await this.logActivity({
       kind: "contract_sent",
-      message: `契約書 ${current.contractNumber} の署名依頼を送付`,
+      message:
+        params.deliveryMethod === "link"
+          ? `契約書 ${current.contractNumber} の署名リンクを発行`
+          : `契約書 ${current.contractNumber} の署名依頼を送付`,
       actor: params.actor,
       amount: null,
       linkInvoiceId: null,

@@ -1,5 +1,6 @@
 import type {
   Contract,
+  ContractDeliveryMethod,
   ContractFeeTable,
   ContractParty,
   ContractStatus,
@@ -81,6 +82,25 @@ export function sanitizeContractForSigner(
 ): Contract {
   const { customer: _customer, ...rest } = c as ContractWithCustomer;
   return { ...rest, accessCode: null };
+}
+
+/**
+ * 署名依頼の証跡に残す説明文。
+ * メール送付かリンク発行(メールなし)かで、どう渡したかを追えるようにする。
+ */
+export function contractSendDetail(params: {
+  deliveryMethod: ContractDeliveryMethod;
+  signerEmail: string;
+  hasAccessCode: boolean;
+  isResend: boolean;
+}): string {
+  const { deliveryMethod, signerEmail, hasAccessCode, isResend } = params;
+  const head =
+    deliveryMethod === "link"
+      ? `署名リンクを${isResend ? "再発行" : "発行"}(メール送信なし)`
+      : `署名依頼を${isResend ? "再送信(トークン再発行)" : "メールで送付"}`;
+  const to = signerEmail ? `: ${signerEmail}` : "";
+  return `${head}${to}${hasAccessCode ? " / アクセスコードあり" : ""}`;
 }
 
 /**

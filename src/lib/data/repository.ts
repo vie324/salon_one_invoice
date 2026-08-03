@@ -8,6 +8,7 @@ import type {
   ApplicationStatus,
   BankTransaction,
   Contract,
+  ContractDeliveryMethod,
   ContractEvent,
   ContractEventType,
   ContractFeeTable,
@@ -234,7 +235,10 @@ export interface ContractSendParams {
   expiresAt: string;
   accessCode: string | null;
   contentHash: string;
+  /** link 発行時は未入力(空文字)を許容する */
   signerEmail: string;
+  /** メール送付か、リンク発行(メールなし)か。証跡に残す。 */
+  deliveryMethod: ContractDeliveryMethod;
   actor: string;
   ip?: string;
   userAgent?: string;

@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Copy, Link2, Pause, Play, Plus, Trash2 } from "lucide-react";
+import { Check, Copy, Link2, Pause, Play, Plus, QrCode, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import {
@@ -8,6 +8,7 @@ import {
   deleteApplicationLinkAction,
   setApplicationLinkActiveAction,
 } from "@/app/actions/applications";
+import { QrCodeImage } from "@/components/share/share-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -47,6 +48,7 @@ export function ApplicationLinkManager({
   const [expiryDays, setExpiryDays] = React.useState(APPLICATION_LINK_EXPIRY_DAYS);
   const [error, setError] = React.useState<string | null>(null);
   const [copiedId, setCopiedId] = React.useState<string | null>(null);
+  const [qrLink, setQrLink] = React.useState<ApplicationLink | null>(null);
   const [pending, start] = React.useTransition();
 
   React.useEffect(() => {
@@ -113,6 +115,7 @@ export function ApplicationLinkManager({
           <h2 className="text-sm font-semibold">申込URL</h2>
           <p className="text-xs text-muted-foreground">
             発行したURLをお客様にお渡しすると、入力内容がそのままこのツールに反映されます。
+            メールは不要です（コピーしてLINE・SMS、または「QR」で対面でもお渡しできます）。
           </p>
         </div>
         <Button size="sm" onClick={() => setOpen(true)}>
@@ -170,6 +173,15 @@ export function ApplicationLinkManager({
                   <Button
                     size="sm"
                     variant="outline"
+                    onClick={() => setQrLink(link)}
+                    title="QRコードを表示（対面でお渡しする場合）"
+                  >
+                    <QrCode className="h-4 w-4" />
+                    QR
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
                     onClick={() => toggle(link)}
                     disabled={pending}
                     title={link.active ? "受付を停止する" : "受付を再開する"}
@@ -202,6 +214,24 @@ export function ApplicationLinkManager({
           })}
         </ul>
       )}
+
+      <Dialog
+        open={!!qrLink}
+        onClose={() => setQrLink(null)}
+        title={qrLink ? `QRコード（${qrLink.name}）` : "QRコード"}
+        description="お客様のスマートフォンで読み取っていただくと、申込フォームが開きます。"
+      >
+        {qrLink && (
+          <div className="flex flex-col items-center gap-3">
+            <QrCodeImage value={urlOf(qrLink)} className="h-56 w-56" />
+            <p className="break-all text-center text-xs text-muted-foreground">{urlOf(qrLink)}</p>
+            <Button variant="outline" onClick={() => copy(qrLink)}>
+              <Copy className="h-4 w-4" />
+              URLをコピー
+            </Button>
+          </div>
+        )}
+      </Dialog>
 
       <Dialog
         open={open}

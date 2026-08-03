@@ -350,6 +350,13 @@ export interface ContractTemplate {
 }
 
 /** 契約書(申込書)。送付後は内容(条文・料金・当事者)が凍結される。 */
+/**
+ * 署名依頼の渡し方。
+ * - email: 契約者へメールで署名リンクを送付する
+ * - link: メールを送らずに署名リンクを発行し、担当者が別経路(LINE・SMS・対面・QR)で渡す
+ */
+export type ContractDeliveryMethod = "email" | "link";
+
 export interface Contract {
   id: string;
   contractNumber: string; // CTR-YYYYMM-####

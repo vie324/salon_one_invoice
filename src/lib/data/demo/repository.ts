@@ -1,4 +1,4 @@
-import { effectiveContractStatus } from "@/lib/contracts/build";
+import { contractSendDetail, effectiveContractStatus } from "@/lib/contracts/build";
 import { defaultTemplateInput } from "@/lib/contracts/default-template";
 import { computeContractHash } from "@/lib/contracts/hash";
 import { encryptCredential, maskCredential, revealCredential } from "@/lib/crypto/secrets";
@@ -923,13 +923,21 @@ export class DemoRepository implements Repository {
       actor: params.actor,
       ip: params.ip,
       userAgent: params.userAgent,
-      detail: `${isResend ? "再送信(トークン再発行)" : "署名依頼を送付"}: ${params.signerEmail}${params.accessCode ? " / アクセスコードあり" : ""}`,
+      detail: contractSendDetail({
+        deliveryMethod: params.deliveryMethod,
+        signerEmail: params.signerEmail,
+        hasAccessCode: !!params.accessCode,
+        isResend,
+      }),
       contentHash: params.contentHash,
     });
     const cus = this.s.customers.find((x) => x.id === c.customerId);
     this.addActivity({
       kind: "contract_sent",
-      message: `${cus?.name ?? ""} 様へ契約書 ${c.contractNumber} の署名依頼を送付`,
+      message:
+        params.deliveryMethod === "link"
+          ? `${cus?.name ?? ""} 様の契約書 ${c.contractNumber} の署名リンクを発行`
+          : `${cus?.name ?? ""} 様へ契約書 ${c.contractNumber} の署名依頼を送付`,
       actor: params.actor,
     });
     return c;
