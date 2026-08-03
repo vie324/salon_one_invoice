@@ -6,8 +6,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { getServiceRepository } from "@/lib/data";
-import { computeAgencyStatement, currentMonth } from "@/lib/domain/agency";
-import { formatJPY, formatPercent } from "@/lib/utils";
+import { computeAgencyStatement } from "@/lib/domain/agency";
+import { currentMonth, formatJPY, formatPercent } from "@/lib/utils";
 import { NewAgencyButton } from "./new-agency-button";
 
 export const metadata = { title: "代理店" };

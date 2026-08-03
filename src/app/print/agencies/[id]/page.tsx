@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { getServiceRepository } from "@/lib/data";
-import { computeAgencyStatement, currentMonth } from "@/lib/domain/agency";
-import { formatDate, formatJPY, formatPercent } from "@/lib/utils";
+import { computeAgencyStatement } from "@/lib/domain/agency";
+import { currentMonth, formatDate, formatJPY, formatPercent } from "@/lib/utils";
 import { PrintButton } from "@/app/print/invoices/[id]/print-button";
 import { LogoMark } from "@/components/brand/logo";
 

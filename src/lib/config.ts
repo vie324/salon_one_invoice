@@ -22,10 +22,31 @@ export const paymentProvider = (process.env.PAYMENT_PROVIDER ?? "manual") as
   | "manual"
   | "stripe";
 
-/** メールプロバイダ: console(プレビュー) | resend */
-export const emailProvider = (process.env.EMAIL_PROVIDER ?? "console") as
-  | "console"
-  | "resend";
+/** Resend の API キー(実送信に必須) */
+export const resendApiKey = process.env.RESEND_API_KEY ?? "";
+
+/** 送信元アドレス(例: `請求 <billing@example.jp>`)。実送信に必須。 */
+export const emailFrom = process.env.EMAIL_FROM ?? "";
+
+/**
+ * メールプロバイダ: console(未送信のプレビュー) | resend(実送信)
+ *
+ * EMAIL_PROVIDER が未設定でも RESEND_API_KEY があれば実送信にする。
+ * (キーだけ設定して「送ったつもりで送られていない」事故を防ぐ。
+ *  意図的にプレビューへ戻す場合は EMAIL_PROVIDER=console を明示する)
+ */
+const emailProviderEnv = (process.env.EMAIL_PROVIDER ?? "").trim().toLowerCase();
+export const emailProvider: "console" | "resend" =
+  emailProviderEnv === "resend"
+    ? "resend"
+    : emailProviderEnv === "console"
+      ? "console"
+      : resendApiKey
+        ? "resend"
+        : "console";
+
+/** 実送信の設定が揃っているか(プロバイダ・APIキー・送信元) */
+export const emailReady = emailProvider === "resend" && !!resendApiKey && !!emailFrom;
 
 export const cronSecret = process.env.CRON_SECRET ?? "";
 

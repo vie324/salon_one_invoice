@@ -73,6 +73,32 @@ export function toISODate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+/* ---- 年月キー (YYYY-MM) ---- */
+
+/** 当月の年月キー (2026-08) */
+export function currentMonth(now = new Date()): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** 月の加減算 (YYYY-MM ± n) */
+export function addMonths(month: string, n: number): string {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** 年月キーとして妥当か (YYYY-MM) */
+export function isMonthKey(value: string | undefined | null): value is string {
+  return !!value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+}
+
+/** 年月キーの表示 (2026-08 → 2026年8月)。short=true かつ今年なら「8月」 */
+export function formatMonthKey(month: string, opts?: { short?: boolean }): string {
+  const [y, m] = month.split("-");
+  if (opts?.short && Number(y) === new Date().getFullYear()) return `${Number(m)}月`;
+  return `${Number(y)}年${Number(m)}月`;
+}
+
 /** 相対的な残日数 → 表示文字列。負なら「N日超過」。 */
 export function daysUntil(dateStr: string, from = new Date()): number {
   const due = new Date(dateStr);

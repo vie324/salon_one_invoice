@@ -421,7 +421,8 @@ export interface Repository {
   matchBankTransaction(txnId: string, invoiceId: string): Promise<void>;
 
   // --- ダッシュボード / 活動 ---
-  getDashboardMetrics(): Promise<DashboardMetrics>;
+  /** @param month 集計対象の月 (YYYY-MM)。省略時は当月。 */
+  getDashboardMetrics(month?: string): Promise<DashboardMetrics>;
   listActivities(limit?: number): Promise<Activity[]>;
 
   // --- 定期請求バッチ生成 ---

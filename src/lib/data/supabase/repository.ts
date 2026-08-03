@@ -1304,7 +1304,7 @@ export class SupabaseRepository implements Repository {
     if (matchError) throw matchError;
   }
 
-  async getDashboardMetrics(): Promise<DashboardMetrics> {
+  async getDashboardMetrics(month?: string): Promise<DashboardMetrics> {
     const [invoicesRes, paymentsRes, subsRes, plansRes, customersRes] = await Promise.all([
       this.db.from("invoices").select(INVOICE_SELECT),
       this.db.from("payments").select("*"),
@@ -1322,6 +1322,7 @@ export class SupabaseRepository implements Repository {
       subscriptions: (subsRes.data ?? []).map(mapSubscription),
       plans: (plansRes.data ?? []).map(mapPlan),
       customers: (customersRes.data ?? []).map(mapCustomer),
+      month,
     });
   }
 

@@ -648,13 +648,14 @@ export class DemoRepository implements Repository {
     txn.matchedPaymentId = payment.id;
   }
 
-  async getDashboardMetrics(): Promise<DashboardMetrics> {
+  async getDashboardMetrics(month?: string): Promise<DashboardMetrics> {
     return computeDashboardMetrics({
       invoices: this.s.invoices,
       payments: this.s.payments,
       subscriptions: this.s.subscriptions,
       plans: this.s.plans,
       customers: this.s.customers,
+      month,
     });
   }
 
