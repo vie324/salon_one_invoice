@@ -27,33 +27,107 @@ export type BadgeTone =
   | "info";
 
 export const roleLabels: Record<Role, string> = {
-  admin: "全体管理者",
-  billing: "請求管理",
-  dev: "開発進捗",
-  owner: "経営者（全体管理者）",
-  staff: "担当者（請求管理）",
+  admin: "管理者",
+  engineer: "エンジニア",
+  billing: "請求管理者",
+  dev_manager: "開発・修正管理者",
+  owner: "経営者（管理者）",
+  staff: "担当者（請求管理者）",
+  dev: "開発（エンジニア）",
 };
 
-/** アカウント作成・ロール変更で選択できる種別(旧ロールは新規付与しない) */
+/** 役割ごとのバッジ色 */
+export const roleTone: Record<Role, BadgeTone> = {
+  admin: "primary",
+  engineer: "info",
+  billing: "success",
+  dev_manager: "warning",
+  owner: "primary",
+  staff: "success",
+  dev: "info",
+};
+
+/** アカウント作成・役割変更で選択できる役割(旧種別は新規付与しない) */
 export const ASSIGNABLE_ROLES: { value: Role; label: string; description: string }[] = [
-  { value: "admin", label: "全体管理者", description: "請求管理・開発進捗の両方 + アカウント管理・実行承認" },
-  { value: "billing", label: "請求管理のみ", description: "請求書・顧客・入金などの請求業務" },
-  { value: "dev", label: "開発進捗のみ", description: "開発依頼・エラー報告・進捗管理" },
+  {
+    value: "admin",
+    label: "管理者",
+    description: "全機能 + アカウント管理。要望の実行を承認する「承認者」になります",
+  },
+  {
+    value: "engineer",
+    label: "エンジニア",
+    description: "開発進捗の対応担当。完了予定日・完了日・対応内容を入力します",
+  },
+  {
+    value: "billing",
+    label: "請求管理者",
+    description: "請求書・顧客・入金・契約などの請求業務",
+  },
+  {
+    value: "dev_manager",
+    label: "開発・修正管理者",
+    description: "不具合報告・要望の起票と進捗管理（請求管理者との兼務が可能）",
+  },
 ];
 
+/** 旧種別 → 新しい役割の読み替え */
+const LEGACY_ROLE_MAP: Partial<Record<Role, Role>> = {
+  owner: "admin",
+  staff: "billing",
+  dev: "engineer",
+};
+
+/**
+ * 保有役割を正規化する(旧種別の読み替え + 重複除去)。
+ * roles が空のアカウント(移行前)は主ロールを1件持つものとして扱う。
+ */
+export function normalizeRoles(profile: { role: Role; roles?: Role[] | null }): Role[] {
+  const source = profile.roles?.length ? profile.roles : [profile.role];
+  const mapped = source.filter(Boolean).map((r) => LEGACY_ROLE_MAP[r] ?? r);
+  return [...new Set(mapped)];
+}
+
 /** 請求管理(請求書・顧客・入金など)へアクセスできるか */
-export function canAccessBilling(role: Role): boolean {
-  return role === "admin" || role === "billing" || role === "owner" || role === "staff";
+export function canAccessBilling(roles: Role[]): boolean {
+  return roles.some((r) => r === "admin" || r === "billing" || r === "owner" || r === "staff");
 }
 
 /** 開発進捗(開発依頼・エラー報告)へアクセスできるか */
-export function canAccessDev(role: Role): boolean {
-  return role === "admin" || role === "dev" || role === "owner";
+export function canAccessDev(roles: Role[]): boolean {
+  return roles.some(
+    (r) => r === "admin" || r === "engineer" || r === "dev_manager" || r === "owner" || r === "dev",
+  );
 }
 
-/** プロダクト管理者(実行有無の承認・アカウント管理が可能)か */
-export function isProductAdmin(role: Role): boolean {
-  return role === "admin" || role === "owner";
+/** 管理者(アカウント管理・要望の実行承認が可能)か */
+export function isProductAdmin(roles: Role[]): boolean {
+  return roles.some((r) => r === "admin" || r === "owner");
+}
+
+/** 要望の実行を承認できる人(= 管理者)。承認者一覧の抽出に使う。 */
+export function isApprover(roles: Role[]): boolean {
+  return isProductAdmin(roles);
+}
+
+/** エンジニア(開発対応の実務担当)か */
+export function isEngineer(roles: Role[]): boolean {
+  return roles.some((r) => r === "engineer" || r === "dev");
+}
+
+/** 開発・修正管理者(依頼の起票・進捗管理)か */
+export function isDevManager(roles: Role[]): boolean {
+  return roles.includes("dev_manager");
+}
+
+/**
+ * 兼務している役割の組み合わせを返す(空 = 兼務なし)。
+ * 請求管理者と開発・修正管理者は同じ人が担当することがあるため、
+ * アカウント管理画面で兼務を明示して権限の付けすぎを確認できるようにする。
+ */
+export function dualRoleLabels(roles: Role[]): string[] {
+  const primary = roles.filter((r) => r === "billing" || r === "dev_manager" || r === "engineer");
+  return primary.length >= 2 ? primary.map((r) => roleLabels[r]) : [];
 }
 
 export const paymentMethodLabels: Record<PaymentMethod, string> = {
@@ -241,18 +315,22 @@ export const devIssueExecutionTone: Record<DevIssueExecution, BadgeTone> = {
   rejected: "danger",
 };
 
-/** 実行に必要なプロダクト管理者の承諾数 */
+/** 承認者数が把握できない場合に用いる既定の必要承諾数 */
 export const DEV_EXECUTION_REQUIRED_APPROVALS = 2;
 
 /**
  * 実行有無を判定から導出する。
- * 1名でも停止 → 実行なし / 承諾が規定数(2名) → 実行 / それ以外 → 未定。
+ * 1名でも停止 → 実行なし / 承認者(管理者)全員が承諾 → 実行 / それ以外 → 未定。
+ *
+ * @param approverCount 承認者(管理者ロール)の人数。省略時は既定値を使う。
  */
 export function computeDevExecution(
   decisions: import("./types").DevApprovalDecision[],
+  approverCount?: number,
 ): import("./types").DevIssueExecution {
   if (decisions.includes("reject")) return "rejected";
-  if (decisions.filter((d) => d === "approve").length >= DEV_EXECUTION_REQUIRED_APPROVALS) {
+  const required = Math.max(1, approverCount ?? DEV_EXECUTION_REQUIRED_APPROVALS);
+  if (decisions.filter((d) => d === "approve").length >= required) {
     return "approved";
   }
   return "undecided";
@@ -267,12 +345,14 @@ export function computeDevExecution(
  */
 export function devNotificationRecipients(params: {
   type: NotificationType;
-  profiles: Pick<import("./types").UserProfile, "id" | "role">[];
+  profiles: Pick<import("./types").UserProfile, "id" | "role" | "roles">[];
   requesterId: string;
   actorId: string;
 }): string[] {
-  const admins = params.profiles.filter((p) => isProductAdmin(p.role)).map((p) => p.id);
-  const devs = params.profiles.filter((p) => p.role === "dev").map((p) => p.id);
+  const admins = params.profiles
+    .filter((p) => isProductAdmin(normalizeRoles(p)))
+    .map((p) => p.id);
+  const devs = params.profiles.filter((p) => isEngineer(normalizeRoles(p))).map((p) => p.id);
   let ids: string[] = [];
   switch (params.type) {
     case "issue_created":

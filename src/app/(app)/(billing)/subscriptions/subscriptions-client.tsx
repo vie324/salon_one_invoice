@@ -11,6 +11,7 @@ import {
 } from "@/app/actions/subscriptions";
 import { runRecurringBillingAction } from "@/app/actions/invoices";
 import { SubscriptionStatusBadge } from "@/components/status-badge";
+import { DeleteRecordButton } from "@/components/records/delete-record-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -124,6 +125,11 @@ export function SubscriptionsClient({
               </TD>
               <TD>
                 <div className="flex justify-end gap-1">
+                  <DeleteRecordButton
+                    entity="subscription"
+                    id={r.id}
+                    label={`${r.customerName} の定期契約（${r.planName}）`}
+                  />
                   {r.status !== "canceled" && (
                     <EditSubscriptionButton row={r} pending={pending} />
                   )}

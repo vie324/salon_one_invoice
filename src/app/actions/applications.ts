@@ -19,7 +19,7 @@ function revalidateApplications(id?: string) {
 /** 申込を扱えるのは請求管理の権限を持つアカウント(全体管理者・請求管理) */
 async function requireApplicationUser() {
   const user = await requireActionUser();
-  if (!canAccessBilling(user.role)) {
+  if (!canAccessBilling(user.roles)) {
     throw new Error("申込管理へのアクセス権限がありません");
   }
   return user;

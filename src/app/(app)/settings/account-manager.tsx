@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyRound, Pencil, Trash2, UserPlus } from "lucide-react";
+import { AlertTriangle, KeyRound, Pencil, ShieldCheck, Trash2, UserPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import {
@@ -8,13 +8,13 @@ import {
   deleteAccountAction,
   resetAccountPasswordAction,
   updateAccountNameAction,
-  updateUserRoleAction,
+  updateUserRolesAction,
 } from "@/app/actions/accounts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/input";
-import { ASSIGNABLE_ROLES } from "@/lib/domain/constants";
+import { ASSIGNABLE_ROLES, dualRoleLabels, roleLabels, roleTone } from "@/lib/domain/constants";
 import type { Role, UserProfile } from "@/lib/domain/types";
 
 /** アカウント一覧(種別変更・名前変更・パスワード再設定・削除) + 新規作成。全体管理者のみ。 */
@@ -35,6 +35,7 @@ export function AccountManager({
     | { kind: "name"; target: UserProfile }
     | { kind: "password"; target: UserProfile }
     | { kind: "delete"; target: UserProfile }
+    | { kind: "roles"; target: UserProfile }
     | null
   >(null);
 
@@ -52,24 +53,34 @@ export function AccountManager({
       router.refresh();
     });
 
-  const changeRole = (userId: string, role: Role) =>
-    run(() => updateUserRoleAction(userId, role), "アカウント種別を変更しました。");
+  const changeRoles = (userId: string, roles: Role[]) =>
+    run(() => updateUserRolesAction(userId, roles), "役割を変更しました。");
+
+  // 兼務(請求管理者×開発・修正管理者など)と、同一メールの重複アカウントを洗い出す
+  const dualHolders = profiles.filter((p) => dualRoleLabels(p.roles).length > 0);
+  const emailCounts = new Map<string, number>();
+  for (const p of profiles) {
+    const key = p.email.trim().toLowerCase();
+    if (key) emailCounts.set(key, (emailCounts.get(key) ?? 0) + 1);
+  }
+  const duplicateEmails = [...emailCounts.entries()].filter(([, n]) => n > 1).map(([e]) => e);
 
   // 新規作成フォーム
   const [showForm, setShowForm] = React.useState(false);
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
-  const [role, setRole] = React.useState<Role>("billing");
+  const [newRoles, setNewRoles] = React.useState<Role[]>(["billing"]);
 
   const submitCreate = (e: React.FormEvent) => {
     e.preventDefault();
     run(async () => {
-      const res = await createAccountAction({ name, email, password, role });
+      const res = await createAccountAction({ name, email, password, roles: newRoles });
       if (res.ok) {
         setName("");
         setEmail("");
         setPassword("");
+        setNewRoles(["billing"]);
         setShowForm(false);
       }
       return res;
@@ -81,31 +92,64 @@ export function AccountManager({
 
   return (
     <div className="space-y-4">
+      {/* 重複チェック: 兼務と、同じメールアドレスの二重登録を可視化する */}
+      {(dualHolders.length > 0 || duplicateEmails.length > 0) && (
+        <div className="space-y-2 rounded-md border border-border bg-muted/40 px-3 py-2.5 text-xs">
+          {dualHolders.length > 0 && (
+            <div>
+              <p className="flex items-center gap-1.5 font-medium">
+                <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+                役割を兼務しているアカウント
+              </p>
+              <ul className="mt-1 space-y-0.5 text-muted-foreground">
+                {dualHolders.map((p) => (
+                  <li key={p.id}>
+                    {p.name || p.email}: {dualRoleLabels(p.roles).join(" ＋ ")}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {duplicateEmails.length > 0 && (
+            <div>
+              <p className="flex items-center gap-1.5 font-medium text-destructive">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                同じメールアドレスのアカウントが重複しています
+              </p>
+              <p className="mt-1 text-muted-foreground">
+                {duplicateEmails.join("、")} — 同じ方であれば、片方を削除して役割をまとめてください。
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
       <ul className="divide-y divide-border rounded-md border border-border">
         {profiles.map((p) => (
           <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="truncate text-sm font-medium">{p.name || "（名前未設定）"}</span>
                 {p.id === currentUserId && <Badge tone="primary">自分</Badge>}
+                {p.roles.map((r) => (
+                  <Badge key={r} tone={roleTone[r]}>
+                    {roleLabels[r]}
+                  </Badge>
+                ))}
+                {dualRoleLabels(p.roles).length > 0 && <Badge tone="neutral">兼務</Badge>}
               </div>
               <div className="truncate text-xs text-muted-foreground">{p.email || "—"}</div>
             </div>
             <div className="flex items-center gap-1.5">
-              {/* 旧ロール(owner/staff)は相当する新種別として表示し、変更時に新種別へ移行する */}
-              <Select
-                value={legacyToNew(p.role)}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
                 disabled={pending}
-                onChange={(e) => changeRole(p.id, e.target.value as Role)}
-                className="h-9 w-auto min-w-[150px] text-xs"
-                aria-label={`${p.name} の種別`}
+                onClick={() => setDialog({ kind: "roles", target: p })}
               >
-                {ASSIGNABLE_ROLES.map((r) => (
-                  <option key={r.value} value={r.value}>
-                    {r.label}
-                  </option>
-                ))}
-              </Select>
+                役割を変更
+              </Button>
               <button
                 type="button"
                 className={iconBtn}
@@ -177,14 +221,8 @@ export function AccountManager({
               autoComplete="new-password"
             />
           </Field>
-          <Field label="アカウント種別">
-            <Select value={role} onChange={(e) => setRole(e.target.value as Role)}>
-              {ASSIGNABLE_ROLES.map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
-                </option>
-              ))}
-            </Select>
+          <Field label="役割" hint="複数選択できます（例: 請求管理者 ＋ 開発・修正管理者）">
+            <RoleCheckboxes value={newRoles} onChange={setNewRoles} />
           </Field>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" size="sm" onClick={() => setShowForm(false)} disabled={pending}>
@@ -235,6 +273,16 @@ export function AccountManager({
               "パスワードを再設定しました。",
             )
           }
+        />
+      )}
+
+      {/* 役割の変更(兼務可) */}
+      {dialog?.kind === "roles" && (
+        <RolesDialog
+          target={dialog.target}
+          pending={pending}
+          onClose={() => setDialog(null)}
+          onSubmit={(roles) => changeRoles(dialog.target.id, roles)}
         />
       )}
 
@@ -353,9 +401,82 @@ export function PasswordDialog({
   );
 }
 
-/** 旧ロールを新種別セレクトの初期値へ寄せる(表示用) */
-function legacyToNew(role: Role): Role {
-  if (role === "owner") return "admin";
-  if (role === "staff") return "billing";
-  return role;
+/** 役割のチェックボックス群(兼務のため複数選択) */
+function RoleCheckboxes({
+  value,
+  onChange,
+}: {
+  value: Role[];
+  onChange: (roles: Role[]) => void;
+}) {
+  const toggle = (role: Role) =>
+    onChange(value.includes(role) ? value.filter((r) => r !== role) : [...value, role]);
+  return (
+    <div className="space-y-2">
+      {ASSIGNABLE_ROLES.map((r) => (
+        <label
+          key={r.value}
+          className="flex cursor-pointer items-start gap-3 rounded-md border border-border p-2.5 text-sm transition-colors hover:bg-muted/50"
+        >
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 accent-[var(--color-primary)]"
+            checked={value.includes(r.value)}
+            onChange={() => toggle(r.value)}
+          />
+          <span>
+            <span className="font-medium">{r.label}</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">{r.description}</span>
+          </span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
+/** 役割の変更ダイアログ(兼務可) */
+function RolesDialog({
+  target,
+  pending,
+  onClose,
+  onSubmit,
+}: {
+  target: UserProfile;
+  pending: boolean;
+  onClose: () => void;
+  onSubmit: (roles: Role[]) => void;
+}) {
+  const [roles, setRoles] = React.useState<Role[]>(target.roles);
+  const dual = dualRoleLabels(roles);
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={`${target.name || "アカウント"} の役割`}
+      description="複数の役割を兼務できます。管理者は要望の実行を承認する「承認者」になります。"
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit(roles);
+        }}
+        className="space-y-4"
+      >
+        <RoleCheckboxes value={roles} onChange={setRoles} />
+        {dual.length > 0 && (
+          <p className="rounded-md bg-secondary px-3 py-2 text-xs text-secondary-foreground">
+            兼務: {dual.join(" ＋ ")}（両方の画面・操作が使えるようになります）
+          </p>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={pending}>
+            キャンセル
+          </Button>
+          <Button type="submit" disabled={pending || roles.length === 0}>
+            {pending ? "保存中…" : "保存"}
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
 }

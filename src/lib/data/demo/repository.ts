@@ -19,6 +19,7 @@ import {
   computeDevExecution,
   devIssueExecutionLabels,
   devNotificationRecipients,
+  isProductAdmin,
 } from "@/lib/domain/constants";
 import { computeDashboardMetrics } from "@/lib/domain/metrics";
 import type {
@@ -36,6 +37,9 @@ import type {
   ContractWithCustomer,
   Customer,
   CustomerStatus,
+  DataDeletionLog,
+  DeletableEntity,
+  DeletedRecord,
   DashboardMetrics,
   DevApprovalDecision,
   DevIssue,
@@ -55,7 +59,7 @@ import type {
   Subscription,
   UserProfile,
 } from "@/lib/domain/types";
-import { genId, toISODate } from "@/lib/utils";
+import { formatJPY, genId, toISODate } from "@/lib/utils";
 import type {
   ActorRef,
   AgencyInput,
@@ -100,6 +104,12 @@ function ym(d: Date): string {
 }
 
 /** インメモリのデモ実装。Repository を完全に満たす。 */
+
+/** 削除(ゴミ箱)に入っていないレコードだけを通す */
+function alive<T extends { deletedAt?: string | null }>(row: T): boolean {
+  return !row.deletedAt;
+}
+
 export class DemoRepository implements Repository {
   private get s() {
     return getStore();
@@ -110,7 +120,7 @@ export class DemoRepository implements Repository {
   }
 
   async listCustomers(filter?: { status?: CustomerStatus; search?: string }): Promise<Customer[]> {
-    let list = [...this.s.customers];
+    let list = this.s.customers.filter(alive);
     if (filter?.status) list = list.filter((c) => c.status === filter.status);
     if (filter?.search) {
       const q = filter.search.toLowerCase();
@@ -126,7 +136,7 @@ export class DemoRepository implements Repository {
   }
 
   async getCustomer(id: string): Promise<Customer | null> {
-    return this.s.customers.find((c) => c.id === id) ?? null;
+    return this.s.customers.filter(alive).find((c) => c.id === id) ?? null;
   }
 
   async createCustomer(input: CustomerInput): Promise<Customer> {
@@ -248,7 +258,7 @@ export class DemoRepository implements Repository {
   }
 
   async listSubscriptions(): Promise<Subscription[]> {
-    return [...this.s.subscriptions];
+    return this.s.subscriptions.filter(alive);
   }
 
   async createSubscription(input: SubscriptionInput): Promise<Subscription> {
@@ -372,7 +382,7 @@ export class DemoRepository implements Repository {
   }
 
   async listInvoices(filter?: InvoiceFilter): Promise<InvoiceWithCustomer[]> {
-    let list = this.s.invoices.map(decorate);
+    let list = this.s.invoices.filter(alive).map(decorate);
     if (filter?.customerId) list = list.filter((i) => i.customerId === filter.customerId);
     if (filter?.type && filter.type !== "all") list = list.filter((i) => i.type === filter.type);
     if (filter?.paymentMethod && filter.paymentMethod !== "all") {
@@ -398,7 +408,7 @@ export class DemoRepository implements Repository {
   }
 
   async getInvoice(id: string): Promise<InvoiceWithCustomer | null> {
-    const inv = this.s.invoices.find((i) => i.id === id);
+    const inv = this.s.invoices.filter(alive).find((i) => i.id === id);
     if (!inv) return null;
     const customer = this.s.customers.find((c) => c.id === inv.customerId)!;
     return { ...decorate(inv), customer };
@@ -486,7 +496,7 @@ export class DemoRepository implements Repository {
   }
 
   async listPayments(filter?: { customerId?: string }): Promise<Payment[]> {
-    let list = [...this.s.payments];
+    let list = this.s.payments.filter(alive);
     if (filter?.customerId) list = list.filter((p) => p.customerId === filter.customerId);
     return list.sort((a, b) => (a.paidAt < b.paidAt ? 1 : -1));
   }
@@ -530,11 +540,11 @@ export class DemoRepository implements Repository {
   }
 
   async listBatches(): Promise<DirectDebitBatch[]> {
-    return [...this.s.batches].sort((a, b) => (a.scheduledDate < b.scheduledDate ? 1 : -1));
+    return this.s.batches.filter(alive).sort((a, b) => (a.scheduledDate < b.scheduledDate ? 1 : -1));
   }
 
   async getBatch(id: string): Promise<DirectDebitBatch | null> {
-    return this.s.batches.find((b) => b.id === id) ?? null;
+    return this.s.batches.filter(alive).find((b) => b.id === id) ?? null;
   }
 
   async createBatchFromAwaiting(scheduledDate: string): Promise<DirectDebitBatch> {
@@ -610,7 +620,7 @@ export class DemoRepository implements Repository {
   }
 
   async listBankTransactions(): Promise<BankTransaction[]> {
-    return [...this.s.bankTransactions].sort((a, b) =>
+    return this.s.bankTransactions.filter(alive).sort((a, b) =>
       a.transactionDate < b.transactionDate ? 1 : -1,
     );
   }
@@ -650,13 +660,155 @@ export class DemoRepository implements Repository {
 
   async getDashboardMetrics(month?: string): Promise<DashboardMetrics> {
     return computeDashboardMetrics({
-      invoices: this.s.invoices,
-      payments: this.s.payments,
-      subscriptions: this.s.subscriptions,
+      invoices: this.s.invoices.filter(alive),
+      payments: this.s.payments.filter(alive),
+      subscriptions: this.s.subscriptions.filter(alive),
       plans: this.s.plans,
-      customers: this.s.customers,
+      customers: this.s.customers.filter(alive),
       month,
     });
+  }
+
+  // --- 削除(ゴミ箱) / 復元 ---
+
+  /** 種別 → 対象配列。実データは消さず deletedAt を立てるだけ。 */
+  private deletableRows(entity: DeletableEntity): { deletedAt?: string | null; id: string }[] {
+    switch (entity) {
+      case "invoice":
+        return this.s.invoices;
+      case "customer":
+        return this.s.customers;
+      case "payment":
+        return this.s.payments;
+      case "subscription":
+        return this.s.subscriptions;
+      case "bank_transaction":
+        return this.s.bankTransactions;
+      case "batch":
+        return this.s.batches;
+      default:
+        throw new Error("不正なデータ種別です");
+    }
+  }
+
+  private describeRecord(entity: DeletableEntity, id: string): { label: string; sublabel: string } {
+    switch (entity) {
+      case "invoice": {
+        const i = this.s.invoices.find((x) => x.id === id);
+        const c = this.s.customers.find((x) => x.id === i?.customerId);
+        return {
+          label: i ? i.invoiceNumber : id,
+          sublabel: i ? `${c?.name ?? ""} ・ ${formatJPY(i.total)} ・ ${i.issueDate}` : "",
+        };
+      }
+      case "customer": {
+        const c = this.s.customers.find((x) => x.id === id);
+        return { label: c?.name ?? id, sublabel: c ? `${c.code} ・ ${c.email || "—"}` : "" };
+      }
+      case "payment": {
+        const pay = this.s.payments.find((x) => x.id === id);
+        const c = this.s.customers.find((x) => x.id === pay?.customerId);
+        return {
+          label: pay ? `${formatJPY(pay.amount)} の入金` : id,
+          sublabel: pay ? `${c?.name ?? ""} ・ ${pay.paidAt}` : "",
+        };
+      }
+      case "subscription": {
+        const sub = this.s.subscriptions.find((x) => x.id === id);
+        const c = this.s.customers.find((x) => x.id === sub?.customerId);
+        const plan = this.s.plans.find((x) => x.id === sub?.planId);
+        return { label: c?.name ?? id, sublabel: plan?.name ?? "" };
+      }
+      case "bank_transaction": {
+        const t = this.s.bankTransactions.find((x) => x.id === id);
+        return {
+          label: t ? `${t.payerName} ${formatJPY(t.amount)}` : id,
+          sublabel: t?.transactionDate ?? "",
+        };
+      }
+      case "batch": {
+        const b = this.s.batches.find((x) => x.id === id);
+        return { label: b?.name ?? id, sublabel: b ? `引落予定 ${b.scheduledDate}` : "" };
+      }
+      default:
+        return { label: id, sublabel: "" };
+    }
+  }
+
+  private pushDeletionLog(
+    entity: DeletableEntity,
+    id: string,
+    action: "delete" | "restore",
+    actor: string,
+    reason: string,
+  ) {
+    this.s.deletionLogs.unshift({
+      id: genId("del"),
+      entity,
+      entityId: id,
+      entityLabel: this.describeRecord(entity, id).label,
+      action,
+      actor,
+      reason,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  async softDeleteRecord(
+    entity: DeletableEntity,
+    id: string,
+    params: { actor: string; reason: string },
+  ): Promise<void> {
+    const row = this.deletableRows(entity).find((r) => r.id === id);
+    if (!row) throw new Error("対象のデータが見つかりません");
+    if (row.deletedAt) return;
+    this.pushDeletionLog(entity, id, "delete", params.actor, params.reason);
+    row.deletedAt = new Date().toISOString();
+    (row as { deletedBy?: string }).deletedBy = params.actor;
+    (row as { deleteReason?: string }).deleteReason = params.reason;
+  }
+
+  async restoreRecord(
+    entity: DeletableEntity,
+    id: string,
+    params: { actor: string },
+  ): Promise<void> {
+    const row = this.deletableRows(entity).find((r) => r.id === id);
+    if (!row) throw new Error("対象のデータが見つかりません");
+    if (!row.deletedAt) return;
+    row.deletedAt = null;
+    this.pushDeletionLog(entity, id, "restore", params.actor, "");
+  }
+
+  async listDeletedRecords(): Promise<DeletedRecord[]> {
+    const entities: DeletableEntity[] = [
+      "invoice",
+      "customer",
+      "payment",
+      "subscription",
+      "bank_transaction",
+      "batch",
+    ];
+    const out: DeletedRecord[] = [];
+    for (const entity of entities) {
+      for (const row of this.deletableRows(entity)) {
+        if (!row.deletedAt) continue;
+        const meta = row as { deletedBy?: string; deleteReason?: string };
+        out.push({
+          entity,
+          id: row.id,
+          ...this.describeRecord(entity, row.id),
+          deletedAt: row.deletedAt,
+          deletedBy: meta.deletedBy ?? "",
+          reason: meta.deleteReason ?? "",
+        });
+      }
+    }
+    return out.sort((a, b) => (a.deletedAt < b.deletedAt ? 1 : -1));
+  }
+
+  async listDeletionLogs(limit = 100): Promise<DataDeletionLog[]> {
+    return this.s.deletionLogs.slice(0, limit);
   }
 
   async listActivities(limit = 12): Promise<Activity[]> {
@@ -668,7 +820,7 @@ export class DemoRepository implements Repository {
   async runRecurringBilling(asOf?: string): Promise<{ created: Invoice[] }> {
     const asOfDate = asOf ?? toISODate(new Date());
     const created: Invoice[] = [];
-    for (const sub of this.s.subscriptions) {
+    for (const sub of this.s.subscriptions.filter(alive)) {
       if (sub.status !== "active") continue;
       // Stripe 管理の契約は Stripe 側が課金するため自前生成しない
       if (sub.stripeSubscriptionId) continue;
@@ -1486,7 +1638,12 @@ export class DemoRepository implements Repository {
     const prev = issue.execution;
     // 全体管理者が直接設定している間は、承諾の増減で実行有無を上書きしない
     if (!issue.executionSetByName) {
-      issue.execution = computeDevExecution(issue.approvals.map((a) => a.decision));
+      // 承認者(管理者)全員の承諾で「実行」になる
+      const approverCount = this.s.profiles.filter((p) => isProductAdmin(p.roles)).length;
+      issue.execution = computeDevExecution(
+        issue.approvals.map((a) => a.decision),
+        approverCount,
+      );
     }
     issue.updatedAt = new Date().toISOString();
     if (issue.execution !== prev && issue.execution !== "undecided") {
@@ -1756,10 +1913,11 @@ export class DemoRepository implements Repository {
     return [...this.s.profiles];
   }
 
-  async updateUserRole(userId: string, role: Role): Promise<void> {
+  async updateUserRoles(userId: string, roles: Role[]): Promise<void> {
     const p = this.s.profiles.find((x) => x.id === userId);
     if (!p) throw new Error("アカウントが見つかりません");
-    p.role = role;
+    p.roles = roles;
+    p.role = roles[0];
   }
 
   async createUserAccount(input: CreateAccountInput): Promise<UserProfile> {
@@ -1770,7 +1928,8 @@ export class DemoRepository implements Repository {
       id: genId("usr"),
       name: input.name,
       email: input.email,
-      role: input.role,
+      role: input.roles[0],
+      roles: input.roles,
       createdAt: new Date().toISOString(),
     };
     this.s.profiles.push(profile);

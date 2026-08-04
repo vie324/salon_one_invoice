@@ -22,7 +22,11 @@
 6. `0006_plan_options.sql` … 料金プランのオプション/初期費用/期間区分
 7. `0007_contracts.sql` … 契約書・電子契約（内容凍結/追記専用トリガー・RLS）
 8. `0008_agencies_pricing.sql` … 営業代理店・営業マン・個別料金
-9. （任意）`seed.sql` … 初期データ（自社情報・料金プラン）
+9. `0009_dev_progress.sql` 〜 `0013_application_contact.sql` … 開発進捗・添付・申込
+10. `0014_roles_and_soft_delete.sql` … **役割の複数割当（兼務）** と **削除・復元（ゴミ箱）＋操作ログ**
+11. （任意）`seed.sql` … 初期データ（自社情報・料金プラン）
+
+> `0014` は既存アカウントの旧種別（`owner`/`staff`/`dev`）を新しい役割（管理者/請求管理者/エンジニア）へ自動で読み替えます。適用前でもアプリは動きますが、**兼務の設定とゴミ箱は `0014` の適用後に使えるようになります**。
 
 > 電子契約の公開署名ページ（`/sign/<token>`）はサービスロールでデータへアクセスします。
 > `SUPABASE_SERVICE_ROLE_KEY` と、署名リンクの絶対URL用に `NEXT_PUBLIC_APP_URL` を必ず設定してください。
@@ -116,6 +120,7 @@
 | 症状 | 対処 |
 | --- | --- |
 | ログイン後に何も表示されない | migrations 未適用の可能性。`0001`〜`0003` を実行。 |
+| 役割を兼務させられない / ゴミ箱でエラーになる | `0014_roles_and_soft_delete.sql` が未適用。SQL Editor で実行してください。 |
 | 保存・作成後に「ページが見つかりません」になる / 保存時に `SUPABASE_SERVICE_ROLE_KEY が未設定…` と表示される | `SUPABASE_SERVICE_ROLE_KEY` が未設定。Vercel の環境変数に service_role キーを設定し、再デプロイ。 |
 | 「デモモード」と表示される | `NEXT_PUBLIC_SUPABASE_URL` / `ANON_KEY` が未設定。 |
 | Cron が動かない | `CRON_SECRET` 未設定、または Vercel の Cron 権限を確認。 |

@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { getServiceRepository } from "@/lib/data";
 import { formatDate, formatJPY } from "@/lib/utils";
+import { DeleteRecordButton } from "@/components/records/delete-record-button";
 import { ProcessBatchButton } from "./process-batch-button";
 
 export const metadata = { title: "口座振替バッチ" };
@@ -111,6 +112,15 @@ export default async function BatchDetailPage({
                 収納代行用CSVを出力
               </a>
               {batch.status !== "completed" && <ProcessBatchButton id={batch.id} />}
+              <div className="border-t border-border pt-2">
+                <DeleteRecordButton
+                  entity="batch"
+                  id={batch.id}
+                  label={`${batch.name}（引落予定 ${batch.scheduledDate}）`}
+                  redirectTo="/direct-debit"
+                  className="w-full text-muted-foreground hover:text-destructive"
+                />
+              </div>
             </CardContent>
           </Card>
         </div>

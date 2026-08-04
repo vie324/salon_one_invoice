@@ -4,13 +4,23 @@
  */
 
 /**
- * アカウント種別。
- * - admin:   全体管理者(請求管理・開発進捗の両方 + アカウント管理・実行承認)
- * - billing: 請求管理のみ
- * - dev:     開発進捗のみ(エンジニア)
- * - owner/staff: 旧ロール(後方互換)。owner=全体管理者相当 / staff=請求管理相当。
+ * アカウントの役割。1アカウントに複数割り当てできる(兼務)。
+ * - admin       管理者。全機能 + アカウント管理 + 要望の実行承認(承認者)
+ * - engineer    エンジニア。開発対応(完了予定日・完了日・対応内容)の実務担当
+ * - billing     請求管理者。請求書・顧客・入金などの請求業務
+ * - dev_manager 開発・修正管理者。開発依頼・不具合報告の起票と進捗管理
+ *
+ * owner / staff / dev は旧アカウント種別(移行用)。新規付与はしない。
  */
-export type Role = "admin" | "billing" | "dev" | "owner" | "staff";
+export type Role =
+  | "admin"
+  | "engineer"
+  | "billing"
+  | "dev_manager"
+  // --- 旧種別(移行用) ---
+  | "owner"
+  | "staff"
+  | "dev";
 
 export type PaymentMethod =
   | "direct_debit" // 口座振替(引き落とし)
@@ -102,6 +112,8 @@ export interface Customer {
   /** 獲得した営業代理店/営業マン(売上・手数料の集計に使用) */
   agencyId?: string | null;
   agencyMemberId?: string | null;
+  /** 削除(ゴミ箱)に入れた日時。null/未設定 = 有効なデータ。 */
+  deletedAt?: string | null;
 }
 
 export interface DirectDebitMandate {
@@ -156,6 +168,8 @@ export interface Subscription {
   priceOverride?: number | null;
   /** Stripe サブスクリプションID（決済連携時） */
   stripeSubscriptionId?: string | null;
+  /** 削除(ゴミ箱)に入れた日時。null/未設定 = 有効なデータ。 */
+  deletedAt?: string | null;
 }
 
 export interface InvoiceItem {
@@ -190,6 +204,8 @@ export interface Invoice {
   createdAt: string;
   /** 外部システム(Stripe請求書など)のID。冪等化に使用 */
   externalId?: string | null;
+  /** 削除(ゴミ箱)に入れた日時。null/未設定 = 有効なデータ。 */
+  deletedAt?: string | null;
 }
 
 export interface Payment {
@@ -204,6 +220,8 @@ export interface Payment {
   matchedBy: PaymentMatchSource;
   memo: string;
   createdAt: string;
+  /** 削除(ゴミ箱)に入れた日時。null/未設定 = 有効なデータ。 */
+  deletedAt?: string | null;
 }
 
 export interface DirectDebitBatch {
@@ -213,6 +231,8 @@ export interface DirectDebitBatch {
   status: BatchStatus;
   createdAt: string;
   items: DirectDebitBatchItem[];
+  /** 削除(ゴミ箱)に入れた日時。null/未設定 = 有効なデータ。 */
+  deletedAt?: string | null;
 }
 
 export interface DirectDebitBatchItem {
@@ -235,6 +255,8 @@ export interface BankTransaction {
   matchedInvoiceId: string | null;
   matchedPaymentId: string | null;
   importedAt: string;
+  /** 削除(ゴミ箱)に入れた日時。null/未設定 = 有効なデータ。 */
+  deletedAt?: string | null;
 }
 
 /* ---- 営業代理店 ---- */
@@ -679,6 +701,48 @@ export interface UserProfile {
   id: string;
   name: string;
   email: string;
+  /** 主ロール(後方互換。roles の先頭と一致させる) */
   role: Role;
+  /** 保有ロール(兼務可)。正規化済み(旧種別は読み替え済み)。 */
+  roles: Role[];
+  createdAt: string;
+}
+
+/* ---- 削除・復元(ゴミ箱) ---- */
+
+/**
+ * 削除(非表示)と復元ができるデータの種別。
+ * 実データは消さず deletedAt を立てるだけなので、いつでも元に戻せる。
+ */
+export type DeletableEntity =
+  | "invoice"
+  | "customer"
+  | "payment"
+  | "subscription"
+  | "bank_transaction"
+  | "batch";
+
+/** ゴミ箱に入っている1件 */
+export interface DeletedRecord {
+  entity: DeletableEntity;
+  id: string;
+  /** 見出し(請求書番号・顧客名など) */
+  label: string;
+  /** 補足(金額・日付など) */
+  sublabel: string;
+  deletedAt: string;
+  deletedBy: string;
+  reason: string;
+}
+
+/** 削除・復元の操作ログ(追記のみ) */
+export interface DataDeletionLog {
+  id: string;
+  entity: DeletableEntity;
+  entityId: string;
+  entityLabel: string;
+  action: "delete" | "restore";
+  actor: string;
+  reason: string;
   createdAt: string;
 }

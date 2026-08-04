@@ -21,6 +21,9 @@ import type {
   Customer,
   CustomerStatus,
   DashboardMetrics,
+  DataDeletionLog,
+  DeletableEntity,
+  DeletedRecord,
   DevApprovalDecision,
   DevIssue,
   DevIssueAttachment,
@@ -305,7 +308,8 @@ export interface CreateAccountInput {
   email: string;
   password: string;
   name: string;
-  role: Role;
+  /** 付与する役割(兼務可・1件以上)。先頭を主ロールとして保存する。 */
+  roles: Role[];
 }
 
 /* ---- 申込用URL / 申込 ---- */
@@ -423,6 +427,23 @@ export interface Repository {
   listBankTransactions(): Promise<BankTransaction[]>;
   importBankTransactions(rows: BankRowInput[]): Promise<BankTransaction[]>;
   matchBankTransaction(txnId: string, invoiceId: string): Promise<void>;
+
+  // --- 削除(ゴミ箱) / 復元 ---
+  /**
+   * 削除(ゴミ箱へ移動)。実データは消さず、一覧・集計から除外する。
+   * 誰がいつ何を消したかは操作ログに残る。
+   */
+  softDeleteRecord(
+    entity: DeletableEntity,
+    id: string,
+    params: { actor: string; reason: string },
+  ): Promise<void>;
+  /** 復元(ゴミ箱から戻す)。 */
+  restoreRecord(entity: DeletableEntity, id: string, params: { actor: string }): Promise<void>;
+  /** ゴミ箱の中身(削除済みデータ)。 */
+  listDeletedRecords(): Promise<DeletedRecord[]>;
+  /** 削除・復元の操作ログ(新しい順)。 */
+  listDeletionLogs(limit?: number): Promise<DataDeletionLog[]>;
 
   // --- ダッシュボード / 活動 ---
   /** @param month 集計対象の月 (YYYY-MM)。省略時は当月。 */
@@ -603,7 +624,8 @@ export interface Repository {
   // --- アカウント(プロフィール) ---
   listUserProfiles(): Promise<UserProfile[]>;
   /** 種別の変更。プロフィール行が無い場合は作成する(初期セットアップ対応)。 */
-  updateUserRole(userId: string, role: Role): Promise<void>;
+  /** 役割の変更(兼務可)。先頭を主ロールとして保存する。 */
+  updateUserRoles(userId: string, roles: Role[]): Promise<void>;
   /** アカウント作成(本番: Supabase Auth ユーザー + profiles)。 */
   createUserAccount(input: CreateAccountInput): Promise<UserProfile>;
   /** 表示名の変更。 */

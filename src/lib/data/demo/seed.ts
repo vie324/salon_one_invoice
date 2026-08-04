@@ -10,6 +10,7 @@ import type {
   ContractEvent,
   ContractTemplate,
   Customer,
+  DataDeletionLog,
   DevIssue,
   DevIssueAttachment,
   DirectDebitBatch,
@@ -45,13 +46,16 @@ export interface DataStore {
   applicationLinks: ApplicationLink[];
   applications: Application[];
   notifications: AppNotification[];
+  /** 削除・復元の操作ログ(追記のみ) */
+  deletionLogs: DataDeletionLog[];
   /** 開発依頼の連番採番 (#1 から) */
   devIssueSeq: number;
 }
 
 /**
- * デモモードのアカウント。右上の切替でこの3名(+2人目の管理者)になりきれる。
- * 実行有無の「プロダクト管理者2名の承諾」を試せるよう、全体管理者は2名用意する。
+ * デモモードのアカウント。右上の切替で各役割になりきれる。
+ * 要望の承諾フローを試せるよう、承認者(管理者)は2名用意する。
+ * 田中は請求管理者と開発・修正管理者の兼務例。
  */
 export const DEMO_PROFILES: UserProfile[] = [
   {
@@ -59,6 +63,7 @@ export const DEMO_PROFILES: UserProfile[] = [
     name: "佐々木 涼",
     email: "sasaki@salon-one.example.jp",
     role: "admin",
+    roles: ["admin"],
     createdAt: "2026-01-01T00:00:00.000Z",
   },
   {
@@ -66,20 +71,32 @@ export const DEMO_PROFILES: UserProfile[] = [
     name: "高橋 誠",
     email: "takahashi@salon-one.example.jp",
     role: "admin",
+    roles: ["admin"],
     createdAt: "2026-01-01T00:00:00.000Z",
   },
   {
+    // 請求管理者と開発・修正管理者の兼務(重複チェックの表示例)
     id: "demo-billing-1",
     name: "田中 美咲",
     email: "tanaka@salon-one.example.jp",
     role: "billing",
+    roles: ["billing", "dev_manager"],
     createdAt: "2026-01-01T00:00:00.000Z",
   },
   {
     id: "demo-dev-1",
     name: "山田 健",
     email: "yamada@salon-one.example.jp",
-    role: "dev",
+    role: "engineer",
+    roles: ["engineer"],
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+  {
+    id: "demo-devmgr-1",
+    name: "小林 直樹",
+    email: "kobayashi@salon-one.example.jp",
+    role: "dev_manager",
+    roles: ["dev_manager"],
     createdAt: "2026-01-01T00:00:00.000Z",
   },
 ];
@@ -96,6 +113,8 @@ export function demoProfileIdForRole(role: string | undefined): string {
     billing: "demo-billing-1",
     staff: "demo-billing-1",
     dev: "demo-dev-1",
+    engineer: "demo-dev-1",
+    dev_manager: "demo-devmgr-1",
   };
   return map[role ?? "admin"] ?? "demo-admin-1";
 }
@@ -188,6 +207,7 @@ export function buildSeed(): DataStore {
     applicationLinks: [],
     applications: [],
     notifications: [],
+    deletionLogs: [],
     devIssueSeq: 0,
   };
 }

@@ -8,6 +8,6 @@ import { canAccessDev } from "@/lib/domain/constants";
  */
 export default async function DevLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  if (!canAccessDev(user.role)) redirect("/dashboard");
+  if (!canAccessDev(user.roles)) redirect("/dashboard");
   return <>{children}</>;
 }

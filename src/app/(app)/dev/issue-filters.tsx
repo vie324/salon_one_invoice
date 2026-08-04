@@ -6,12 +6,14 @@ import * as React from "react";
 import { devIssueCategoryLabels, devIssueStatusLabels } from "@/lib/domain/constants";
 import { cn } from "@/lib/utils";
 
+/** 既定(value: "")は未完了のみ。完了した依頼は残るが、開いた直後には表示しない。 */
 const statusTabs: { value: string; label: string }[] = [
-  { value: "all", label: "すべて" },
+  { value: "", label: "未完了" },
   { value: "open", label: devIssueStatusLabels.open },
   { value: "in_progress", label: devIssueStatusLabels.in_progress },
   { value: "hearing", label: devIssueStatusLabels.hearing },
   { value: "done", label: devIssueStatusLabels.done },
+  { value: "all", label: "すべて" },
 ];
 
 const categoryTabs: { value: string; label: string }[] = [
@@ -36,8 +38,10 @@ export function IssueFilters({
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params.toString());
-    if (value && value !== "all") next.set(key, value);
-    else next.delete(key);
+    // status は "" が既定(未完了のみ)。他のキーは "all" が既定。
+    const isDefault = key === "status" ? value === "" : !value || value === "all";
+    if (isDefault) next.delete(key);
+    else next.set(key, value);
     router.push(`${pathname}?${next.toString()}`);
   };
 
@@ -64,7 +68,7 @@ export function IssueFilters({
           <button
             key={tab.value}
             onClick={() => setParam("status", tab.value)}
-            className={pill((status || "all") === tab.value)}
+            className={pill(status === tab.value)}
           >
             {tab.label}
           </button>

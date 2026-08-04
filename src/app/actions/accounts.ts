@@ -8,25 +8,35 @@ import type { Role } from "@/lib/domain/types";
 
 const assignable = (role: Role) => ASSIGNABLE_ROLES.some((r) => r.value === role);
 
+/** 入力された役割を検証して正規化する(重複除去・1件以上・未知の値を拒否)。 */
+function validateRoles(roles: Role[]): Role[] {
+  const unique = [...new Set(roles ?? [])];
+  if (unique.length === 0) throw new Error("役割を1つ以上選んでください");
+  for (const r of unique) {
+    if (!assignable(r)) throw new Error("不正な役割が含まれています");
+  }
+  return unique;
+}
+
 /** ロール変更はナビ・ガードに影響するためレイアウトごと再検証する */
 function revalidateAccounts() {
   revalidatePath("/settings");
   revalidatePath("/", "layout");
 }
 
-/** アカウント種別の変更(全体管理者のみ)。 */
-export async function updateUserRoleAction(userId: string, role: Role) {
+/** 役割の変更(管理者のみ)。複数の役割を兼務できる。 */
+export async function updateUserRolesAction(userId: string, roles: Role[]) {
   try {
     const user = await requireActionUser();
-    if (!isProductAdmin(user.role)) {
-      throw new Error("アカウント管理は全体管理者のみ可能です");
+    if (!isProductAdmin(user.roles)) {
+      throw new Error("アカウント管理は管理者のみ可能です");
     }
-    if (!assignable(role)) throw new Error("不正なアカウント種別です");
-    if (userId === user.id && role !== "admin") {
-      throw new Error("自分自身の全体管理者権限は外せません(他の全体管理者に依頼してください)");
+    const next = validateRoles(roles);
+    if (userId === user.id && !next.includes("admin")) {
+      throw new Error("自分自身の管理者権限は外せません(他の管理者に依頼してください)");
     }
     const repo = await getServiceRepository();
-    await repo.updateUserRole(userId, role);
+    await repo.updateUserRoles(userId, next);
     revalidateAccounts();
     return { ok: true as const };
   } catch (e) {
@@ -43,10 +53,10 @@ export async function claimFirstAdminAction() {
     const user = await requireActionUser();
     const repo = await getServiceRepository();
     const profiles = await repo.listUserProfiles();
-    if (profiles.some((p) => isProductAdmin(p.role))) {
-      throw new Error("既に全体管理者が存在します(既存の全体管理者に種別変更を依頼してください)");
+    if (profiles.some((p) => isProductAdmin(p.roles))) {
+      throw new Error("既に管理者が存在します(既存の管理者に役割変更を依頼してください)");
     }
-    await repo.updateUserRole(user.id, "admin");
+    await repo.updateUserRoles(user.id, ["admin"]);
     revalidateAccounts();
     return { ok: true as const };
   } catch (e) {
@@ -58,8 +68,8 @@ export async function claimFirstAdminAction() {
 export async function updateAccountNameAction(userId: string, name: string) {
   try {
     const user = await requireActionUser();
-    if (userId !== user.id && !isProductAdmin(user.role)) {
-      throw new Error("他のアカウントの変更は全体管理者のみ可能です");
+    if (userId !== user.id && !isProductAdmin(user.roles)) {
+      throw new Error("他のアカウントの変更は管理者のみ可能です");
     }
     if (!name.trim()) throw new Error("名前を入力してください");
     const repo = await getServiceRepository();
@@ -75,8 +85,8 @@ export async function updateAccountNameAction(userId: string, name: string) {
 export async function resetAccountPasswordAction(userId: string, password: string) {
   try {
     const user = await requireActionUser();
-    if (userId !== user.id && !isProductAdmin(user.role)) {
-      throw new Error("他のアカウントのパスワード再設定は全体管理者のみ可能です");
+    if (userId !== user.id && !isProductAdmin(user.roles)) {
+      throw new Error("他のアカウントのパスワード再設定は管理者のみ可能です");
     }
     if (password.length < 8) throw new Error("パスワードは8文字以上にしてください");
     const repo = await getServiceRepository();
@@ -91,8 +101,8 @@ export async function resetAccountPasswordAction(userId: string, password: strin
 export async function deleteAccountAction(userId: string) {
   try {
     const user = await requireActionUser();
-    if (!isProductAdmin(user.role)) {
-      throw new Error("アカウントの削除は全体管理者のみ可能です");
+    if (!isProductAdmin(user.roles)) {
+      throw new Error("アカウントの削除は管理者のみ可能です");
     }
     if (userId === user.id) {
       throw new Error("自分自身のアカウントは削除できません");
@@ -111,12 +121,12 @@ export async function createAccountAction(input: {
   name: string;
   email: string;
   password: string;
-  role: Role;
+  roles: Role[];
 }) {
   try {
     const user = await requireActionUser();
-    if (!isProductAdmin(user.role)) {
-      throw new Error("アカウント管理は全体管理者のみ可能です");
+    if (!isProductAdmin(user.roles)) {
+      throw new Error("アカウント管理は管理者のみ可能です");
     }
     if (!input.name.trim()) throw new Error("名前を入力してください");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email)) {
@@ -125,13 +135,13 @@ export async function createAccountAction(input: {
     if (input.password.length < 8) {
       throw new Error("パスワードは8文字以上にしてください");
     }
-    if (!assignable(input.role)) throw new Error("不正なアカウント種別です");
+    const roles = validateRoles(input.roles);
     const repo = await getServiceRepository();
     const profile = await repo.createUserAccount({
       name: input.name.trim(),
       email: input.email.trim(),
       password: input.password,
-      role: input.role,
+      roles,
     });
     revalidatePath("/settings");
     return { ok: true as const, id: profile.id };

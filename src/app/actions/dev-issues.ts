@@ -29,7 +29,7 @@ export async function createDevIssueAction(input: {
 }) {
   try {
     const user = await requireActionUser();
-    if (!canAccessDev(user.role)) {
+    if (!canAccessDev(user.roles)) {
       throw new Error("開発進捗へのアクセス権限がありません");
     }
     if (!input.title.trim()) throw new Error("課題名を入力してください");
@@ -56,7 +56,7 @@ export async function createDevIssueAction(input: {
 export async function updateDevIssueAction(id: string, input: DevIssueUpdateInput) {
   try {
     const user = await requireActionUser();
-    if (!canAccessDev(user.role)) throw new Error("開発進捗へのアクセス権限がありません");
+    if (!canAccessDev(user.roles)) throw new Error("開発進捗へのアクセス権限がありません");
     const repo = await getServiceRepository();
     const editsRequest =
       input.title !== undefined ||
@@ -66,7 +66,7 @@ export async function updateDevIssueAction(id: string, input: DevIssueUpdateInpu
     if (editsRequest) {
       const existing = await repo.getDevIssue(id);
       if (!existing) throw new Error("開発依頼が見つかりません");
-      if (existing.requesterId !== user.id && !isProductAdmin(user.role)) {
+      if (existing.requesterId !== user.id && !isProductAdmin(user.roles)) {
         throw new Error("依頼内容の編集は依頼者本人または全体管理者のみ可能です");
       }
     }
@@ -88,7 +88,7 @@ export async function addDevIssueAttachmentAction(
 ) {
   try {
     const user = await requireActionUser();
-    if (!canAccessDev(user.role)) throw new Error("開発進捗へのアクセス権限がありません");
+    if (!canAccessDev(user.roles)) throw new Error("開発進捗へのアクセス権限がありません");
     if (!/^data:image\/(png|jpeg|webp);base64,/.test(input.dataUrl)) {
       throw new Error("対応していない画像形式です(PNG/JPEG/WebP)");
     }
@@ -117,7 +117,7 @@ export async function generateUiMockAction(
 ) {
   try {
     const user = await requireActionUser();
-    if (!canAccessDev(user.role)) throw new Error("開発進捗へのアクセス権限がありません");
+    if (!canAccessDev(user.roles)) throw new Error("開発進捗へのアクセス権限がありません");
     if (!description.trim()) throw new Error("どんな画面にしたいか入力してください");
     const { spec, sample } = await generateMockSpec(description.trim(), device);
     return { ok: true as const, spec, sample };
@@ -130,11 +130,11 @@ export async function generateUiMockAction(
 export async function deleteDevIssueAttachmentAction(id: string) {
   try {
     const user = await requireActionUser();
-    if (!canAccessDev(user.role)) throw new Error("開発進捗へのアクセス権限がありません");
+    if (!canAccessDev(user.roles)) throw new Error("開発進捗へのアクセス権限がありません");
     const repo = await getServiceRepository();
     const attachment = await repo.getDevIssueAttachment(id);
     if (!attachment) throw new Error("添付画像が見つかりません");
-    if (attachment.uploadedById !== user.id && !isProductAdmin(user.role)) {
+    if (attachment.uploadedById !== user.id && !isProductAdmin(user.roles)) {
       throw new Error("削除はアップロードした本人または全体管理者のみ可能です");
     }
     await repo.deleteDevIssueAttachment(id);
@@ -155,8 +155,8 @@ export async function setDevIssueApprovalAction(
 ) {
   try {
     const user = await requireActionUser();
-    if (!isProductAdmin(user.role)) {
-      throw new Error("実行有無の判定はプロダクト管理者(全体管理者)のみ可能です");
+    if (!isProductAdmin(user.roles)) {
+      throw new Error("実行有無の判定は承認者(管理者)のみ可能です");
     }
     if (decision !== null && decision !== "approve" && decision !== "reject") {
       throw new Error("不正な判定です");
@@ -180,8 +180,8 @@ export async function setDevIssueExecutionAction(
 ) {
   try {
     const user = await requireActionUser();
-    if (!isProductAdmin(user.role)) {
-      throw new Error("実行有無の変更はプロダクト管理者(全体管理者)のみ可能です");
+    if (!isProductAdmin(user.roles)) {
+      throw new Error("実行有無の変更は管理者のみ可能です");
     }
     if (
       execution !== null &&

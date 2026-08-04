@@ -14,7 +14,7 @@ import { requireUser } from "@/lib/auth";
 import { isDemoMode, paymentProvider } from "@/lib/config";
 import { getServiceRepository } from "@/lib/data";
 import { getEmailStatus } from "@/lib/email";
-import { isProductAdmin, roleLabels } from "@/lib/domain/constants";
+import { isProductAdmin, roleLabels, roleTone } from "@/lib/domain/constants";
 import type { UserProfile } from "@/lib/domain/types";
 import { AccountManager } from "./account-manager";
 import { ClaimAdminCard } from "./claim-admin-card";
@@ -42,8 +42,8 @@ export default async function SettingsPage() {
   } catch {
     profiles = [];
   }
-  const admin = isProductAdmin(user.role);
-  const hasAdmin = profiles.some((p) => isProductAdmin(p.role));
+  const admin = isProductAdmin(user.roles);
+  const hasAdmin = profiles.some((p) => isProductAdmin(p.roles));
   // 初期セットアップ: 全体管理者が1人もいないときだけ表示
   const showClaim = !admin && profilesLoaded && !hasAdmin;
 
@@ -121,9 +121,15 @@ export default async function SettingsPage() {
             <CardContent className="space-y-3">
               <Row label="名前" value={user.name} />
               <Row label="メール" value={user.email || "—"} />
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">アカウント種別</span>
-                <Badge tone="primary">{roleLabels[user.role]}</Badge>
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="shrink-0 text-muted-foreground">役割</span>
+                <span className="flex flex-wrap justify-end gap-1">
+                  {user.roles.map((r) => (
+                    <Badge key={r} tone={roleTone[r]}>
+                      {roleLabels[r]}
+                    </Badge>
+                  ))}
+                </span>
               </div>
               <div className="pt-1">
                 <SelfAccountActions userId={user.id} userName={user.name} demo={isDemoMode} />

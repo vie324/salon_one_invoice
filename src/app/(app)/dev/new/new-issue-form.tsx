@@ -218,7 +218,7 @@ export function NewIssueForm() {
 
       {category === "request" && (
         <p className="rounded-md bg-secondary px-3 py-2.5 text-xs text-secondary-foreground">
-          要望は、プロダクト管理者2名の承諾で「実行」になります（どちらか1名が停止した場合は「実行なし」）。
+          要望は、承認者（管理者）全員の承諾で「実行」になります（1名でも停止した場合は「実行なし」）。未承諾の承認者には一覧・詳細でアラートが出ます。
           登録後の詳細画面から、理想のUIを伝える<span className="font-medium">画像モックのAI生成</span>もできます。
         </p>
       )}

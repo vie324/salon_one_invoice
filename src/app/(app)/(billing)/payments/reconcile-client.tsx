@@ -4,6 +4,7 @@ import { Check, FileUp, Link2, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import { importBankCsvAction, matchBankTransactionAction } from "@/app/actions/payments";
+import { DeleteRecordButton } from "@/components/records/delete-record-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -125,6 +126,11 @@ export function ReconcileClient({
                   <Link2 className="h-4 w-4" />
                   消込
                 </Button>
+                <DeleteRecordButton
+                  entity="bank_transaction"
+                  id={t.id}
+                  label={`${t.payerName} ${formatJPY(t.amount)}（${formatDate(t.transactionDate)}）`}
+                />
               </div>
             </li>
           ))}

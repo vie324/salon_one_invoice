@@ -8,6 +8,6 @@ import { canAccessBilling } from "@/lib/domain/constants";
  */
 export default async function BillingLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  if (!canAccessBilling(user.role)) redirect("/dev");
+  if (!canAccessBilling(user.roles)) redirect("/dev");
   return <>{children}</>;
 }
