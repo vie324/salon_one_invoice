@@ -13,6 +13,7 @@ import {
   Menu,
   Repeat,
   Settings,
+  Trash2,
   Users,
   Wallet,
   X,
@@ -39,6 +40,7 @@ const billingNav = [
   { href: "/subscriptions", label: "定期請求", icon: Repeat },
   { href: "/direct-debit", label: "口座振替", icon: Landmark },
   { href: "/payments", label: "入金確認", icon: Wallet },
+  { href: "/trash", label: "ゴミ箱", icon: Trash2 },
   { href: "/help", label: "ヘルプ", icon: LifeBuoy },
 ] as const;
 
@@ -65,8 +67,8 @@ export function AppShell({
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(href + "/");
 
-  const showBilling = canAccessBilling(user.role);
-  const showDev = canAccessDev(user.role);
+  const showBilling = canAccessBilling(user.roles);
+  const showDev = canAccessDev(user.roles);
   const tagline = showBilling && showDev
     ? "請求・開発進捗の管理"
     : showDev

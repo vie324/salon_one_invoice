@@ -17,7 +17,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export async function sendTestEmailAction(to: string) {
   try {
     const user = await requireActionUser();
-    if (!isProductAdmin(user.role)) {
+    if (!isProductAdmin(user.roles)) {
       return { ok: false as const, error: "テスト送信は全体管理者のみ実行できます" };
     }
     const address = to.trim();

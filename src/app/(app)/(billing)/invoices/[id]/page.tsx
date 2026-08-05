@@ -8,6 +8,7 @@ import { getServiceRepository } from "@/lib/data";
 import { outstandingAmount } from "@/lib/domain/calculations";
 import { paymentMethodLabels } from "@/lib/domain/constants";
 import { formatDate, formatJPY } from "@/lib/utils";
+import { DeleteRecordButton } from "@/components/records/delete-record-button";
 import { InvoiceActions } from "./invoice-actions";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
@@ -77,6 +78,15 @@ export default async function InvoiceDetailPage({
                 paymentMethod={invoice.paymentMethod}
                 hasEmail={Boolean(invoice.customer?.email)}
               />
+              <div className="mt-2 border-t border-border pt-2">
+                <DeleteRecordButton
+                  entity="invoice"
+                  id={invoice.id}
+                  label={`請求書 ${invoice.invoiceNumber}（${invoice.customer?.name ?? ""}）`}
+                  redirectTo="/invoices"
+                  className="w-full text-muted-foreground hover:text-destructive"
+                />
+              </div>
             </CardContent>
           </Card>
 

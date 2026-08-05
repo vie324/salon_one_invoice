@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { DeleteRecordButton } from "@/components/records/delete-record-button";
 import { getServiceRepository } from "@/lib/data";
 import { outstandingAmount } from "@/lib/domain/calculations";
 import { paymentMethodLabels } from "@/lib/domain/constants";
@@ -100,6 +101,7 @@ export default async function PaymentsPage() {
                   <TH>顧客</TH>
                   <TH className="text-right">金額</TH>
                   <TH>方法</TH>
+                  <TH className="w-20 text-right">操作</TH>
                 </TR>
               </THead>
               <TBody>
@@ -122,6 +124,13 @@ export default async function PaymentsPage() {
                       <Badge tone="neutral">
                         {paymentMethodLabels[p.method as keyof typeof paymentMethodLabels] ?? "調整"}
                       </Badge>
+                    </TD>
+                    <TD className="text-right">
+                      <DeleteRecordButton
+                        entity="payment"
+                        id={p.id}
+                        label={`${nameOf(p.customerId)} ${formatJPY(p.amount)}（${formatDate(p.paidAt)}）`}
+                      />
                     </TD>
                   </TR>
                 ))}

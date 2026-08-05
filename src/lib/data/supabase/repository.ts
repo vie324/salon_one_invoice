@@ -20,6 +20,8 @@ import {
   computeDevExecution,
   devIssueExecutionLabels,
   devNotificationRecipients,
+  isProductAdmin,
+  normalizeRoles,
 } from "@/lib/domain/constants";
 import { computeDashboardMetrics } from "@/lib/domain/metrics";
 import type {
@@ -39,6 +41,9 @@ import type {
   ContractWithCustomer,
   Customer,
   CustomerStatus,
+  DataDeletionLog,
+  DeletableEntity,
+  DeletedRecord,
   DashboardMetrics,
   DevApprovalDecision,
   DevIssue,
@@ -59,7 +64,7 @@ import type {
   Subscription,
   UserProfile,
 } from "@/lib/domain/types";
-import { genId, toISODate } from "@/lib/utils";
+import { formatJPY, genId, toISODate } from "@/lib/utils";
 import type {
   ActorRef,
   AgencyInput,
@@ -457,11 +462,14 @@ function mapNotification(r: any): AppNotification {
 }
 
 function mapProfile(r: any, email = ""): UserProfile {
+  const role = (r.role as Role) ?? "billing";
   return {
     id: r.id,
     name: r.full_name ?? "",
     email,
-    role: (r.role as Role) ?? "staff",
+    role,
+    // roles 列は移行(0014)で追加される。未適用でも主ロールから復元する。
+    roles: normalizeRoles({ role, roles: (r.roles as Role[]) ?? null }),
     createdAt: r.created_at,
   };
 }
@@ -559,7 +567,7 @@ export class SupabaseRepository implements Repository {
   }
 
   async listCustomers(filter?: { status?: CustomerStatus; search?: string }): Promise<Customer[]> {
-    let q = this.db.from("customers").select("*").order("code");
+    let q = this.db.from("customers").select("*").is("deleted_at", null).order("code");
     if (filter?.status) q = q.eq("status", filter.status);
     if (filter?.search) {
       const s = `%${filter.search}%`;
@@ -577,6 +585,7 @@ export class SupabaseRepository implements Repository {
       .from("customers")
       .select("*")
       .eq("id", id)
+      .is("deleted_at", null)
       .maybeSingle();
     if (error) throw error;
     return data ? mapCustomer(data) : null;
@@ -740,7 +749,7 @@ export class SupabaseRepository implements Repository {
   }
 
   async listSubscriptions(): Promise<Subscription[]> {
-    const { data, error } = await this.db.from("subscriptions").select("*");
+    const { data, error } = await this.db.from("subscriptions").select("*").is("deleted_at", null);
     if (error) throw error;
     return (data ?? []).map(mapSubscription);
   }
@@ -908,6 +917,7 @@ export class SupabaseRepository implements Repository {
     let q = this.db
       .from("invoices")
       .select(`${INVOICE_SELECT}, customer:customers(*)`)
+      .is("deleted_at", null)
       .order("issue_date", { ascending: false });
     if (filter?.customerId) q = q.eq("customer_id", filter.customerId);
     if (filter?.type && filter.type !== "all") q = q.eq("type", filter.type);
@@ -943,6 +953,7 @@ export class SupabaseRepository implements Repository {
       .from("invoices")
       .select(`${INVOICE_SELECT}, customer:customers(*)`)
       .eq("id", id)
+      .is("deleted_at", null)
       .maybeSingle();
     if (error) throw error;
     if (!data) return null;
@@ -1066,7 +1077,11 @@ export class SupabaseRepository implements Repository {
   }
 
   async listPayments(filter?: { customerId?: string }): Promise<Payment[]> {
-    let q = this.db.from("payments").select("*").order("paid_at", { ascending: false });
+    let q = this.db
+      .from("payments")
+      .select("*")
+      .is("deleted_at", null)
+      .order("paid_at", { ascending: false });
     if (filter?.customerId) q = q.eq("customer_id", filter.customerId);
     const { data, error } = await q;
     if (error) throw error;
@@ -1122,6 +1137,7 @@ export class SupabaseRepository implements Repository {
     const { data, error } = await this.db
       .from("direct_debit_batches")
       .select("*, direct_debit_batch_items(*)")
+      .is("deleted_at", null)
       .order("scheduled_date", { ascending: false });
     if (error) throw error;
     return (data ?? []).map(mapBatch);
@@ -1132,6 +1148,7 @@ export class SupabaseRepository implements Repository {
       .from("direct_debit_batches")
       .select("*, direct_debit_batch_items(*)")
       .eq("id", id)
+      .is("deleted_at", null)
       .maybeSingle();
     if (error) throw error;
     return data ? mapBatch(data) : null;
@@ -1257,6 +1274,7 @@ export class SupabaseRepository implements Repository {
     const { data, error } = await this.db
       .from("bank_transactions")
       .select("*")
+      .is("deleted_at", null)
       .order("transaction_date", { ascending: false });
     if (error) throw error;
     return (data ?? []).map(mapBankTxn);
@@ -1306,11 +1324,11 @@ export class SupabaseRepository implements Repository {
 
   async getDashboardMetrics(month?: string): Promise<DashboardMetrics> {
     const [invoicesRes, paymentsRes, subsRes, plansRes, customersRes] = await Promise.all([
-      this.db.from("invoices").select(INVOICE_SELECT),
-      this.db.from("payments").select("*"),
-      this.db.from("subscriptions").select("*"),
+      this.db.from("invoices").select(INVOICE_SELECT).is("deleted_at", null),
+      this.db.from("payments").select("*").is("deleted_at", null),
+      this.db.from("subscriptions").select("*").is("deleted_at", null),
       this.db.from("plans").select("*"),
-      this.db.from("customers").select("*"),
+      this.db.from("customers").select("*").is("deleted_at", null),
     ]);
     // 読み取り失敗を握りつぶすと売上ゼロ等の誤った数値を表示してしまう
     for (const res of [invoicesRes, paymentsRes, subsRes, plansRes, customersRes]) {
@@ -1324,6 +1342,192 @@ export class SupabaseRepository implements Repository {
       customers: (customersRes.data ?? []).map(mapCustomer),
       month,
     });
+  }
+
+  // --- 削除(ゴミ箱) / 復元 ---
+
+  /** 種別 → テーブル名 */
+  private deletableTable(entity: DeletableEntity): string {
+    const map: Record<DeletableEntity, string> = {
+      invoice: "invoices",
+      customer: "customers",
+      payment: "payments",
+      subscription: "subscriptions",
+      bank_transaction: "bank_transactions",
+      batch: "direct_debit_batches",
+    };
+    const table = map[entity];
+    if (!table) throw new Error("不正なデータ種別です");
+    return table;
+  }
+
+  /** ゴミ箱一覧・ログ表示用の見出しを作る */
+  private async describeRecord(
+    entity: DeletableEntity,
+    row: any,
+  ): Promise<{ label: string; sublabel: string }> {
+    const customerName = async (id: string | null) => {
+      if (!id) return "";
+      const { data } = await this.db.from("customers").select("name").eq("id", id).maybeSingle();
+      return (data as any)?.name ?? "";
+    };
+    switch (entity) {
+      case "invoice":
+        return {
+          label: row.invoice_number ?? row.id,
+          sublabel: `${await customerName(row.customer_id)} ・ ${formatJPY(row.total ?? 0)} ・ ${row.issue_date ?? ""}`,
+        };
+      case "customer":
+        return { label: row.name ?? row.id, sublabel: `${row.code ?? ""} ・ ${row.email || "—"}` };
+      case "payment":
+        return {
+          label: `${formatJPY(row.amount ?? 0)} の入金`,
+          sublabel: `${await customerName(row.customer_id)} ・ ${row.paid_at ?? ""}`,
+        };
+      case "subscription":
+        return { label: await customerName(row.customer_id), sublabel: row.plan_id ?? "" };
+      case "bank_transaction":
+        return {
+          label: `${row.payer_name ?? ""} ${formatJPY(row.amount ?? 0)}`,
+          sublabel: row.transaction_date ?? "",
+        };
+      case "batch":
+        return { label: row.name ?? row.id, sublabel: `引落予定 ${row.scheduled_date ?? ""}` };
+      default:
+        return { label: row.id, sublabel: "" };
+    }
+  }
+
+  private async logDeletion(params: {
+    entity: DeletableEntity;
+    entityId: string;
+    entityLabel: string;
+    action: "delete" | "restore";
+    actor: string;
+    reason: string;
+  }) {
+    const { error } = await this.db.from("data_deletions").insert({
+      entity: params.entity,
+      entity_id: params.entityId,
+      entity_label: params.entityLabel,
+      action: params.action,
+      actor: params.actor,
+      reason: params.reason,
+    });
+    if (error) throw error;
+  }
+
+  async softDeleteRecord(
+    entity: DeletableEntity,
+    id: string,
+    params: { actor: string; reason: string },
+  ): Promise<void> {
+    const table = this.deletableTable(entity);
+    const { data: row, error: readError } = await this.db
+      .from(table)
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (readError) throw readError;
+    if (!row) throw new Error("対象のデータが見つかりません");
+    if ((row as any).deleted_at) return;
+    const { label } = await this.describeRecord(entity, row);
+    const { error } = await this.db
+      .from(table)
+      .update({
+        deleted_at: new Date().toISOString(),
+        deleted_by: params.actor,
+        delete_reason: params.reason,
+      })
+      .eq("id", id);
+    if (error) throw error;
+    await this.logDeletion({
+      entity,
+      entityId: id,
+      entityLabel: label,
+      action: "delete",
+      actor: params.actor,
+      reason: params.reason,
+    });
+  }
+
+  async restoreRecord(
+    entity: DeletableEntity,
+    id: string,
+    params: { actor: string },
+  ): Promise<void> {
+    const table = this.deletableTable(entity);
+    const { data: row, error: readError } = await this.db
+      .from(table)
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (readError) throw readError;
+    if (!row) throw new Error("対象のデータが見つかりません");
+    if (!(row as any).deleted_at) return;
+    const { label } = await this.describeRecord(entity, row);
+    const { error } = await this.db
+      .from(table)
+      .update({ deleted_at: null, deleted_by: null, delete_reason: null })
+      .eq("id", id);
+    if (error) throw error;
+    await this.logDeletion({
+      entity,
+      entityId: id,
+      entityLabel: label,
+      action: "restore",
+      actor: params.actor,
+      reason: "",
+    });
+  }
+
+  async listDeletedRecords(): Promise<DeletedRecord[]> {
+    const entities: DeletableEntity[] = [
+      "invoice",
+      "customer",
+      "payment",
+      "subscription",
+      "bank_transaction",
+      "batch",
+    ];
+    const out: DeletedRecord[] = [];
+    for (const entity of entities) {
+      const { data, error } = await this.db
+        .from(this.deletableTable(entity))
+        .select("*")
+        .not("deleted_at", "is", null);
+      if (error) throw error;
+      for (const row of data ?? []) {
+        out.push({
+          entity,
+          id: (row as any).id,
+          ...(await this.describeRecord(entity, row)),
+          deletedAt: (row as any).deleted_at,
+          deletedBy: (row as any).deleted_by ?? "",
+          reason: (row as any).delete_reason ?? "",
+        });
+      }
+    }
+    return out.sort((a, b) => (a.deletedAt < b.deletedAt ? 1 : -1));
+  }
+
+  async listDeletionLogs(limit = 100): Promise<DataDeletionLog[]> {
+    const { data, error } = await this.db
+      .from("data_deletions")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return (data ?? []).map((r: any) => ({
+      id: r.id,
+      entity: r.entity as DeletableEntity,
+      entityId: r.entity_id,
+      entityLabel: r.entity_label ?? "",
+      action: r.action as "delete" | "restore",
+      actor: r.actor ?? "",
+      reason: r.reason ?? "",
+      createdAt: r.created_at,
+    }));
   }
 
   async listActivities(limit = 12): Promise<Activity[]> {
@@ -1342,6 +1546,7 @@ export class SupabaseRepository implements Repository {
       .from("subscriptions")
       .select("*")
       .eq("status", "active")
+      .is("deleted_at", null) // 削除(ゴミ箱)済みの契約は生成しない
       .is("stripe_subscription_id", null) // Stripe 管理の契約は除外(Stripe が課金)
       .lte("next_billing_date", asOfDate);
     if (subsError) throw subsError;
@@ -2413,8 +2618,14 @@ export class SupabaseRepository implements Repository {
       .select("*")
       .eq("issue_id", issueId);
     if (apError) throw apError;
+    // 承認者(管理者)全員の承諾で「実行」になる
+    const { data: approverRows } = await this.db.from("profiles").select("*");
+    const approverCount = (approverRows ?? []).filter((r: any) =>
+      isProductAdmin(normalizeRoles({ role: r.role as Role, roles: (r.roles as Role[]) ?? null })),
+    ).length;
     const execution = computeDevExecution(
       (apRows ?? []).map((r: any) => r.decision as DevApprovalDecision),
+      approverCount,
     );
     // 全体管理者が直接設定している間は、承諾の増減で実行有無を上書きしない
     const patch = before.executionSetByName ? {} : { execution };
@@ -2842,12 +3053,13 @@ export class SupabaseRepository implements Repository {
     return (data ?? []).map((r: any) => mapProfile(r, emails.get(r.id) ?? ""));
   }
 
-  async updateUserRole(userId: string, role: Role): Promise<void> {
+  async updateUserRoles(userId: string, roles: Role[]): Promise<void> {
     // プロフィール行が無いユーザー(トリガー導入前の作成など)でも成立するよう upsert。
     // full_name は指定しないため既存行の名前は保持される。
+    // role(主ロール)は後方互換のため roles の先頭を保存する。
     const { error } = await this.db
       .from("profiles")
-      .upsert({ id: userId, role }, { onConflict: "id" });
+      .upsert({ id: userId, role: roles[0], roles }, { onConflict: "id" });
     if (error) throw error;
   }
 
@@ -2859,7 +3071,7 @@ export class SupabaseRepository implements Repository {
         email: input.email,
         password: input.password,
         email_confirm: true,
-        user_metadata: { full_name: input.name, role: input.role },
+        user_metadata: { full_name: input.name, role: input.roles[0] },
       });
     } catch (e) {
       throw new Error(
@@ -2872,7 +3084,7 @@ export class SupabaseRepository implements Repository {
     // トリガー(handle_new_user)で profiles は作成されるが、確実に反映する
     const { data, error } = await this.db
       .from("profiles")
-      .upsert({ id: user.id, full_name: input.name, role: input.role })
+      .upsert({ id: user.id, full_name: input.name, role: input.roles[0], roles: input.roles })
       .select("*")
       .single();
     if (error) throw error;
@@ -2924,11 +3136,16 @@ export class SupabaseRepository implements Repository {
     actorId: string,
   ) {
     try {
-      const { data: profRows, error } = await this.db.from("profiles").select("id, role");
+      // roles 列は移行(0014)で追加されるため列指定せず取得する
+      const { data: profRows, error } = await this.db.from("profiles").select("*");
       if (error) throw error;
       const recipients = devNotificationRecipients({
         type,
-        profiles: (profRows ?? []).map((r: any) => ({ id: r.id, role: r.role as Role })),
+        profiles: (profRows ?? []).map((r: any) => ({
+          id: r.id,
+          role: r.role as Role,
+          roles: normalizeRoles({ role: r.role as Role, roles: (r.roles as Role[]) ?? null }),
+        })),
         requesterId: issue.requesterId,
         actorId,
       }).filter(isUuid); // notifications.user_id は uuid のため

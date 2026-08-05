@@ -20,6 +20,7 @@ import {
 } from "@/lib/domain/calculations";
 import { paymentMethodLabels } from "@/lib/domain/constants";
 import { formatDate, formatJPY, maskAccount } from "@/lib/utils";
+import { DeleteRecordButton } from "@/components/records/delete-record-button";
 import { BillingButton } from "./billing-button";
 import { EditCustomerButton } from "./edit-customer-button";
 import { MandateButton } from "./mandate-button";
@@ -114,6 +115,12 @@ export default async function CustomerDetailPage({
             <Plus className="h-4 w-4" />
             請求書を作成
           </Link>
+          <DeleteRecordButton
+            entity="customer"
+            id={customer.id}
+            label={`${customer.name}（${customer.code}）`}
+            redirectTo="/customers"
+          />
         </div>
       </div>
 

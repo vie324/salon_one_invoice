@@ -5,14 +5,15 @@ import * as React from "react";
 import { switchDemoRole } from "@/app/actions/session";
 
 /**
- * デモモード専用: アカウントを切り替えて3種の権限を試せる。
- * 全体管理者は2名用意し、「実行有無」の2名承諾フローも確認できる。
+ * デモモード専用: アカウントを切り替えて各役割の画面を試せる。
+ * 管理者(承認者)は2名用意し、要望の承諾フローも確認できる。
  */
 const personas: { value: string; profileId: string; label: string }[] = [
-  { value: "admin", profileId: "demo-admin-1", label: "全体管理者（佐々木）" },
-  { value: "admin2", profileId: "demo-admin-2", label: "全体管理者（高橋）" },
-  { value: "billing", profileId: "demo-billing-1", label: "請求管理のみ（田中）" },
-  { value: "dev", profileId: "demo-dev-1", label: "開発進捗のみ（山田）" },
+  { value: "admin", profileId: "demo-admin-1", label: "管理者（佐々木）" },
+  { value: "admin2", profileId: "demo-admin-2", label: "管理者（高橋）" },
+  { value: "billing", profileId: "demo-billing-1", label: "請求＋開発管理 兼務（田中）" },
+  { value: "dev", profileId: "demo-dev-1", label: "エンジニア（山田）" },
+  { value: "dev_manager", profileId: "demo-devmgr-1", label: "開発・修正管理者（小林）" },
 ];
 
 export function DemoRoleSwitcher({ currentId }: { currentId: string }) {

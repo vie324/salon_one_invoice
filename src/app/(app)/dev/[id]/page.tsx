@@ -12,6 +12,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth";
 import { getServiceRepository } from "@/lib/data";
 import { isProductAdmin } from "@/lib/domain/constants";
+import { pendingApprovers } from "@/lib/domain/dev-issues";
+import type { UserProfile } from "@/lib/domain/types";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { ApprovalPanel, EngineerForm, RequestEditForm } from "./issue-detail-client";
 
@@ -32,8 +34,18 @@ export default async function DevIssueDetailPage({
   if (!issue) notFound();
   const attachments = await repo.listDevIssueAttachments(issue.id);
 
-  const admin = isProductAdmin(user.role);
+  const admin = isProductAdmin(user.roles);
   const canEditRequest = admin || issue.requesterId === user.id;
+
+  // 承認者(管理者)のうち、まだ判定していない人を出して確認を促す
+  let profiles: UserProfile[] = [];
+  try {
+    profiles = await repo.listUserProfiles();
+  } catch {
+    profiles = [];
+  }
+  const approvers = profiles.filter((p) => isProductAdmin(p.roles));
+  const pending = pendingApprovers(issue, profiles);
 
   return (
     <div>
@@ -154,6 +166,9 @@ export default async function DevIssueDetailPage({
               approvals={issue.approvals}
               currentUserId={user.id}
               isAdmin={admin}
+              approverCount={Math.max(1, approvers.length)}
+              pendingApproverNames={pending.map((p) => p.name)}
+              isMinePending={pending.some((p) => p.id === user.id)}
             />
           )}
         </div>

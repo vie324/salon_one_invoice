@@ -14,10 +14,11 @@ import { safeRedirectPath } from "@/lib/redirect";
  * ログインするかを選ぶ(選択内容が cookie に記録され、ログイン状態になる)。
  */
 const DEMO_ACCOUNTS = [
-  { value: "admin", label: "佐々木 涼（全体管理者）" },
-  { value: "admin2", label: "高橋 誠（全体管理者）" },
-  { value: "billing", label: "田中 美咲（請求管理のみ）" },
-  { value: "dev", label: "山田 健（開発進捗のみ）" },
+  { value: "admin", label: "佐々木 涼（管理者）" },
+  { value: "admin2", label: "高橋 誠（管理者）" },
+  { value: "billing", label: "田中 美咲（請求管理者＋開発・修正管理者）" },
+  { value: "dev", label: "山田 健（エンジニア）" },
+  { value: "dev_manager", label: "小林 直樹（開発・修正管理者）" },
 ];
 
 export function DemoLoginForm() {

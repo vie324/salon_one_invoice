@@ -1,6 +1,6 @@
 "use client";
 
-import { Ban, Check, Pencil, RotateCcw, Wrench } from "lucide-react";
+import { AlertTriangle, Ban, Check, Pencil, RotateCcw, Wrench } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import {
@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import {
-  DEV_EXECUTION_REQUIRED_APPROVALS,
   devIssueCategoryLabels,
   devIssueExecutionLabels,
   devIssuePriorityLabels,
@@ -119,8 +118,9 @@ export function EngineerForm({
 
 /**
  * 実行有無のパネル(要望のみ)。
- * 通常はプロダクト管理者2名の承諾で「実行」。全体管理者は直接変更もできる
+ * 承認者(管理者)全員の承諾で「実行」。管理者は直接変更もできる
  * (直接変更している間は承諾の増減で上書きされない)。
+ * まだ判定していない承認者は名前を出して確認を促す。
  */
 export function ApprovalPanel({
   issueId,
@@ -130,6 +130,9 @@ export function ApprovalPanel({
   approvals,
   currentUserId,
   isAdmin,
+  approverCount,
+  pendingApproverNames,
+  isMinePending,
 }: {
   issueId: string;
   execution: DevIssueExecution;
@@ -138,6 +141,12 @@ export function ApprovalPanel({
   approvals: DevIssueApproval[];
   currentUserId: string;
   isAdmin: boolean;
+  /** 承認者(管理者)の人数 */
+  approverCount: number;
+  /** まだ判定していない承認者の氏名 */
+  pendingApproverNames: string[];
+  /** 自分がまだ判定していないか */
+  isMinePending: boolean;
 }) {
   const router = useRouter();
   const [error, setError] = React.useState<string | null>(null);
@@ -177,7 +186,7 @@ export function ApprovalPanel({
         {/* 全体管理者による直接変更(2名承諾を待たずに確定できる) */}
         {isAdmin && (
           <div className="space-y-2 rounded-md border border-primary/30 bg-primary/[0.04] px-3 py-2.5">
-            <Field label="実行有無を直接変更（全体管理者のみ）">
+            <Field label="実行有無を直接変更（管理者のみ）">
               <Select
                 value={execution}
                 disabled={pending}
@@ -212,9 +221,35 @@ export function ApprovalPanel({
           </div>
         )}
 
+        {/* 未判定の承認者がいる間は確認を促す */}
+        {pendingApproverNames.length > 0 && (
+          <div
+            className={
+              isMinePending
+                ? "rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2.5 text-xs"
+                : "rounded-md border border-warning/40 bg-warning/10 px-3 py-2.5 text-xs"
+            }
+          >
+            <p className="flex items-center gap-1.5 font-semibold">
+              <AlertTriangle className={isMinePending ? "h-3.5 w-3.5 text-destructive" : "h-3.5 w-3.5 text-warning"} />
+              {isMinePending
+                ? "あなたの承諾待ちです"
+                : `${pendingApproverNames.join("・")} の承諾待ちです`}
+            </p>
+            <p className="mt-1 text-muted-foreground">
+              {isMinePending
+                ? "実行するか止めるかを判定してください。判定が揃うまで着手できません。"
+                : "承諾が揃うまで着手できません。お急ぎの場合は直接ご確認ください。"}
+              {pendingApproverNames.length > 1 && !isMinePending
+                ? ""
+                : ""}
+            </p>
+          </div>
+        )}
+
         <p className="text-xs text-muted-foreground">
-          プロダクト管理者{DEV_EXECUTION_REQUIRED_APPROVALS}名の承諾で「実行」になります。どちらか1名が停止した場合は「実行なし」です。
-          （承諾 {approveCount}/{DEV_EXECUTION_REQUIRED_APPROVALS}）
+          承認者（管理者）{approverCount}名全員の承諾で「実行」になります。1名でも停止した場合は「実行なし」です。
+          （承諾 {approveCount}/{approverCount}）
         </p>
 
         {approvals.length > 0 ? (

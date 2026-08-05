@@ -6,7 +6,10 @@ export interface CurrentUser {
   id: string;
   name: string;
   email: string;
+  /** 主ロール(表示用) */
   role: Role;
+  /** 保有役割(兼務可)。権限判定はこちらを使う。 */
+  roles: Role[];
   demo: boolean;
 }
 
@@ -35,11 +38,13 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     // cookie が無い = 未ログイン(デモでもログイン操作を必須にする)
     if (!persona) return null;
     const profile = getDemoProfile(persona);
+    const { normalizeRoles } = await import("@/lib/domain/constants");
     return {
       id: profile.id,
       name: profile.name,
       email: profile.email,
       role: profile.role,
+      roles: normalizeRoles(profile),
       demo: true,
     };
   }
@@ -67,16 +72,20 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     const { createAdminClient } = await import("@/lib/supabase/admin");
     profileDb = createAdminClient();
   }
+  // roles 列は移行(0014)で追加されるため、列指定せず全件取得して両対応にする
   const { data: profile } = await profileDb
     .from("profiles")
-    .select("full_name, role")
+    .select("*")
     .eq("id", user.id)
     .maybeSingle();
+  const { normalizeRoles } = await import("@/lib/domain/constants");
+  const role = (profile?.role as Role) || "billing";
   return {
     id: user.id,
     name: profile?.full_name || user.email || "ユーザー",
     email: user.email ?? "",
-    role: (profile?.role as Role) || "staff",
+    role,
+    roles: normalizeRoles({ role, roles: (profile?.roles as Role[]) ?? null }),
     demo: false,
   };
 }
