@@ -61,8 +61,8 @@
    | `CRON_SECRET` | ✅ | Cron 保護用の任意文字列 |
    | `PAYMENT_PROVIDER` |  | `manual`（既定）/ `stripe` |
    | `STRIPE_SECRET_KEY` |  | Stripe 利用時 |
-   | `RESEND_API_KEY` |  | メールを実際に送る場合（→ [5. メールを実際に送る設定](#5-メールを実際に送る設定)） |
-   | `EMAIL_FROM` |  | 送信元アドレス。実送信時は必須 |
+   | `MAIL_HOST` ほか `MAIL_*` |  | SMTP でメールを送る場合（→ [5. メールを実際に送る設定](#5-メールを実際に送る設定)） |
+   | `RESEND_API_KEY` / `EMAIL_FROM` |  | Resend で送る場合 |
    | `NEXT_PUBLIC_APP_URL` |  | 公開URL。メール内リンク（署名URL等）に使用 |
    | `EMAIL_PROVIDER` |  | 通常は設定不要。`console` で強制的に未送信 |
 
@@ -72,26 +72,43 @@
 
 ## 5. メールを実際に送る設定
 
-既定ではメールは**送信されません**（サーバーログに出力するプレビューのみ）。契約書の署名依頼・締結完了通知、請求書、代理店の支払明細をお客様へ実際に届けるには、以下を設定します。
+既定ではメールは**送信されません**（サーバーログに出力するプレビューのみ）。契約書の署名依頼・締結完了通知、請求書、代理店の支払明細をお客様へ実際に届けるには、**SMTP** か **Resend** のどちらかを設定します。
 
-1. [Resend](https://resend.com) にサインアップし、**Domains** で自社ドメインを追加。表示された DNS レコード（SPF / DKIM）をドメインの DNS に登録して認証を完了する。
-   - ドメインを持っていない場合、認証なしでは自分のアカウントのアドレス宛にしか送れません。お客様へ送るには認証が必須です。
-2. **API Keys** で送信用のキーを発行する（`re_` で始まる文字列）。
+### A. Google Workspace の SMTP リレーで送る（推奨）
+
+> ⚠️ **重要**: Google Workspace の SMTP リレー設定で「**SMTP 認証が必要**」を有効にしてください。
+> 「送信元IPアドレスの制限」だけの運用では、**Vercel からは送信できません**（サーバーレスのため送信元IPが固定できず、許可リストに登録できないため）。
+> 自社サーバーなど固定IPの環境から送る場合はIP制限のみでも動作します（その場合 `MAIL_USERNAME` は空のままで構いません）。
+
+1. **Google 管理コンソール** → アプリ → Google Workspace → Gmail → **ルーティング** → 「SMTP リレー サービス」を追加
+   - 送信者: 「ドメイン内のユーザーのみ」または「ドメイン外のアドレスも許可」
+   - 認証: **「SMTP 認証が必要」にチェック**（IP制限と併用可）
+   - 暗号化: 「TLS 暗号化が必要」にチェック
+2. 送信に使うアカウント（例: `noreply@salonone.net`）で **2段階認証を有効にし、「アプリ パスワード」（16桁）を発行**します。
+   通常のログインパスワードでは SMTP 認証は通りません。
 3. Vercel の **Settings → Environment Variables** に設定する。
 
    | 変数 | 例 | 説明 |
    | --- | --- | --- |
-   | `RESEND_API_KEY` | `re_xxxxxxxx` | 手順2で発行したキー。設定するだけで実送信モードになる |
-   | `EMAIL_FROM` | `請求 <billing@example.jp>` | 手順1で**認証したドメイン**のアドレス |
-   | `NEXT_PUBLIC_APP_URL` | `https://example.vercel.app` | メール内のリンク（署名URL・請求書URL）の基準 |
+   | `MAIL_HOST` | `smtp-relay.gmail.com` | 設定するだけで SMTP 送信モードになる |
+   | `MAIL_PORT` | `587` | STARTTLS |
+   | `MAIL_ENCRYPTION` | `tls` | `tls`(587) / `ssl`(465) / `none` |
+   | `MAIL_USERNAME` | `noreply@salonone.net` | 空にすると SMTP 認証なし（IP許可のリレー向け） |
+   | `MAIL_PASSWORD` | （アプリ パスワード16桁） | 通常のパスワードは不可 |
+   | `MAIL_FROM_ADDRESS` | `noreply@salonone.net` | 送信元アドレス |
+   | `MAIL_FROM_NAME` | `SalonOne` | 送信者の表示名（任意） |
+   | `NEXT_PUBLIC_APP_URL` | `https://example.vercel.app` | メール内リンク（署名URL等）の基準 |
 
-4. **再デプロイ**する（環境変数は再デプロイで反映されます）。
-5. アプリの **設定 → メール送信** を開く。
+4. **再デプロイ** → アプリの **設定 → メール送信** で「送信モード: 実送信」を確認し、**テスト送信**で到達を確認します。
 
-   - 「送信モード」が **実送信（お客様に届きます）** になっていることを確認。
-   - 全体管理者は **テスト送信** で自分のアドレス宛に届くか確認できます（お客様には送信されません）。
+**届きやすさ（SPF / DKIM）**: 送信ドメインの SPF に `include:_spf.google.com` が含まれ、Google Workspace の DKIM（`google._domainkey`）が有効なら追加設定は不要です。
 
-> プレビュー（未送信）に戻したいときは `EMAIL_PROVIDER=console` を設定します。`RESEND_API_KEY` を消さずに一時停止できます。
+### B. Resend（API）で送る
+
+1. [Resend](https://resend.com) で送信ドメインを追加し、表示された DNS レコード（DKIM / SPF）を登録して認証する。
+2. API キーを発行し、Vercel に `RESEND_API_KEY` と `EMAIL_FROM`（認証したドメインのアドレス）を設定して再デプロイ。
+
+> プレビュー（未送信）に戻したいときは `EMAIL_PROVIDER=console` を設定します。設定値を消さずに一時停止できます。
 
 ## 6. 定期請求 Cron の確認
 
@@ -124,6 +141,8 @@
 | 保存・作成後に「ページが見つかりません」になる / 保存時に `SUPABASE_SERVICE_ROLE_KEY が未設定…` と表示される | `SUPABASE_SERVICE_ROLE_KEY` が未設定。Vercel の環境変数に service_role キーを設定し、再デプロイ。 |
 | 「デモモード」と表示される | `NEXT_PUBLIC_SUPABASE_URL` / `ANON_KEY` が未設定。 |
 | Cron が動かない | `CRON_SECRET` 未設定、または Vercel の Cron 権限を確認。 |
-| メールが届かない | 「設定 → メール送信」で状態を確認。既定は未送信（プレビュー）です。`RESEND_API_KEY` / `EMAIL_FROM` を設定して再デプロイ（→ [5. メールを実際に送る設定](#5-メールを実際に送る設定)）。 |
-| テスト送信で「ドメインが認証済みか確認してください」と出る | `EMAIL_FROM` のドメインが Resend で未認証。Resend の Domains で DNS 認証を完了させる。 |
+| メールが届かない | 「設定 → メール送信」で状態を確認。既定は未送信（プレビュー）です（→ [5. メールを実際に送る設定](#5-メールを実際に送る設定)）。 |
+| テスト送信で「送信が拒否されました（5.7.1）」と出る | Google の SMTP リレーが送信元IPで弾いています。リレー設定で「**SMTP 認証が必要**」を有効にし、`MAIL_USERNAME` / `MAIL_PASSWORD` を設定してください。 |
+| テスト送信で「認証に失敗しました（5.7.8）」と出る | `MAIL_PASSWORD` に通常のパスワードを入れていませんか。Google の**アプリ パスワード（16桁）**が必要です。 |
+| テスト送信で「ドメインが認証済みか確認してください」と出る | （Resend 利用時）`EMAIL_FROM` のドメインが未認証。Resend の Domains で DNS 認証を完了させる。 |
 | メール内のリンクが `localhost` などになる | `NEXT_PUBLIC_APP_URL` に公開URLを設定して再デプロイ。 |

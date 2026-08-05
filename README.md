@@ -43,7 +43,7 @@
 - **Next.js 15**（App Router / Server Components / Server Actions）+ **TypeScript**
 - **Tailwind CSS v4**（ライト／ダーク対応、検証済みのアクセシブルなグラフ配色）
 - **Supabase**（PostgreSQL / Auth / RLS）
-- 外部 SDK に依存しないメール（Resend）・決済（Stripe）アダプタ（REST 直叩き）
+- メール送信は **SMTP（nodemailer）/ Resend** の差し替え可能なアダプタ、決済は Stripe（REST 直叩き）
 - グラフは依存ライブラリ無しの自作 SVG（軽量・デザイン統一）
 
 ---
@@ -193,8 +193,11 @@ npm run dev
 契約書の署名依頼・締結完了通知、請求書、代理店の支払明細はすべて同じメール設定を使います。
 
 - 既定（未設定）: **実送信せずプレビュー**（サーバーログ出力のみ）。画面には「メールは送信していません（プレビューのみ）」と表示されます。
-- **実送信にする**: `RESEND_API_KEY` と `EMAIL_FROM` を設定するだけで実送信モードになります（[Resend](https://resend.com) を利用）。
-  - `EMAIL_FROM` は Resend で**認証済みドメイン**のアドレスにしてください（例: `請求 <billing@example.jp>`）。未認証だと 403 で送信できません。
+- **実送信にする**: 次のどちらかを設定すると、自動的に実送信モードになります。
+  - **SMTP（推奨）** — `MAIL_HOST` / `MAIL_PORT` / `MAIL_USERNAME` / `MAIL_PASSWORD` / `MAIL_FROM_ADDRESS`。Google Workspace の SMTP リレー（`smtp-relay.gmail.com:587`）や Gmail の SMTP 送信に対応します。
+    - ⚠️ Google のリレーを使う場合、**「SMTP 認証が必要」を有効にしてください**。「送信元IPの制限」だけでは Vercel から送信できません（サーバーレスのため送信元IPが固定できません）。
+    - `MAIL_PASSWORD` は Google の**アプリ パスワード（16桁）**を使います。
+  - **Resend** — `RESEND_API_KEY` と `EMAIL_FROM`。`EMAIL_FROM` は Resend で認証済みドメインのアドレスにしてください。
   - メール内のリンク（署名URL・請求書URL）を正しくするため、`NEXT_PUBLIC_APP_URL` に公開URLを設定してください。
   - 意図的にプレビューへ戻す場合のみ `EMAIL_PROVIDER=console` を設定します。
 - **確認方法**: アプリの **設定 → メール送信** で現在のモード・送信元・不足している設定を確認でき、全体管理者は**テスト送信**で実際に届くか試せます（お客様には送信されません）。

@@ -102,7 +102,7 @@ export default async function SettingsPage() {
                   <Mail className="h-4 w-4" /> メール
                 </span>
                 <Badge tone={email.mode === "send" ? "success" : "warning"}>
-                  {email.mode === "send" ? "実送信（Resend）" : "未送信（プレビュー）"}
+                  {email.mode === "send" ? `実送信（${email.providerLabel}）` : "未送信（プレビュー）"}
                 </Badge>
               </div>
               {isDemoMode && (
@@ -160,8 +160,22 @@ export default async function SettingsPage() {
                 {email.mode === "send" ? "実送信（お客様に届きます）" : "未送信（プレビューのみ）"}
               </Badge>
             </div>
-            <Row label="送信元（EMAIL_FROM）" value={email.from || "未設定"} />
-            <Row label="Resend APIキー" value={email.hasApiKey ? "設定済み" : "未設定"} />
+            <Row label="送信方法" value={email.providerLabel} />
+            <Row label="送信元アドレス" value={email.from || "未設定"} />
+            {email.smtp ? (
+              <>
+                <Row
+                  label="SMTPサーバー"
+                  value={`${email.smtp.host || "未設定"}:${email.smtp.port}（${email.smtp.encryption.toUpperCase()}）`}
+                />
+                <Row
+                  label="SMTP認証"
+                  value={email.smtp.hasAuth ? `あり（${email.smtp.user}）` : "なし（送信元IPで許可）"}
+                />
+              </>
+            ) : (
+              <Row label="Resend APIキー" value={email.hasApiKey ? "設定済み" : "未設定"} />
+            )}
             <Row
               label="メール内リンクのURL"
               value={email.appUrl || "未設定（実行環境から自動判定）"}
@@ -171,6 +185,20 @@ export default async function SettingsPage() {
               value={email.invoiceAutoEmail ? "有効" : "無効"}
             />
           </div>
+
+          {email.warnings.length > 0 && (
+            <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2.5 text-xs">
+              <p className="flex items-center gap-1.5 font-medium">
+                <AlertTriangle className="h-3.5 w-3.5 text-warning" />
+                設定は揃っていますが、確認が必要です
+              </p>
+              <ul className="mt-1.5 list-disc space-y-1 pl-5 text-muted-foreground">
+                {email.warnings.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {email.issues.length > 0 && (
             <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2.5 text-xs">
@@ -184,18 +212,10 @@ export default async function SettingsPage() {
                 ))}
               </ul>
               <p className="mt-2 text-muted-foreground">
-                手順: ① <a
-                  href="https://resend.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary hover:underline"
-                >
-                  Resend
-                </a>{" "}
-                で送信ドメイン（例: 自社ドメイン）を認証 → ② APIキーを発行 → ③ Vercel の
-                Environment Variables に <code>RESEND_API_KEY</code> と <code>EMAIL_FROM</code>
-                （例: <code>請求 &lt;billing@自社ドメイン&gt;</code>）、<code>NEXT_PUBLIC_APP_URL</code>
-                （公開URL）を設定 → ④ 再デプロイ。詳細は DEPLOYMENT.md を参照してください。
+                Google Workspace の SMTP リレーを使う場合は、Vercel の Environment Variables に
+                <code>MAIL_HOST</code>（smtp-relay.gmail.com）・<code>MAIL_PORT</code>（587）・
+                <code>MAIL_USERNAME</code> / <code>MAIL_PASSWORD</code>・<code>MAIL_FROM_ADDRESS</code>・
+                <code>NEXT_PUBLIC_APP_URL</code> を設定して再デプロイしてください。詳細は DEPLOYMENT.md を参照してください。
               </p>
             </div>
           )}

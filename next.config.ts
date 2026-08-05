@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // nodemailer は Node.js 専用モジュールを使うためバンドルせず実行時に読み込む
+  serverExternalPackages: ["nodemailer"],
   // 型チェックはビルド時に実施。ESLint はビルドをブロックしない(別途 npm run lint)。
   eslint: {
     ignoreDuringBuilds: true,

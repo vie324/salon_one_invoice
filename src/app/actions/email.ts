@@ -39,13 +39,14 @@ export async function sendTestEmailAction(to: string) {
     if (!res.ok) {
       return { ok: false as const, error: res.message ?? "送信に失敗しました" };
     }
+    // console 以外(SMTP / Resend)は実際に送信している
+    const sent = provider.name !== "console";
     return {
       ok: true as const,
-      sent: provider.name === "resend",
-      message:
-        provider.name === "resend"
-          ? `${address} 宛にテストメールを送信しました。数分待っても届かない場合は迷惑メールフォルダもご確認ください。`
-          : (res.message ?? "プレビューのみで、メールは送信されていません"),
+      sent,
+      message: sent
+        ? `${address} 宛にテストメールを送信しました。数分待っても届かない場合は迷惑メールフォルダもご確認ください。`
+        : (res.message ?? "プレビューのみで、メールは送信されていません"),
     };
   } catch (e) {
     return { ok: false as const, error: (e as Error).message };
