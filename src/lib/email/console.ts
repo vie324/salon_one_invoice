@@ -5,7 +5,7 @@ export class ConsoleEmailProvider implements EmailProvider {
   readonly name = "console";
   async send(message: EmailMessage): Promise<EmailResult> {
     console.info(
-      `[email:console] to=${message.to} subject=${message.subject}\n(実送信なし。RESEND_API_KEY + EMAIL_FROM を設定すると実送信になります)`,
+      `[email:console] to=${message.to} subject=${message.subject}\n(実送信なし。MAIL_HOST 等の SMTP 設定、または RESEND_API_KEY を設定すると実送信になります)`,
     );
     return {
       ok: true,

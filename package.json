@@ -17,6 +17,7 @@
     "date-fns": "^4.1.0",
     "lucide-react": "^0.469.0",
     "next": "^15.1.4",
+    "nodemailer": "^9.0.4",
     "qrcode-generator": "^2.0.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -27,6 +28,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",
     "@types/node": "^22.10.5",
+    "@types/nodemailer": "^8.0.1",
     "@types/react": "^19.0.4",
     "@types/react-dom": "^19.0.2",
     "eslint": "^9.18.0",
