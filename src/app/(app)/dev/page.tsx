@@ -1,18 +1,10 @@
-import { AlertTriangle, CalendarX, Clock, Plus, UserCheck } from "lucide-react";
+import { CalendarX, Clock, GripVertical, Plus, UserCheck } from "lucide-react";
 import Link from "next/link";
-import {
-  DevIssueCategoryBadge,
-  DevIssueExecutionBadge,
-  DevIssuePriorityBadge,
-  DevIssueStatusBadge,
-} from "@/components/status-badge";
 import { CompletionBanner } from "@/components/notifications/completion-banner";
-import { Badge } from "@/components/ui/badge";
 import { buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
-import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { requireUser } from "@/lib/auth";
 import { getServiceRepository } from "@/lib/data";
 import { isEngineer, isProductAdmin } from "@/lib/domain/constants";
@@ -20,6 +12,7 @@ import {
   isOpenIssue,
   issueUrgency,
   pendingApprovers,
+  sortByManualOrder,
   sortByUrgency,
   STALE_DAYS,
 } from "@/lib/domain/dev-issues";
@@ -29,8 +22,9 @@ import type {
   DevIssueStatus,
   UserProfile,
 } from "@/lib/domain/types";
-import { cn, formatDate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { IssueFilters } from "./issue-filters";
+import { IssueList } from "./issue-list";
 
 export const metadata = { title: "開発進捗" };
 
@@ -40,7 +34,13 @@ export const dynamic = "force-dynamic";
 export default async function DevIssuesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; category?: string; priority?: string; q?: string }>;
+  searchParams: Promise<{
+    status?: string;
+    category?: string;
+    priority?: string;
+    q?: string;
+    sort?: string;
+  }>;
 }) {
   const sp = await searchParams;
   const [user, repo] = await Promise.all([requireUser(), getServiceRepository()]);
@@ -48,6 +48,8 @@ export default async function DevIssuesPage({
   // status 未指定 = 未完了のみ(完了した項目は残すが、開いた直後には出さない)
   const statusParam = sp.status ?? "";
   const openOnly = statusParam === "";
+  // sort=manual のときは手動の並び順(ドラッグで入れ替え)
+  const manual = sp.sort === "manual";
 
   const [issues, all] = await Promise.all([
     repo.listDevIssues({
@@ -70,7 +72,8 @@ export default async function DevIssuesPage({
     profiles = [];
   }
 
-  const visible = sortByUrgency(openOnly ? issues.filter(isOpenIssue) : issues);
+  const filtered = openOnly ? issues.filter(isOpenIssue) : issues;
+  const visible = manual ? sortByManualOrder(filtered) : sortByUrgency(filtered);
   const openIssues = all.filter(isOpenIssue);
   const urgencyOf = new Map(all.map((i) => [i.id, issueUrgency(i, profiles)]));
 
@@ -79,6 +82,7 @@ export default async function DevIssuesPage({
   );
   const overdue = openIssues.filter((i) => urgencyOf.get(i.id)?.overdue);
   const missingSchedule = openIssues.filter((i) => urgencyOf.get(i.id)?.missingSchedule);
+  const desiredPassed = openIssues.filter((i) => urgencyOf.get(i.id)?.desiredPassed);
   const awaitingApproval = openIssues.filter(
     (i) => (urgencyOf.get(i.id)?.pendingApprovers.length ?? 0) > 0,
   );
@@ -95,7 +99,11 @@ export default async function DevIssuesPage({
 
       <PageHeader
         title="開発進捗"
-        description="不具合を最優先に、緊急度の高い順で表示します。完了した依頼は「完了」タブから確認できます。"
+        description={
+          manual
+            ? "ドラッグで対応の順番を入れ替えられます。完了した依頼は「完了」タブから確認できます。"
+            : "不具合を最優先に、緊急度の高い順で表示します。完了した依頼は「完了」タブから確認できます。"
+        }
         actions={
           <Link href="/dev/new" className={buttonClasses()}>
             <Plus className="h-4 w-4" />
@@ -125,6 +133,16 @@ export default async function DevIssuesPage({
               ...new Set(awaitingApproval.flatMap((i) => urgencyOf.get(i.id)?.pendingApprovers ?? [])),
             ].join("、")} — 承諾されるまで着手できません。`}
             href={`/dev/${awaitingApproval[0].id}`}
+            linkLabel="確認する"
+          />
+        )}
+        {desiredPassed.length > 0 && (
+          <AlertBar
+            tone="danger"
+            icon={<CalendarX className="h-4 w-4" />}
+            title={`依頼者の希望日を過ぎた依頼が ${desiredPassed.length}件あります`}
+            body="依頼側が「この日までに」と指定した日を過ぎています。対応状況を共有してください。"
+            href={`/dev/${desiredPassed[0].id}`}
             linkLabel="確認する"
           />
         )}
@@ -167,7 +185,7 @@ export default async function DevIssuesPage({
           href="/dev?category=bug"
           tone="danger"
         />
-        <SummaryTile label="予定日 超過" value={overdue.length} href="/dev" tone="danger" />
+        <SummaryTile label="希望日 超過" value={desiredPassed.length} href="/dev" tone="danger" />
         <SummaryTile label="予定日 未記入" value={missingSchedule.length} href="/dev" tone="warning" />
         <SummaryTile
           label={approver ? "あなたの承諾待ち" : "承諾待ちの要望"}
@@ -183,6 +201,34 @@ export default async function DevIssuesPage({
           category={sp.category ?? "all"}
           query={sp.q ?? ""}
         />
+
+        {/* 並び順: 自動(緊急度) / 手動(ドラッグで入替) */}
+        <div className="mb-3 flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="text-muted-foreground">並び順:</span>
+          <Link
+            href={sortHref(sp, null)}
+            className={cn(
+              "rounded-full px-3 py-1.5 font-medium transition-colors",
+              manual
+                ? "bg-muted text-muted-foreground hover:text-foreground"
+                : "bg-primary text-primary-foreground",
+            )}
+          >
+            緊急度順（自動）
+          </Link>
+          <Link
+            href={sortHref(sp, "manual")}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full px-3 py-1.5 font-medium transition-colors",
+              manual
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+            手動（ドラッグで入替）
+          </Link>
+        </div>
         {visible.length === 0 ? (
           <EmptyState
             title={openOnly ? "未完了の依頼はありません" : "該当する依頼はありません"}
@@ -199,90 +245,43 @@ export default async function DevIssuesPage({
             }
           />
         ) : (
-          <Table>
-            <THead>
-              <TR>
-                <TH className="w-14">No</TH>
-                <TH className="whitespace-nowrap">記載日</TH>
-                <TH>分類</TH>
-                <TH>優先度</TH>
-                <TH className="whitespace-nowrap">ステータス</TH>
-                <TH className="whitespace-nowrap">実行有無</TH>
-                <TH className="min-w-[240px]">課題名 / 依頼者</TH>
-                <TH className="whitespace-nowrap">完了予定</TH>
-                <TH className="whitespace-nowrap">完了日</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {visible.map((i) => {
-                const u = urgencyOf.get(i.id) ?? issueUrgency(i, profiles);
-                return (
-                  <TR key={i.id} className={cn(u.urgent && "bg-destructive/5")}>
-                    <TD className="tabular text-xs text-muted-foreground">#{i.issueNumber}</TD>
-                    <TD className="whitespace-nowrap text-xs">
-                      {formatDate(i.createdAt)}
-                      {u.open && u.days >= STALE_DAYS && (
-                        <div
-                          className={cn(
-                            "tabular text-[11px]",
-                            i.category === "bug" ? "text-destructive" : "text-warning",
-                          )}
-                        >
-                          {u.days}日経過
-                        </div>
-                      )}
-                    </TD>
-                    <TD>
-                      <DevIssueCategoryBadge category={i.category} />
-                    </TD>
-                    <TD>
-                      <DevIssuePriorityBadge priority={i.priority} />
-                    </TD>
-                    <TD>
-                      <DevIssueStatusBadge status={i.status} />
-                    </TD>
-                    <TD>
-                      <DevIssueExecutionBadge execution={i.execution} muted={i.category === "bug"} />
-                    </TD>
-                    <TD>
-                      <Link
-                        href={`/dev/${i.id}`}
-                        className="font-medium hover:text-primary hover:underline"
-                      >
-                        {i.title}
-                      </Link>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                        <span>{i.requesterName}</span>
-                        {u.overdue && (
-                          <Badge tone="danger">
-                            <AlertTriangle className="h-3 w-3" />
-                            予定日 超過
-                          </Badge>
-                        )}
-                        {u.missingSchedule && <Badge tone="warning">予定日 未記入</Badge>}
-                        {u.pendingApprovers.length > 0 && (
-                          <Badge tone="info">{u.pendingApprovers.join("・")} の承諾待ち</Badge>
-                        )}
-                      </div>
-                    </TD>
-                    <TD
-                      className={cn(
-                        "whitespace-nowrap text-xs",
-                        u.overdue && "font-medium text-destructive",
-                      )}
-                    >
-                      {formatDate(i.scheduledDate)}
-                    </TD>
-                    <TD className="whitespace-nowrap text-xs">{formatDate(i.completedDate)}</TD>
-                  </TR>
-                );
-              })}
-            </TBody>
-          </Table>
+          <IssueList
+            manual={manual}
+            rows={visible.map((i) => ({
+              id: i.id,
+              issueNumber: i.issueNumber,
+              title: i.title,
+              category: i.category,
+              priority: i.priority,
+              status: i.status,
+              execution: i.execution,
+              requesterName: i.requesterName,
+              createdAt: i.createdAt,
+              desiredDate: i.desiredDate,
+              scheduledDate: i.scheduledDate,
+              completedDate: i.completedDate,
+              urgency: urgencyOf.get(i.id) ?? issueUrgency(i, profiles),
+            }))}
+          />
         )}
       </Card>
     </div>
   );
+}
+
+/** 現在の絞り込みを保ったまま並び順だけ切り替えるリンク先 */
+function sortHref(
+  sp: { status?: string; category?: string; priority?: string; q?: string },
+  sort: "manual" | null,
+): string {
+  const params = new URLSearchParams();
+  if (sp.status) params.set("status", sp.status);
+  if (sp.category && sp.category !== "all") params.set("category", sp.category);
+  if (sp.priority && sp.priority !== "all") params.set("priority", sp.priority);
+  if (sp.q) params.set("q", sp.q);
+  if (sort) params.set("sort", sort);
+  const qs = params.toString();
+  return qs ? `/dev?${qs}` : "/dev";
 }
 
 /** 役割ごとの督促バー */

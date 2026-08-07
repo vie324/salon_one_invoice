@@ -440,10 +440,12 @@ function mapDevIssue(r: any): DevIssue {
     executionSetAt: r.execution_set_at ?? null,
     requesterId: r.requester_id ?? "",
     requesterName: r.requester_name ?? "",
+    desiredDate: r.desired_date ?? null,
     scheduledDate: r.scheduled_date,
     completedDate: r.completed_date,
     devNote: r.dev_note ?? "",
     approvals,
+    sortOrder: Number(r.sort_order ?? 0),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -2509,6 +2511,30 @@ export class SupabaseRepository implements Repository {
     return data ? mapDevIssue(data) : null;
   }
 
+  async reorderDevIssues(orderedIds: string[]): Promise<void> {
+    if (orderedIds.length === 0) return;
+    // 対象の依頼が現在持っている並び順の枠を、渡された順に割り当て直す
+    const { data, error } = await this.db
+      .from("dev_issues")
+      .select("id, sort_order")
+      .in("id", orderedIds);
+    if (error) throw error;
+    const current = new Map<string, number>(
+      (data ?? []).map((r: any) => [r.id as string, Number(r.sort_order ?? 0)]),
+    );
+    const slots = [...current.values()].sort((a, b) => a - b);
+    const targets = orderedIds.filter((id) => current.has(id));
+    for (const [index, id] of targets.entries()) {
+      const next = slots[index];
+      if (current.get(id) === next) continue;
+      const { error: upError } = await this.db
+        .from("dev_issues")
+        .update({ sort_order: next })
+        .eq("id", id);
+      if (upError) throw upError;
+    }
+  }
+
   async createDevIssue(input: DevIssueInput): Promise<DevIssue> {
     const { data, error } = await this.db
       .from("dev_issues")
@@ -2519,6 +2545,7 @@ export class SupabaseRepository implements Repository {
         priority: input.priority ?? "medium",
         status: "open",
         execution: "undecided",
+        desired_date: input.desiredDate ?? null,
         // デモID等の uuid でない依頼者IDは NULL(表示は requester_name を使う)
         requester_id: isUuid(input.requester.id) ? input.requester.id : null,
         requester_name: input.requester.name,
@@ -2551,6 +2578,7 @@ export class SupabaseRepository implements Repository {
     if (input.category !== undefined) patch.category = input.category;
     if (input.priority !== undefined) patch.priority = input.priority;
     if (input.status !== undefined) patch.status = input.status;
+    if (input.desiredDate !== undefined) patch.desired_date = input.desiredDate;
     if (input.scheduledDate !== undefined) patch.scheduled_date = input.scheduledDate;
     if (input.completedDate !== undefined) patch.completed_date = input.completedDate;
     if (input.devNote !== undefined) patch.dev_note = input.devNote;

@@ -577,6 +577,8 @@ export interface DevIssue {
   /** 依頼者(入力したアカウント) */
   requesterId: string;
   requesterName: string;
+  /** 完了してほしい日(依頼者が入力する希望日) */
+  desiredDate: string | null;
   /** 対応完了予定日(エンジニアが入力) */
   scheduledDate: string | null;
   /** 対応完了日(エンジニアが入力) */
@@ -585,6 +587,8 @@ export interface DevIssue {
   devNote: string;
   /** プロダクト管理者の実行判定(要望のみ使用) */
   approvals: DevIssueApproval[];
+  /** 手動の並び順(小さいほど上)。ドラッグで入れ替えたときに更新する。 */
+  sortOrder: number;
   /** 記載日 */
   createdAt: string;
   updatedAt: string;
