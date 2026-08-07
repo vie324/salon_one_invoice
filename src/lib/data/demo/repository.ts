@@ -1544,6 +1544,17 @@ export class DemoRepository implements Repository {
     return this.s.devIssues.find((i) => i.id === id) ?? null;
   }
 
+  async reorderDevIssues(orderedIds: string[]): Promise<void> {
+    // 対象の依頼が持つ並び順を集め、渡された順で振り直す
+    const targets = orderedIds
+      .map((id) => this.s.devIssues.find((i) => i.id === id))
+      .filter((i): i is DevIssue => !!i);
+    const slots = targets.map((i) => i.sortOrder).sort((a, b) => a - b);
+    targets.forEach((issue, index) => {
+      issue.sortOrder = slots[index];
+    });
+  }
+
   async createDevIssue(input: DevIssueInput): Promise<DevIssue> {
     const now = new Date().toISOString();
     const issue: DevIssue = {
@@ -1559,10 +1570,13 @@ export class DemoRepository implements Repository {
       executionSetAt: null,
       requesterId: input.requester.id,
       requesterName: input.requester.name,
+      desiredDate: input.desiredDate ?? null,
       scheduledDate: null,
       completedDate: null,
       devNote: "",
       approvals: [],
+      // 新しい依頼は既存の先頭より前(小さい値)に置く
+      sortOrder: Math.min(0, ...this.s.devIssues.map((i) => i.sortOrder)) - 1,
       createdAt: now,
       updatedAt: now,
     };
@@ -1589,6 +1603,7 @@ export class DemoRepository implements Repository {
     if (input.category !== undefined) issue.category = input.category;
     if (input.priority !== undefined) issue.priority = input.priority;
     if (input.status !== undefined) issue.status = input.status;
+    if (input.desiredDate !== undefined) issue.desiredDate = input.desiredDate;
     if (input.scheduledDate !== undefined) issue.scheduledDate = input.scheduledDate;
     if (input.completedDate !== undefined) issue.completedDate = input.completedDate;
     if (input.devNote !== undefined) issue.devNote = input.devNote;

@@ -288,6 +288,8 @@ export interface DevIssueInput {
   detail?: string;
   category: DevIssueCategory;
   priority?: DevIssuePriority;
+  /** 完了してほしい日(依頼者の希望) */
+  desiredDate?: string | null;
   requester: ActorRef;
 }
 
@@ -298,6 +300,8 @@ export interface DevIssueUpdateInput {
   category?: DevIssueCategory;
   priority?: DevIssuePriority;
   status?: DevIssueStatus;
+  /** 完了してほしい日(依頼者が入力) */
+  desiredDate?: string | null;
   scheduledDate?: string | null;
   completedDate?: string | null;
   devNote?: string;
@@ -535,6 +539,11 @@ export interface Repository {
 
   // --- 開発依頼 / 進捗管理 ---
   listDevIssues(filter?: DevIssueFilter): Promise<DevIssue[]>;
+  /**
+   * 手動の並び順を保存する(ドラッグでの入れ替え)。
+   * 渡された順に sortOrder を振り直す。含まれない依頼の並び順は変えない。
+   */
+  reorderDevIssues(orderedIds: string[]): Promise<void>;
   getDevIssue(id: string): Promise<DevIssue | null>;
   /** 依頼を登録し、管理者・エンジニアへ通知する。 */
   createDevIssue(input: DevIssueInput): Promise<DevIssue>;

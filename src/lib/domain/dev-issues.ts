@@ -33,11 +33,41 @@ export function sortByUrgency<T extends Pick<DevIssue, "category" | "priority" |
   });
 }
 
+/** 手動で入れ替えた並び順(小さいほど上)。同値は依頼番号の新しい順。 */
+export function sortByManualOrder<T extends Pick<DevIssue, "sortOrder" | "issueNumber">>(
+  issues: T[],
+): T[] {
+  return [...issues].sort((a, b) => {
+    if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+    return b.issueNumber - a.issueNumber;
+  });
+}
+
 /** 記載からの経過日数 */
 export function daysOpen(issue: Pick<DevIssue, "createdAt">, now = new Date()): number {
   const created = new Date(issue.createdAt);
   if (Number.isNaN(created.getTime())) return 0;
   return Math.max(0, Math.floor((now.getTime() - created.getTime()) / 86_400_000));
+}
+
+/** 希望完了日を過ぎている未完了の依頼か(依頼者の希望に間に合っていない) */
+export function isDesiredDatePassed(
+  issue: Pick<DevIssue, "status" | "execution" | "desiredDate">,
+  now = new Date(),
+): boolean {
+  if (!isOpenIssue(issue) || !issue.desiredDate) return false;
+  return issue.desiredDate < toISODate(now);
+}
+
+/**
+ * 完了予定日が希望日より後か(希望に間に合わない見込み)。
+ * 依頼側とエンジニアの認識ズレを早く見つけるための判定。
+ */
+export function isLaterThanDesired(
+  issue: Pick<DevIssue, "status" | "execution" | "desiredDate" | "scheduledDate">,
+): boolean {
+  if (!isOpenIssue(issue) || !issue.desiredDate || !issue.scheduledDate) return false;
+  return issue.scheduledDate > issue.desiredDate;
 }
 
 /** 完了予定日を過ぎている未完了の依頼か */
@@ -82,6 +112,10 @@ export interface DevIssueUrgency {
   missingSchedule: boolean;
   /** 未判定の承認者(要望のみ) */
   pendingApprovers: string[];
+  /** 依頼者の希望完了日を過ぎている */
+  desiredPassed: boolean;
+  /** 完了予定日が希望日より後(希望に間に合わない見込み) */
+  laterThanDesired: boolean;
   /** 特に急ぐべきか(不具合の高優先 / 予定日超過 / 長期滞留) */
   urgent: boolean;
 }
@@ -99,10 +133,22 @@ export function issueUrgency(
   const overdue = isOverdue(issue, now);
   const missingSchedule = needsSchedule(issue);
   const pending = pendingApprovers(issue, profiles).map((p) => p.name);
+  const desiredPassed = isDesiredDatePassed(issue, now);
+  const laterThanDesired = isLaterThanDesired(issue);
   const urgent =
     open &&
     (overdue ||
+      desiredPassed ||
       (issue.category === "bug" && issue.priority === "high") ||
       (issue.category === "bug" && days >= STALE_DAYS));
-  return { open, days, overdue, missingSchedule, pendingApprovers: pending, urgent };
+  return {
+    open,
+    days,
+    overdue,
+    missingSchedule,
+    pendingApprovers: pending,
+    desiredPassed,
+    laterThanDesired,
+    urgent,
+  };
 }

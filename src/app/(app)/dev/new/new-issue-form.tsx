@@ -41,6 +41,7 @@ export function NewIssueForm() {
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [title, setTitle] = React.useState("");
   const [category, setCategory] = React.useState<DevIssueCategory>("bug");
+  const [desiredDate, setDesiredDate] = React.useState("");
   const [priority, setPriority] = React.useState<DevIssuePriority>("medium");
   const [detail, setDetail] = React.useState("");
   const [images, setImages] = React.useState<PendingImage[]>([]);
@@ -81,7 +82,7 @@ export function NewIssueForm() {
     e.preventDefault();
     setError(null);
     startTransition(async () => {
-      const res = await createDevIssueAction({ title, category, priority, detail });
+      const res = await createDevIssueAction({ title, category, priority, detail, desiredDate });
       if (!res.ok) {
         setError(res.error);
         return;
@@ -130,6 +131,17 @@ export function NewIssueForm() {
           </Select>
         </Field>
       </div>
+      <Field
+        label="完了してほしい日（任意）"
+        hint="いつまでに対応してほしいかの希望です。エンジニアが入力する「対応完了予定日」とは別で、両方を見比べられます。"
+      >
+        <Input
+          type="date"
+          value={desiredDate}
+          onChange={(e) => setDesiredDate(e.target.value)}
+          className="sm:max-w-xs"
+        />
+      </Field>
       <Field
         label="詳細（修正や不具合の中身）"
         hint="再現手順・発生店舗・希望する動作など、わかる範囲で具体的に記載してください。"

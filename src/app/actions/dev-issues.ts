@@ -26,6 +26,8 @@ export async function createDevIssueAction(input: {
   detail?: string;
   category: DevIssueCategory;
   priority?: DevIssuePriority;
+  /** 完了してほしい日(依頼者の希望) */
+  desiredDate?: string | null;
 }) {
   try {
     const user = await requireActionUser();
@@ -39,6 +41,7 @@ export async function createDevIssueAction(input: {
       detail: input.detail ?? "",
       category: input.category,
       priority: input.priority,
+      desiredDate: input.desiredDate || null,
       requester: { id: user.id, name: user.name },
     });
     revalidateDev(issue.id);
@@ -51,7 +54,7 @@ export async function createDevIssueAction(input: {
 /**
  * 依頼の更新。
  * - エンジニア入力欄(ステータス・完了予定日・完了日・開発対応内容)は開発進捗の権限があれば更新可
- * - 依頼内容(課題名・詳細・分類・優先度)は依頼者本人または全体管理者のみ
+ * - 依頼内容(課題名・詳細・分類・優先度・希望完了日)は依頼者本人または管理者のみ
  */
 export async function updateDevIssueAction(id: string, input: DevIssueUpdateInput) {
   try {
@@ -62,12 +65,13 @@ export async function updateDevIssueAction(id: string, input: DevIssueUpdateInpu
       input.title !== undefined ||
       input.detail !== undefined ||
       input.category !== undefined ||
-      input.priority !== undefined;
+      input.priority !== undefined ||
+      input.desiredDate !== undefined;
     if (editsRequest) {
       const existing = await repo.getDevIssue(id);
       if (!existing) throw new Error("開発依頼が見つかりません");
       if (existing.requesterId !== user.id && !isProductAdmin(user.roles)) {
-        throw new Error("依頼内容の編集は依頼者本人または全体管理者のみ可能です");
+        throw new Error("依頼内容の編集は依頼者本人または管理者のみ可能です");
       }
     }
     await repo.updateDevIssue(id, input, { id: user.id, name: user.name });
@@ -194,6 +198,26 @@ export async function setDevIssueExecutionAction(
     const repo = await getServiceRepository();
     await repo.setDevIssueExecution(id, execution, { id: user.id, name: user.name });
     revalidateDev(id);
+    return { ok: true as const };
+  } catch (e) {
+    return { ok: false as const, error: (e as Error).message };
+  }
+}
+
+/**
+ * 手動の並び順を保存する(ドラッグでの入れ替え)。
+ * 対応の優先順位を人が決められるようにするためのもので、開発進捗の権限があれば操作できる。
+ */
+export async function reorderDevIssuesAction(orderedIds: string[]) {
+  try {
+    const user = await requireActionUser();
+    if (!canAccessDev(user.roles)) throw new Error("開発進捗へのアクセス権限がありません");
+    if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
+      return { ok: true as const };
+    }
+    const repo = await getServiceRepository();
+    await repo.reorderDevIssues(orderedIds);
+    revalidateDev();
     return { ok: true as const };
   } catch (e) {
     return { ok: false as const, error: (e as Error).message };

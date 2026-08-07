@@ -336,12 +336,15 @@ export function RequestEditForm({
   detail,
   category,
   priority,
+  desiredDate,
 }: {
   issueId: string;
   title: string;
   detail: string;
   category: DevIssueCategory;
   priority: DevIssuePriority;
+  /** 完了してほしい日(依頼者の希望) */
+  desiredDate: string | null;
 }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
@@ -349,6 +352,7 @@ export function RequestEditForm({
   const [d, setD] = React.useState(detail);
   const [c, setC] = React.useState<DevIssueCategory>(category);
   const [p, setP] = React.useState<DevIssuePriority>(priority);
+  const [desired, setDesired] = React.useState(desiredDate ?? "");
   const [error, setError] = React.useState<string | null>(null);
   const [pending, startTransition] = React.useTransition();
 
@@ -361,6 +365,7 @@ export function RequestEditForm({
         detail: d,
         category: c,
         priority: p,
+        desiredDate: desired || null,
       });
       if (!res.ok) {
         setError(res.error);
@@ -405,6 +410,17 @@ export function RequestEditForm({
               </Select>
             </Field>
           </div>
+          <Field
+            label="完了してほしい日（任意）"
+            hint="依頼側の希望日です。エンジニアの「対応完了予定日」とは別に記録されます。"
+          >
+            <Input
+              type="date"
+              value={desired}
+              onChange={(e) => setDesired(e.target.value)}
+              className="sm:max-w-xs"
+            />
+          </Field>
           <Field label="詳細">
             <Textarea value={d} onChange={(e) => setD(e.target.value)} rows={8} />
           </Field>
