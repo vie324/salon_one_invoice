@@ -1,9 +1,10 @@
 "use client";
 
-import { AlertTriangle, Ban, Check, Pencil, RotateCcw, Wrench } from "lucide-react";
+import { AlertTriangle, Ban, Check, Pencil, RotateCcw, Trash2, Wrench } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import {
+  deleteDevIssueAction,
   setDevIssueApprovalAction,
   setDevIssueExecutionAction,
   updateDevIssueAction,
@@ -11,6 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import {
   devIssueCategoryLabels,
@@ -326,6 +328,79 @@ export function ApprovalPanel({
         {error && <p className="text-sm text-destructive">{error}</p>}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * 依頼(不具合・要望)の削除ボタン(全体管理者のみ表示される)。
+ * ゴミ箱のない完全削除のため、確認ダイアログで対象を見せてから実行する。
+ */
+export function DeleteIssueButton({
+  issueId,
+  issueNumber,
+  title,
+  category,
+}: {
+  issueId: string;
+  issueNumber: number;
+  title: string;
+  category: DevIssueCategory;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [pending, startTransition] = React.useTransition();
+
+  const submit = () =>
+    startTransition(async () => {
+      setError(null);
+      const res = await deleteDevIssueAction(issueId);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setOpen(false);
+      router.push("/dev");
+      router.refresh();
+    });
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="text-muted-foreground hover:text-destructive"
+        disabled={pending}
+        onClick={() => setOpen(true)}
+      >
+        <Trash2 className="h-4 w-4" />
+        削除（管理者）
+      </Button>
+
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title={`この${devIssueCategoryLabels[category]}を削除しますか？`}
+        description="実行判定・通知・添付画像も一緒に削除され、元に戻せません。誤登録や重複の整理にお使いください。"
+      >
+        <div className="space-y-4">
+          <p className="rounded-md bg-muted px-3 py-2 text-sm">
+            対象: <span className="font-medium">#{issueNumber} {title}</span>
+          </p>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={pending}>
+              キャンセル
+            </Button>
+            <Button type="button" variant="danger" onClick={submit} disabled={pending}>
+              <Trash2 className="h-4 w-4" />
+              {pending ? "削除中…" : "削除する"}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    </>
   );
 }
 

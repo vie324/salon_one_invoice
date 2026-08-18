@@ -1702,6 +1702,15 @@ export class DemoRepository implements Repository {
     return issue;
   }
 
+  async deleteDevIssue(id: string): Promise<void> {
+    const idx = this.s.devIssues.findIndex((i) => i.id === id);
+    if (idx < 0) throw new Error("開発依頼が見つかりません");
+    this.s.devIssues.splice(idx, 1);
+    // 添付画像・関連通知も一緒に消す(DBのcascade削除に相当)
+    this.s.devIssueAttachments = this.s.devIssueAttachments.filter((a) => a.issueId !== id);
+    this.s.notifications = this.s.notifications.filter((n) => n.issueId !== id);
+  }
+
   // --- 開発依頼の添付画像 ---
 
   async listDevIssueAttachments(issueId: string): Promise<DevIssueAttachment[]> {

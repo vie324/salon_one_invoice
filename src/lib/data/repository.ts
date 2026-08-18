@@ -571,6 +571,11 @@ export interface Repository {
     execution: DevIssueExecution | null,
     actor: ActorRef,
   ): Promise<DevIssue>;
+  /**
+   * 依頼(不具合・要望)の削除。誤登録・重複の整理用。
+   * 実行判定・通知・添付画像も併せて削除する(権限チェックはアプリ層で行う)。
+   */
+  deleteDevIssue(id: string): Promise<void>;
 
   // --- 開発依頼の添付画像 ---
   listDevIssueAttachments(issueId: string): Promise<DevIssueAttachment[]>;

@@ -15,7 +15,12 @@ import { isProductAdmin } from "@/lib/domain/constants";
 import { issueUrgency, pendingApprovers } from "@/lib/domain/dev-issues";
 import type { UserProfile } from "@/lib/domain/types";
 import { formatDate, formatDateTime } from "@/lib/utils";
-import { ApprovalPanel, EngineerForm, RequestEditForm } from "./issue-detail-client";
+import {
+  ApprovalPanel,
+  DeleteIssueButton,
+  EngineerForm,
+  RequestEditForm,
+} from "./issue-detail-client";
 
 export const metadata = { title: "開発依頼の詳細" };
 
@@ -73,6 +78,16 @@ export default async function DevIssueDetailPage({
             )}
           </div>
         </div>
+        {admin && (
+          <div className="shrink-0">
+            <DeleteIssueButton
+              issueId={issue.id}
+              issueNumber={issue.issueNumber}
+              title={issue.title}
+              category={issue.category}
+            />
+          </div>
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
