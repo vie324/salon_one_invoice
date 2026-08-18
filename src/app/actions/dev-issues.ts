@@ -150,6 +150,27 @@ export async function deleteDevIssueAttachmentAction(id: string) {
 }
 
 /**
+ * 依頼(不具合・要望)の削除(全体管理者のみ)。
+ * 誤登録・重複の整理用。実行判定・通知・添付画像も併せて削除され、元に戻せない。
+ */
+export async function deleteDevIssueAction(id: string) {
+  try {
+    const user = await requireActionUser();
+    if (!isProductAdmin(user.roles)) {
+      throw new Error("不具合・要望の削除は管理者のみ可能です");
+    }
+    const repo = await getServiceRepository();
+    const issue = await repo.getDevIssue(id);
+    if (!issue) throw new Error("開発依頼が見つかりません");
+    await repo.deleteDevIssue(id);
+    revalidateDev();
+    return { ok: true as const };
+  } catch (e) {
+    return { ok: false as const, error: (e as Error).message };
+  }
+}
+
+/**
  * 実行有無の判定(プロダクト管理者のみ)。
  * decision: "approve"=承諾 / "reject"=停止 / null=自分の判定を取り消す。
  */

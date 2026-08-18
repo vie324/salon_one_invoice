@@ -2724,6 +2724,27 @@ export class SupabaseRepository implements Repository {
     return issue;
   }
 
+  async deleteDevIssue(id: string): Promise<void> {
+    const before = await this.getDevIssue(id);
+    if (!before) throw new Error("開発依頼が見つかりません");
+    // 添付画像の実体(Storage)のパスを先に控えておく
+    const { data: attRows, error: attError } = await this.db
+      .from("dev_issue_attachments")
+      .select("storage_path")
+      .eq("issue_id", id);
+    if (attError) throw attError;
+    // 実行判定・通知・添付メタデータはFKのcascadeで一緒に削除される
+    const { error } = await this.db.from("dev_issues").delete().eq("id", id);
+    if (error) throw error;
+    // 実体の削除は best-effort(メタデータが消えていれば表示されない)
+    const paths = (attRows ?? [])
+      .map((r: any) => r.storage_path as string)
+      .filter(Boolean);
+    if (paths.length > 0) {
+      await this.db.storage.from(ATTACHMENT_BUCKET).remove(paths);
+    }
+  }
+
   // --- 開発依頼の添付画像 (Supabase Storage) ---
 
   /** バケットが無ければ作成(マイグレーションで作成済みなら何もしない) */
