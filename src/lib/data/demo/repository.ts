@@ -22,6 +22,11 @@ import {
   isProductAdmin,
 } from "@/lib/domain/constants";
 import { computeDashboardMetrics } from "@/lib/domain/metrics";
+import {
+  defaultChecklist,
+  initialStageFor,
+  mergeChecklist,
+} from "@/lib/domain/onboarding";
 import type {
   Activity,
   Agency,
@@ -36,6 +41,7 @@ import type {
   ContractTemplate,
   ContractWithCustomer,
   Customer,
+  CustomerOnboarding,
   CustomerStatus,
   DataDeletionLog,
   DeletableEntity,
@@ -85,6 +91,7 @@ import type {
   InvoiceFilter,
   InvoiceInput,
   MandateInput,
+  OnboardingUpdateInput,
   PaymentInput,
   PlanInput,
   Repository,
@@ -381,6 +388,91 @@ export class DemoRepository implements Repository {
     return m;
   }
 
+  // ---- 顧客ステータス管理(カンバン) ----
+
+  /** 旧デモストア(HMRで保持)に onboardings が無い場合の後方互換 */
+  private get onboardings(): CustomerOnboarding[] {
+    if (!this.s.onboardings) this.s.onboardings = [];
+    return this.s.onboardings;
+  }
+
+  async listOnboardings(): Promise<CustomerOnboarding[]> {
+    const customers = this.s.customers.filter(alive);
+    const cards = this.onboardings;
+    const existing = new Set(cards.map((o) => o.customerId));
+    let maxOrder = cards.reduce((m, o) => Math.max(m, o.sortOrder), 0);
+    for (const c of customers) {
+      if (existing.has(c.id)) continue;
+      const stage = initialStageFor({
+        customer: c,
+        contracts: this.s.contracts.filter((x) => x.customerId === c.id),
+        invoices: this.s.invoices.filter(alive).filter((x) => x.customerId === c.id),
+        subscriptions: this.s.subscriptions.filter(alive).filter((x) => x.customerId === c.id),
+        plans: this.s.plans,
+        mandate: this.s.mandates.find((m) => m.customerId === c.id) ?? null,
+      });
+      const now = new Date().toISOString();
+      cards.push({
+        id: genId("onb"),
+        customerId: c.id,
+        stage,
+        sortOrder: ++maxOrder,
+        dueDate: null,
+        nextAction: "",
+        checklist: defaultChecklist(),
+        stageChangedAt: now,
+        history: [{ stage, at: now, by: "システム" }],
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    const aliveIds = new Set(customers.map((c) => c.id));
+    return cards
+      .filter((o) => aliveIds.has(o.customerId))
+      .map((o) => ({ ...o, checklist: mergeChecklist(o.checklist) }))
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+
+  async updateOnboarding(
+    id: string,
+    input: OnboardingUpdateInput,
+  ): Promise<CustomerOnboarding> {
+    const card = this.onboardings.find((o) => o.id === id);
+    if (!card) throw new Error("カードが見つかりません");
+    const now = new Date().toISOString();
+    const actor = input.actor || "担当者";
+    if (input.stage !== undefined && input.stage !== card.stage) {
+      card.stage = input.stage;
+      card.stageChangedAt = now;
+      card.history.push({ stage: input.stage, at: now, by: actor });
+    }
+    if (input.dueDate !== undefined) card.dueDate = input.dueDate;
+    if (input.nextAction !== undefined) card.nextAction = input.nextAction;
+    if (input.checklist?.length) {
+      card.checklist = mergeChecklist(card.checklist);
+      for (const t of input.checklist) {
+        const item = card.checklist.find((c) => c.key === t.key);
+        if (!item || item.done === t.done) continue;
+        item.done = t.done;
+        item.doneAt = t.done ? now : null;
+        item.doneBy = t.done ? actor : "";
+      }
+    }
+    card.updatedAt = now;
+    return { ...card, checklist: mergeChecklist(card.checklist) };
+  }
+
+  async reorderOnboardings(orderedIds: string[]): Promise<void> {
+    // 対象カードが持つ並び順の枠を集め、渡された順で振り直す
+    const targets = orderedIds
+      .map((id) => this.onboardings.find((o) => o.id === id))
+      .filter((o): o is CustomerOnboarding => !!o);
+    const slots = targets.map((o) => o.sortOrder).sort((a, b) => a - b);
+    targets.forEach((card, index) => {
+      card.sortOrder = slots[index];
+    });
+  }
+
   async listInvoices(filter?: InvoiceFilter): Promise<InvoiceWithCustomer[]> {
     let list = this.s.invoices.filter(alive).map(decorate);
     if (filter?.customerId) list = list.filter((i) => i.customerId === filter.customerId);
@@ -493,6 +585,22 @@ export class DemoRepository implements Repository {
       linkInvoiceId: inv.id,
     });
     return inv;
+  }
+
+  async recordInvoiceReminder(id: string, params: { actor: string }): Promise<Invoice> {
+    const inv = this.s.invoices.find((i) => i.id === id);
+    if (!inv) throw new Error("請求書が見つかりません");
+    inv.reminderCount = (inv.reminderCount ?? 0) + 1;
+    inv.lastReminderAt = new Date().toISOString();
+    const cus = this.s.customers.find((c) => c.id === inv.customerId);
+    this.addActivity({
+      kind: "reminder_sent",
+      message: `${cus?.name ?? ""} 様へ請求書 ${inv.invoiceNumber} の督促メールを送付（${inv.reminderCount}回目）`,
+      actor: params.actor,
+      amount: Math.max(0, inv.total - inv.amountPaid),
+      linkInvoiceId: inv.id,
+    });
+    return decorate(inv);
   }
 
   async listPayments(filter?: { customerId?: string }): Promise<Payment[]> {

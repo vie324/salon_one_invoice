@@ -1,6 +1,7 @@
 import { ArrowLeft, FileSignature, Mail, MapPin, Phone, Plus } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { LtvChart } from "@/components/charts/ltv-chart";
 import { InvoiceTable } from "@/components/invoices/invoice-table";
 import {
   ContractStatusBadge,
@@ -19,7 +20,8 @@ import {
   withTax,
 } from "@/lib/domain/calculations";
 import { paymentMethodLabels } from "@/lib/domain/constants";
-import { formatDate, formatJPY, maskAccount } from "@/lib/utils";
+import { computeCustomerLtv } from "@/lib/domain/ltv";
+import { formatDate, formatJPY, formatMonthKey, maskAccount } from "@/lib/utils";
 import { DeleteRecordButton } from "@/components/records/delete-record-button";
 import { BillingButton } from "./billing-button";
 import { EditCustomerButton } from "./edit-customer-button";
@@ -62,6 +64,7 @@ export default async function CustomerDetailPage({
   const outstanding = invoices
     .filter((i) => !["paid", "canceled", "draft"].includes(i.status))
     .reduce((s, i) => s + (i.total - i.amountPaid), 0);
+  const ltv = computeCustomerLtv(customer, payments);
 
   return (
     <div>
@@ -126,6 +129,41 @@ export default async function CustomerDetailPage({
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
+          <Card>
+            <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
+              <CardTitle>月々の支払いとLTV</CardTitle>
+              {ltv.firstPaymentMonth && (
+                <span className="text-xs text-muted-foreground">
+                  初回入金 {formatMonthKey(ltv.firstPaymentMonth)} から
+                </span>
+              )}
+            </CardHeader>
+            <CardContent>
+              <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <LtvStat label="累計LTV" value={formatJPY(ltv.total)} emphasize />
+                <LtvStat
+                  label="平均月額"
+                  value={ltv.averageMonthly > 0 ? formatJPY(ltv.averageMonthly) : "—"}
+                />
+                <LtvStat
+                  label="継続月数"
+                  value={ltv.monthsActive > 0 ? `${ltv.monthsActive}ヶ月` : "—"}
+                />
+                <LtvStat
+                  label="直近12ヶ月"
+                  value={ltv.last12 > 0 ? formatJPY(ltv.last12) : "—"}
+                />
+              </div>
+              {ltv.total > 0 || ltv.series.length > 1 ? (
+                <LtvChart data={ltv.series} />
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  入金が記録されると、毎月の支払い額と累計LTVのグラフが表示されます。
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader className="flex-row items-center justify-between">
               <CardTitle>契約書</CardTitle>
@@ -331,6 +369,31 @@ export default async function CustomerDetailPage({
             </CardContent>
           </Card>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function LtvStat({
+  label,
+  value,
+  emphasize,
+}: {
+  label: string;
+  value: React.ReactNode;
+  emphasize?: boolean;
+}) {
+  return (
+    <div className="rounded-md border border-border px-3 py-2.5">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div
+        className={
+          emphasize
+            ? "tabular mt-0.5 text-lg font-bold text-primary"
+            : "tabular mt-0.5 text-lg font-bold"
+        }
+      >
+        {value}
       </div>
     </div>
   );

@@ -1,10 +1,11 @@
 "use client";
 
-import { Ban, CheckCircle2, Printer, Send, Wallet } from "lucide-react";
+import { Ban, BellRing, CheckCircle2, Printer, Send, Wallet } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import {
   sendInvoiceAction,
+  sendPaymentReminderAction,
   updateInvoiceStatusAction,
 } from "@/app/actions/invoices";
 import { recordPaymentAction } from "@/app/actions/payments";
@@ -23,6 +24,7 @@ export function InvoiceActions({
   amountPaid,
   paymentMethod,
   hasEmail,
+  reminderCount = 0,
 }: {
   id: string;
   customerId: string;
@@ -31,6 +33,7 @@ export function InvoiceActions({
   amountPaid: number;
   paymentMethod: PaymentMethod;
   hasEmail: boolean;
+  reminderCount?: number;
 }) {
   const router = useRouter();
   const [pending, start] = React.useTransition();
@@ -86,6 +89,27 @@ export function InvoiceActions({
         >
           <CheckCircle2 className="h-4 w-4" />
           全額入金済にする
+        </Button>
+      )}
+
+      {!isPaid && status !== "draft" && outstanding > 0 && (
+        <Button
+          variant="outline"
+          className="w-full"
+          disabled={pending || !hasEmail}
+          title={hasEmail ? undefined : "顧客のメールアドレスが未登録です"}
+          onClick={() => {
+            if (
+              !window.confirm(
+                `お支払いのご確認(督促)メールを送信します。よろしいですか？${reminderCount > 0 ? `\n（これまでに${reminderCount}回送信済み）` : ""}`,
+              )
+            )
+              return;
+            run(() => sendPaymentReminderAction(id));
+          }}
+        >
+          <BellRing className="h-4 w-4" />
+          督促メールを送信{reminderCount > 0 ? `（${reminderCount}回送信済）` : ""}
         </Button>
       )}
 

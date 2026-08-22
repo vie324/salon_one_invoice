@@ -77,6 +77,7 @@ export default async function InvoiceDetailPage({
                 amountPaid={invoice.amountPaid}
                 paymentMethod={invoice.paymentMethod}
                 hasEmail={Boolean(invoice.customer?.email)}
+                reminderCount={invoice.reminderCount ?? 0}
               />
               <div className="mt-2 border-t border-border pt-2">
                 <DeleteRecordButton
@@ -107,6 +108,13 @@ export default async function InvoiceDetailPage({
               <Row label="支払方法" value={paymentMethodLabels[invoice.paymentMethod]} muted />
               {invoice.sentAt && <Row label="送付日" value={formatDate(invoice.sentAt)} muted />}
               {invoice.paidAt && <Row label="入金日" value={formatDate(invoice.paidAt)} muted />}
+              {(invoice.reminderCount ?? 0) > 0 && (
+                <Row
+                  label="督促メール"
+                  value={`${invoice.reminderCount}回（最終 ${formatDate(invoice.lastReminderAt)}）`}
+                  muted
+                />
+              )}
             </CardContent>
           </Card>
 

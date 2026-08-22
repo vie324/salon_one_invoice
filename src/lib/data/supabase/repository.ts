@@ -24,6 +24,11 @@ import {
   normalizeRoles,
 } from "@/lib/domain/constants";
 import { computeDashboardMetrics } from "@/lib/domain/metrics";
+import {
+  defaultChecklist,
+  initialStageFor,
+  mergeChecklist,
+} from "@/lib/domain/onboarding";
 import type {
   Activity,
   Agency,
@@ -40,6 +45,7 @@ import type {
   ContractTerms,
   ContractWithCustomer,
   Customer,
+  CustomerOnboarding,
   CustomerStatus,
   DataDeletionLog,
   DeletableEntity,
@@ -90,6 +96,7 @@ import type {
   InvoiceFilter,
   InvoiceInput,
   MandateInput,
+  OnboardingUpdateInput,
   PaymentInput,
   PlanInput,
   Repository,
@@ -258,6 +265,28 @@ function mapInvoice(r: any): Invoice {
     paidAt: r.paid_at,
     createdAt: r.created_at,
     externalId: r.external_id ?? null,
+    reminderCount: Number(r.reminder_count ?? 0),
+    lastReminderAt: r.last_reminder_at ?? null,
+  };
+}
+
+function mapOnboarding(r: any): CustomerOnboarding {
+  return {
+    id: r.id,
+    customerId: r.customer_id,
+    stage: r.stage,
+    sortOrder: Number(r.sort_order ?? 0),
+    dueDate: r.due_date ?? null,
+    nextAction: r.next_action ?? "",
+    checklist: mergeChecklist((r.checklist as any[]) ?? []),
+    stageChangedAt: r.stage_changed_at ?? r.created_at,
+    history: ((r.history as any[]) ?? []).map((h: any) => ({
+      stage: h.stage,
+      at: h.at,
+      by: h.by ?? "",
+    })),
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
   };
 }
 
@@ -915,6 +944,171 @@ export class SupabaseRepository implements Repository {
     return mapSubscription(data);
   }
 
+  // --- 顧客ステータス管理(カンバン) ---
+
+  async listOnboardings(): Promise<CustomerOnboarding[]> {
+    const [{ data: customers, error: cusError }, { data: rows, error }] = await Promise.all([
+      this.db.from("customers").select("id, status, payment_method").is("deleted_at", null),
+      this.db.from("customer_onboardings").select("*").order("sort_order"),
+    ]);
+    if (cusError) throw cusError;
+    if (error) throw error;
+
+    const cards = rows ?? [];
+    const existing = new Set(cards.map((r: any) => r.customer_id));
+    const missing = (customers ?? []).filter((c: any) => !existing.has(c.id));
+
+    // カード未作成の顧客: 実データから初期ステージを推定して自動作成する
+    if (missing.length > 0) {
+      const ids = missing.map((c: any) => c.id);
+      const [contractsRes, invoicesRes, subsRes, mandatesRes, plansRes] = await Promise.all([
+        this.db.from("contracts").select("customer_id, status").in("customer_id", ids),
+        this.db
+          .from("invoices")
+          .select("id, customer_id, type, status, issue_date, due_date, total, amount_paid")
+          .in("customer_id", ids)
+          .is("deleted_at", null),
+        this.db
+          .from("subscriptions")
+          .select("customer_id, status, plan_id, option_keys, price_override")
+          .in("customer_id", ids)
+          .is("deleted_at", null),
+        this.db.from("direct_debit_mandates").select("customer_id, status").in("customer_id", ids),
+        this.db.from("plans").select("*"),
+      ]);
+      for (const res of [contractsRes, invoicesRes, subsRes, mandatesRes, plansRes]) {
+        if (res.error) throw res.error;
+      }
+      const plans = (plansRes.data ?? []).map(mapPlan);
+      let maxOrder = cards.reduce((m: number, r: any) => Math.max(m, Number(r.sort_order ?? 0)), 0);
+      const nowIso = new Date().toISOString();
+      const inserts = missing.map((c: any) => {
+        const stage = initialStageFor({
+          customer: { id: c.id, status: c.status, paymentMethod: c.payment_method },
+          contracts: (contractsRes.data ?? [])
+            .filter((r: any) => r.customer_id === c.id)
+            .map((r: any) => ({ status: r.status })),
+          invoices: (invoicesRes.data ?? [])
+            .filter((r: any) => r.customer_id === c.id)
+            .map((r: any) => ({
+              id: r.id,
+              type: r.type,
+              status: r.status,
+              issueDate: r.issue_date,
+              dueDate: r.due_date,
+              total: Number(r.total),
+              amountPaid: Number(r.amount_paid ?? 0),
+            })),
+          subscriptions: (subsRes.data ?? [])
+            .filter((r: any) => r.customer_id === c.id)
+            .map((r: any) => ({
+              status: r.status,
+              planId: r.plan_id,
+              optionKeys: r.option_keys ?? [],
+              priceOverride: r.price_override != null ? Number(r.price_override) : null,
+            })),
+          plans,
+          mandate: (() => {
+            const m = (mandatesRes.data ?? []).find((r: any) => r.customer_id === c.id);
+            return m ? { status: m.status } : null;
+          })(),
+        });
+        return {
+          customer_id: c.id,
+          stage,
+          sort_order: ++maxOrder,
+          due_date: null,
+          next_action: "",
+          checklist: defaultChecklist(),
+          history: [{ stage, at: nowIso, by: "システム" }],
+          stage_changed_at: nowIso,
+        };
+      });
+      // 同時アクセスで二重作成されないよう customer_id の一意制約に乗せて upsert する
+      const { data: created, error: insError } = await this.db
+        .from("customer_onboardings")
+        .upsert(inserts, { onConflict: "customer_id", ignoreDuplicates: true })
+        .select("*");
+      if (insError) throw insError;
+      cards.push(...(created ?? []));
+    }
+
+    const aliveIds = new Set((customers ?? []).map((c: any) => c.id));
+    return cards
+      .filter((r: any) => aliveIds.has(r.customer_id))
+      .map(mapOnboarding)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+
+  async updateOnboarding(
+    id: string,
+    input: OnboardingUpdateInput,
+  ): Promise<CustomerOnboarding> {
+    const { data: row, error: getError } = await this.db
+      .from("customer_onboardings")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (getError) throw getError;
+    if (!row) throw new Error("カードが見つかりません");
+
+    const current = mapOnboarding(row);
+    const nowIso = new Date().toISOString();
+    const actor = input.actor || "担当者";
+    const patch: Record<string, unknown> = { updated_at: nowIso };
+    if (input.stage !== undefined && input.stage !== current.stage) {
+      patch.stage = input.stage;
+      patch.stage_changed_at = nowIso;
+      patch.history = [...current.history, { stage: input.stage, at: nowIso, by: actor }];
+    }
+    if (input.dueDate !== undefined) patch.due_date = input.dueDate;
+    if (input.nextAction !== undefined) patch.next_action = input.nextAction;
+    if (input.checklist?.length) {
+      const checklist = mergeChecklist(current.checklist);
+      for (const t of input.checklist) {
+        const item = checklist.find((c) => c.key === t.key);
+        if (!item || item.done === t.done) continue;
+        item.done = t.done;
+        item.doneAt = t.done ? nowIso : null;
+        item.doneBy = t.done ? actor : "";
+      }
+      patch.checklist = checklist;
+    }
+
+    const { data, error } = await this.db
+      .from("customer_onboardings")
+      .update(patch)
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapOnboarding(data);
+  }
+
+  async reorderOnboardings(orderedIds: string[]): Promise<void> {
+    if (orderedIds.length === 0) return;
+    // 対象カードが現在持っている並び順の枠を、渡された順に割り当て直す
+    const { data, error } = await this.db
+      .from("customer_onboardings")
+      .select("id, sort_order")
+      .in("id", orderedIds);
+    if (error) throw error;
+    const current = new Map<string, number>(
+      (data ?? []).map((r: any) => [r.id as string, Number(r.sort_order ?? 0)]),
+    );
+    const slots = [...current.values()].sort((a, b) => a - b);
+    const targets = orderedIds.filter((id) => current.has(id));
+    for (const [index, id] of targets.entries()) {
+      const next = slots[index];
+      if (current.get(id) === next) continue;
+      const { error: upError } = await this.db
+        .from("customer_onboardings")
+        .update({ sort_order: next, updated_at: new Date().toISOString() })
+        .eq("id", id);
+      if (upError) throw upError;
+    }
+  }
+
   async listInvoices(filter?: InvoiceFilter): Promise<InvoiceWithCustomer[]> {
     let q = this.db
       .from("invoices")
@@ -1073,6 +1267,27 @@ export class SupabaseRepository implements Repository {
       message: `請求書 ${current.invoiceNumber} を送付`,
       actor: "担当者",
       amount: current.total,
+      linkInvoiceId: id,
+    });
+    return mapInvoice(data);
+  }
+
+  async recordInvoiceReminder(id: string, params: { actor: string }): Promise<Invoice> {
+    const current = await this.getInvoice(id);
+    if (!current) throw new Error("請求書が見つかりません");
+    const count = (current.reminderCount ?? 0) + 1;
+    const { data, error } = await this.db
+      .from("invoices")
+      .update({ reminder_count: count, last_reminder_at: new Date().toISOString() })
+      .eq("id", id)
+      .select(INVOICE_SELECT)
+      .single();
+    if (error) throw error;
+    await this.logActivity({
+      kind: "reminder_sent",
+      message: `${current.customer?.name ?? ""} 様へ請求書 ${current.invoiceNumber} の督促メールを送付（${count}回目）`,
+      actor: params.actor,
+      amount: Math.max(0, current.total - current.amountPaid),
       linkInvoiceId: id,
     });
     return mapInvoice(data);

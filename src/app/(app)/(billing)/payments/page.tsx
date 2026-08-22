@@ -1,7 +1,8 @@
-import { CircleDollarSign, Wallet } from "lucide-react";
+import { CircleDollarSign, FileDown, Wallet } from "lucide-react";
 import Link from "next/link";
 import { suggestMatches } from "@/lib/bank/csv";
 import { Badge } from "@/components/ui/badge";
+import { buttonClasses } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
@@ -65,6 +66,16 @@ export default async function PaymentsPage() {
       <PageHeader
         title="入金確認"
         description="口座振替・振込の入金を確認し、請求書に消し込みます。初期費用など単発入金の確認にも対応。"
+        actions={
+          <a
+            href="/api/export/payments"
+            className={buttonClasses({ variant: "outline", size: "sm" })}
+            title="入金履歴をCSVでダウンロード(会計ソフト・Excel連携用)"
+          >
+            <FileDown className="h-4 w-4" />
+            CSVエクスポート
+          </a>
+        }
       />
 
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">

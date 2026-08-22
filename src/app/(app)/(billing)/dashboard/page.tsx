@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   ArrowRight,
   Banknote,
+  BellRing,
   CircleDollarSign,
   Clock,
   FileText,
@@ -326,6 +327,7 @@ function ActivityIcon({ kind }: { kind: string }) {
     subscription_created: <Repeat className="h-4 w-4" />,
     customer_created: <Users className="h-4 w-4" />,
     application_submitted: <Inbox className="h-4 w-4" />,
+    reminder_sent: <BellRing className="h-4 w-4" />,
   };
   return (
     <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-secondary text-secondary-foreground">
