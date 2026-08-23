@@ -21,7 +21,11 @@ import {
   contractSignedEmailHtml,
 } from "@/lib/email/templates";
 import { CONTRACT_SIGN_EXPIRY_DAYS } from "@/lib/domain/constants";
-import { computeDueDate } from "@/lib/domain/calculations";
+import {
+  computeDueDate,
+  prorateMonthly,
+  subscriptionMonthly,
+} from "@/lib/domain/calculations";
 import type { ContractDeliveryMethod } from "@/lib/domain/types";
 import { toISODate } from "@/lib/utils";
 
@@ -227,8 +231,10 @@ export async function markContractSignedManuallyAction(
 
 /**
  * 締結済み契約から請求を開始する。
- * - プランが紐付いていれば定期契約(毎月の請求書自動生成)を作成
- * - 初期費用があれば初期費用の請求書(銀行振込・送付済)を作成
+ * サロンワンの運用(初期費用＋初月の日割りは請求書で銀行振込、以降は口座振替)に合わせて:
+ * - プランが紐付いていれば定期契約(毎月の請求書自動生成)を作成。翌月分から生成される。
+ * - 初期費用＋初月日割り(利用開始日〜月末)の請求書(銀行振込・送付済)を作成
+ * - 顧客の支払方法を口座振替に設定し、翌月以降の定期請求は引き落としで請求する
  */
 export async function startContractBillingAction(id: string, params: { startedOn: string }) {
   try {
@@ -247,6 +253,12 @@ export async function startContractBillingAction(id: string, params: { startedOn
     let subscriptionId: string | null = null;
     let invoiceId: string | null = null;
 
+    // 初回請求書(銀行振込)の明細。契約書第5条: 初月分・初期費用は銀行振込。
+    const initialItems: { description: string; quantity: number; unitPrice: number; taxRate: number }[] = [];
+    const initialNotes = (withProration: boolean) =>
+      `契約書 ${contract.contractNumber} に基づく初期費用${withProration ? "・初月日割り料金" : ""}のご請求です。` +
+      `銀行振込にてお願いいたします。翌月以降の月額料金は口座振替(引き落とし)にてご請求いたします。`;
+
     if (contract.terms.planId) {
       const plan = await repo.getPlan(contract.terms.planId);
       if (!plan) return { ok: false as const, error: "紐付くプランが見つかりません" };
@@ -260,28 +272,63 @@ export async function startContractBillingAction(id: string, params: { startedOn
       details.push(`定期契約(${plan.name})を開始`);
 
       if (plan.initialFee > 0) {
-        const issueDate = toISODate(new Date());
-        const inv = await repo.createInvoice({
-          customerId: contract.customerId,
-          type: "initial",
-          issueDate,
-          dueDate: computeDueDate(issueDate, 14),
-          paymentMethod: "bank_transfer", // 契約書第5条: 初月分・初期費用は銀行振込
-          items: [
-            {
-              description: `初期構築費用（${contract.contractNumber}）`,
-              quantity: 1,
-              unitPrice: plan.initialFee,
-              taxRate: plan.taxRate,
-            },
-          ],
-          notes: `契約書 ${contract.contractNumber} に基づく初期費用のご請求です。銀行振込にてお願いいたします。`,
-          status: "sent",
+        initialItems.push({
+          description: `初期構築費用（${contract.contractNumber}）`,
+          quantity: 1,
+          unitPrice: plan.initialFee,
+          taxRate: plan.taxRate,
         });
-        invoiceId = inv.id;
-        details.push(`初期費用 ${plan.initialFee.toLocaleString("ja-JP")}円 の請求書を作成`);
       }
-    } else if (contract.terms.initialFee && contract.terms.initialFee > 0) {
+      // 初月日割り: 利用開始日〜月末を暦日按分。翌月分からは定期請求(引き落とし)で
+      // 自動生成されるため、開始月のみここで請求する。
+      const monthly =
+        contract.terms.monthlyFee ?? subscriptionMonthly(plan, contract.terms.optionKeys);
+      const proration = prorateMonthly(monthly, params.startedOn);
+      if (proration.amount > 0) {
+        initialItems.push({
+          description: `月額利用料 初月日割り（${proration.label}）`,
+          quantity: 1,
+          unitPrice: proration.amount,
+          taxRate: plan.taxRate,
+        });
+        details.push(`初月日割り ${proration.amount.toLocaleString("ja-JP")}円(税抜・${proration.days}日分)を初回請求に計上`);
+      }
+      if (plan.initialFee > 0) {
+        details.push(`初期費用 ${plan.initialFee.toLocaleString("ja-JP")}円 を初回請求に計上`);
+      }
+    } else if (
+      (contract.terms.initialFee && contract.terms.initialFee > 0) ||
+      (contract.terms.monthlyFee && contract.terms.monthlyFee > 0)
+    ) {
+      if (contract.terms.initialFee && contract.terms.initialFee > 0) {
+        initialItems.push({
+          description: `初期構築費用（${contract.contractNumber}）`,
+          quantity: 1,
+          unitPrice: contract.terms.initialFee,
+          taxRate: 0.1,
+        });
+        details.push(`初期費用の請求書を作成`);
+      }
+      if (contract.terms.monthlyFee && contract.terms.monthlyFee > 0) {
+        const proration = prorateMonthly(contract.terms.monthlyFee, params.startedOn);
+        if (proration.amount > 0) {
+          initialItems.push({
+            description: `月額利用料 初月日割り（${proration.label}）`,
+            quantity: 1,
+            unitPrice: proration.amount,
+            taxRate: 0.1,
+          });
+          details.push(`初月日割り ${proration.amount.toLocaleString("ja-JP")}円(税抜)を計上`);
+        }
+      }
+    } else {
+      return {
+        ok: false as const,
+        error: "プランまたは初期費用が設定されていないため、請求を開始できません。申込内容を確認してください。",
+      };
+    }
+
+    if (initialItems.length > 0) {
       const issueDate = toISODate(new Date());
       const inv = await repo.createInvoice({
         customerId: contract.customerId,
@@ -289,24 +336,11 @@ export async function startContractBillingAction(id: string, params: { startedOn
         issueDate,
         dueDate: computeDueDate(issueDate, 14),
         paymentMethod: "bank_transfer",
-        items: [
-          {
-            description: `初期構築費用（${contract.contractNumber}）`,
-            quantity: 1,
-            unitPrice: contract.terms.initialFee,
-            taxRate: 0.1,
-          },
-        ],
-        notes: `契約書 ${contract.contractNumber} に基づく初期費用のご請求です。`,
+        items: initialItems,
+        notes: initialNotes(initialItems.some((i) => i.description.includes("日割り"))),
         status: "sent",
       });
       invoiceId = inv.id;
-      details.push(`初期費用の請求書を作成`);
-    } else {
-      return {
-        ok: false as const,
-        error: "プランまたは初期費用が設定されていないため、請求を開始できません。申込内容を確認してください。",
-      };
     }
 
     // 未紐付けの場合のみ紐付け(並行実行による二重の請求開始を防止)。
@@ -323,9 +357,19 @@ export async function startContractBillingAction(id: string, params: { startedOn
       if (invoiceId) await repo.updateInvoiceStatus(invoiceId, "canceled");
       return { ok: false as const, error: "この契約の請求連携は既に開始されています" };
     }
+
+    // 翌月以降の月額は口座振替(引き落とし)で請求する運用のため、支払方法を切り替える。
+    // 定期請求の自動生成は顧客の支払方法を参照する(口座振替なら引き落とし予定で発行)。
+    const customer = await repo.getCustomer(contract.customerId);
+    if (customer && customer.paymentMethod !== "direct_debit") {
+      await repo.updateCustomer(customer.id, { paymentMethod: "direct_debit" });
+      details.push("支払方法を口座振替に設定(翌月以降は引き落とし。振替依頼書の回収を進めてください)");
+    }
+
     revalidateContractViews(id);
     revalidatePath("/subscriptions");
     revalidatePath("/invoices");
+    revalidatePath("/pipeline");
     return { ok: true as const, detail: details.join(" / ") };
   } catch (e) {
     return { ok: false as const, error: (e as Error).message };

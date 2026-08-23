@@ -204,6 +204,10 @@ export interface Invoice {
   createdAt: string;
   /** 外部システム(Stripe請求書など)のID。冪等化に使用 */
   externalId?: string | null;
+  /** 督促メールの送付回数(未送付は 0/未設定) */
+  reminderCount?: number;
+  /** 最後に督促メールを送付した日時 */
+  lastReminderAt?: string | null;
   /** 削除(ゴミ箱)に入れた日時。null/未設定 = 有効なデータ。 */
   deletedAt?: string | null;
 }
@@ -466,7 +470,8 @@ export type ActivityKind =
   | "contract_created"
   | "contract_sent"
   | "contract_signed"
-  | "application_submitted";
+  | "application_submitted"
+  | "reminder_sent";
 
 export interface Activity {
   id: string;
@@ -697,6 +702,63 @@ export interface Application {
   customerId: string | null;
   submittedAt: string;
   submittedIp: string;
+}
+
+/* ---- 顧客ステータス管理 (オンボーディング・カンバン) ---- */
+
+/**
+ * 顧客のオンボーディング(獲得〜運用開始)ステージ。カンバンの列に対応する。
+ * 運用フロー: 初期費用＋初月日割りは請求書(銀行振込)、以降は口座振替(引き落とし)。
+ * - application     申込(受付・プラン確定)
+ * - contract        契約(契約書の送付〜締結)
+ * - initial_billing 初回請求(初期費用＋初月日割りの請求書発行・振込)
+ * - debit_setup     振替手続き(口座振替依頼書の送付→受領→収納代行へ登録)
+ * - initial_payment 入金チェック(初回振込の入金確認・消込)
+ * - operating       運用中(毎月の引き落とし・入金チェック)
+ * - closed          休止・解約
+ */
+export type OnboardingStage =
+  | "application"
+  | "contract"
+  | "initial_billing"
+  | "debit_setup"
+  | "initial_payment"
+  | "operating"
+  | "closed";
+
+/** カンバンカードのチェックリスト1項目(手動のToDo。実データ連動のシグナルとは別) */
+export interface OnboardingChecklistItem {
+  key: string;
+  label: string;
+  done: boolean;
+  doneAt: string | null;
+  doneBy: string;
+}
+
+/** ステージ移動の履歴(カードのタイムライン表示用) */
+export interface OnboardingStageEvent {
+  stage: OnboardingStage;
+  at: string;
+  by: string;
+}
+
+/** 顧客ごとのオンボーディングカード(顧客1件につき1枚。顧客登録時に自動作成) */
+export interface CustomerOnboarding {
+  id: string;
+  customerId: string;
+  stage: OnboardingStage;
+  /** 列内の並び順(小さいほど上)。ドラッグで入れ替える。 */
+  sortOrder: number;
+  /** フォロー期日(超過すると要対応として強調) */
+  dueDate: string | null;
+  /** 次にやること(担当者のメモ) */
+  nextAction: string;
+  checklist: OnboardingChecklistItem[];
+  /** 現在のステージに入った日時(滞留日数の表示用) */
+  stageChangedAt: string;
+  history: OnboardingStageEvent[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 /* ---- アカウント(プロフィール) ---- */

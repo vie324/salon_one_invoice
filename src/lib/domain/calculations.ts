@@ -60,7 +60,10 @@ export function nextInvoiceNumber(
  * 表示用の実効ステータス。
  * 未入金かつ支払期限を過ぎている場合は overdue とみなす(保存値が sent 等でも)。
  */
-export function effectiveStatus(inv: Invoice, asOf = new Date()): InvoiceStatus {
+export function effectiveStatus(
+  inv: Pick<Invoice, "status" | "amountPaid" | "total" | "dueDate">,
+  asOf = new Date(),
+): InvoiceStatus {
   if (inv.status === "paid" || inv.status === "canceled" || inv.status === "draft") {
     return inv.status;
   }
@@ -73,12 +76,12 @@ export function effectiveStatus(inv: Invoice, asOf = new Date()): InvoiceStatus 
 }
 
 /** 未収残高 (合計 - 入金済) */
-export function outstandingAmount(inv: Invoice): number {
+export function outstandingAmount(inv: Pick<Invoice, "total" | "amountPaid">): number {
   return Math.max(0, inv.total - inv.amountPaid);
 }
 
 /** 選択中のオプションを返す */
-export function selectedOptions(plan: Plan, optionKeys: string[] = []) {
+export function selectedOptions(plan: Pick<Plan, "options">, optionKeys: string[] = []) {
   return plan.options.filter((o) => optionKeys.includes(o.key));
 }
 
@@ -87,7 +90,7 @@ export function selectedOptions(plan: Plan, optionKeys: string[] = []) {
  * priceOverride(個別価格)が設定されていれば基本料金をそちらで置き換える。
  */
 export function subscriptionMonthly(
-  plan: Plan,
+  plan: Pick<Plan, "amount" | "options">,
   optionKeys: string[] = [],
   priceOverride?: number | null,
 ): number {
@@ -157,6 +160,77 @@ export function computeDueDate(issueDate: string, daysOrEom: "eom" | number = "e
   const due = new Date(d);
   due.setDate(due.getDate() + daysOrEom);
   return toISODate(due);
+}
+
+/* ---- 未収金エイジング ---- */
+
+/** 未収金の期限超過日数バケット */
+export interface AgingBucket {
+  key: "current" | "d1_30" | "d31_60" | "d61";
+  label: string;
+  amount: number;
+  count: number;
+}
+
+/**
+ * 未収金のエイジング(支払期限からの経過日数別の残高)。
+ * 督促の優先順位づけに使う。実効ステータスで未入金の請求のみ集計する。
+ */
+export function computeAgingBuckets(
+  invoices: Pick<Invoice, "status" | "amountPaid" | "total" | "dueDate">[],
+  asOf = new Date(),
+): AgingBucket[] {
+  const buckets: AgingBucket[] = [
+    { key: "current", label: "期限内", amount: 0, count: 0 },
+    { key: "d1_30", label: "超過 1〜30日", amount: 0, count: 0 },
+    { key: "d31_60", label: "超過 31〜60日", amount: 0, count: 0 },
+    { key: "d61", label: "超過 61日以上", amount: 0, count: 0 },
+  ];
+  const unpaidStatuses: InvoiceStatus[] = [
+    "sent",
+    "awaiting_payment",
+    "partially_paid",
+    "overdue",
+    "failed",
+  ];
+  for (const inv of invoices) {
+    const status = effectiveStatus(inv, asOf);
+    if (!unpaidStatuses.includes(status)) continue;
+    const remain = outstandingAmount(inv);
+    if (remain <= 0) continue;
+    const overdueDays = -daysUntil(inv.dueDate, asOf);
+    const bucket =
+      overdueDays <= 0
+        ? buckets[0]
+        : overdueDays <= 30
+          ? buckets[1]
+          : overdueDays <= 60
+            ? buckets[2]
+            : buckets[3];
+    bucket.amount += remain;
+    bucket.count += 1;
+  }
+  return buckets;
+}
+
+/** 月額料金の初月日割り。開始日〜月末を暦日で按分し、1円未満は切り捨て(顧客有利)。 */
+export interface ProrationResult {
+  /** 日割り金額(税抜) */
+  amount: number;
+  /** 課金対象日数(開始日〜月末) */
+  days: number;
+  daysInMonth: number;
+  /** 表示用ラベル(例: 8月22日〜月末・10日分) */
+  label: string;
+}
+
+export function prorateMonthly(monthly: number, startDate: string): ProrationResult {
+  const d = new Date(startDate);
+  const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  const days = daysInMonth - d.getDate() + 1;
+  const amount = Math.floor((monthly * days) / daysInMonth);
+  const label = `${d.getMonth() + 1}月${d.getDate()}日〜月末・${days}日分`;
+  return { amount, days, daysInMonth, label };
 }
 
 /** billingPeriod (YYYY-MM) を「2026年7月分」表記に */

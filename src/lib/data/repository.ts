@@ -19,6 +19,7 @@ import type {
   ContractTerms,
   ContractWithCustomer,
   Customer,
+  CustomerOnboarding,
   CustomerStatus,
   DashboardMetrics,
   DataDeletionLog,
@@ -37,6 +38,7 @@ import type {
   InvoiceStatus,
   InvoiceType,
   InvoiceWithCustomer,
+  OnboardingStage,
   Organization,
   PaymentMethod,
   Payment,
@@ -166,6 +168,24 @@ export interface SubscriptionUpdateInput {
   optionKeys?: string[];
   priceOverride?: number | null;
   billingDay?: number;
+}
+
+/* ---- 顧客ステータス管理(カンバン) ---- */
+
+/** チェックリスト項目のオン/オフ */
+export interface OnboardingChecklistToggle {
+  key: string;
+  done: boolean;
+}
+
+/** カンバンカードの更新。undefined の項目は変更しない。 */
+export interface OnboardingUpdateInput {
+  stage?: OnboardingStage;
+  dueDate?: string | null;
+  nextAction?: string;
+  checklist?: OnboardingChecklistToggle[];
+  /** 操作者名(ステージ履歴・チェック完了者の記録用) */
+  actor?: string;
 }
 
 export interface BankRowInput {
@@ -410,12 +430,26 @@ export interface Repository {
     input: Partial<Omit<AgencyMemberInput, "agencyId">>,
   ): Promise<AgencyMember>;
 
+  // --- 顧客ステータス管理(カンバン) ---
+  /**
+   * オンボーディングカードの一覧(sortOrder順)。
+   * カード未作成の顧客には、契約・請求・入金・口座振替の実データから
+   * 推定した初期ステージでカードを自動作成する(顧客1件につき1枚)。
+   */
+  listOnboardings(): Promise<CustomerOnboarding[]>;
+  /** カードの更新(ステージ移動・期日・メモ・チェックリスト)。 */
+  updateOnboarding(id: string, input: OnboardingUpdateInput): Promise<CustomerOnboarding>;
+  /** 並び順の保存(渡された順に sortOrder を振り直す)。 */
+  reorderOnboardings(orderedIds: string[]): Promise<void>;
+
   // --- 請求書 ---
   listInvoices(filter?: InvoiceFilter): Promise<InvoiceWithCustomer[]>;
   getInvoice(id: string): Promise<InvoiceWithCustomer | null>;
   createInvoice(input: InvoiceInput): Promise<Invoice>;
   updateInvoiceStatus(id: string, status: InvoiceStatus): Promise<Invoice>;
   sendInvoice(id: string): Promise<Invoice>;
+  /** 督促メール送付の記録(回数を加算し、最終送付日時を更新)。 */
+  recordInvoiceReminder(id: string, params: { actor: string }): Promise<Invoice>;
 
   // --- 入金 ---
   listPayments(filter?: { customerId?: string }): Promise<Payment[]>;

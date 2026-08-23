@@ -69,6 +69,54 @@ export function invoiceEmailHtml(params: {
   </div>`;
 }
 
+/**
+ * 入金督促(リマインド)メールの本文(HTML)。
+ * 支払期限を過ぎた請求について、行き違いを考慮した丁寧な文面で残額と振込先を案内する。
+ */
+export function paymentReminderEmailHtml(params: {
+  invoice: Invoice;
+  customerName: string;
+  org: Organization;
+  /** 期限からの経過日数(期限内なら 0 以下) */
+  overdueDays: number;
+}): string {
+  const { invoice, customerName, org, overdueDays } = params;
+  const remain = Math.max(0, invoice.total - invoice.amountPaid);
+
+  const bankInfo =
+    invoice.paymentMethod !== "direct_debit" && org.bankName
+      ? `<p style="margin:4px 0;color:#555">お振込先: ${escapeHtml(org.bankName)} ${escapeHtml(org.bankBranch)} ${escapeHtml(org.bankAccountType)} ${escapeHtml(org.bankAccountNumber)} ${escapeHtml(org.bankAccountHolder)}</p>`
+      : "";
+
+  const lead =
+    overdueDays > 0
+      ? `お支払期限（${formatDate(invoice.dueDate)}）を過ぎておりますが、下記のご請求についてご入金の確認ができておりません。`
+      : `下記のご請求について、お支払期限（${formatDate(invoice.dueDate)}）が近づいておりますのでご案内申し上げます。`;
+
+  return `
+  <div style="font-family:'Hiragino Sans','Noto Sans JP',sans-serif;max-width:600px;margin:0 auto;color:#152a26">
+    <div style="background:#0d3b33;color:#fff;padding:20px 24px;border-radius:12px 12px 0 0;border-bottom:3px solid #c2a15c">
+      <div style="font-size:13px;color:#c2a15c">${escapeHtml(org.name)}</div>
+      <div style="font-size:20px;font-weight:700;margin-top:2px">お支払いのご確認（ご案内）</div>
+    </div>
+    <div style="border:1px solid #eee;border-top:none;padding:24px;border-radius:0 0 12px 12px">
+      <p>${escapeHtml(customerName)} 様</p>
+      <p>いつもご利用いただきありがとうございます。${lead}</p>
+      <div style="background:#f1f6f4;border-radius:8px;padding:12px 16px;margin-top:16px;font-size:14px;border-left:3px solid #c2a15c">
+        <div>請求書番号: ${invoice.invoiceNumber}</div>
+        <div>発行日: ${formatDate(invoice.issueDate)} / 支払期限: ${formatDate(invoice.dueDate)}</div>
+        <div style="margin-top:8px;font-size:18px;font-weight:700">お支払い残額 ${formatJPY(remain)}</div>
+        ${bankInfo}
+      </div>
+      <p style="margin-top:16px">
+        本メールと行き違いでご入金いただいている場合は、何卒ご容赦ください。<br />
+        ご不明な点がございましたら、本メールへご返信いただくかお電話にてお問い合わせください。
+      </p>
+      <p style="color:#999;font-size:12px;margin-top:24px">${escapeHtml(org.name)}　${escapeHtml(org.address)}　${org.tel}</p>
+    </div>
+  </div>`;
+}
+
 /** 電子契約の署名依頼メール(初回送付・リマインド共用)。 */
 export function contractSignRequestEmailHtml(params: {
   contract: Contract;

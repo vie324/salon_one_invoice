@@ -10,6 +10,7 @@ import type {
   ContractEvent,
   ContractTemplate,
   Customer,
+  CustomerOnboarding,
   DataDeletionLog,
   DevIssue,
   DevIssueAttachment,
@@ -27,6 +28,8 @@ import type {
 export interface DataStore {
   organization: Organization;
   customers: Customer[];
+  /** 顧客ステータス管理(カンバン)のカード。listOnboardings で顧客ごとに自動作成される */
+  onboardings: CustomerOnboarding[];
   mandates: DirectDebitMandate[];
   plans: Plan[];
   subscriptions: Subscription[];
@@ -187,6 +190,7 @@ export function buildSeed(): DataStore {
   return {
     organization,
     customers: [],
+    onboardings: [],
     mandates: [],
     plans,
     subscriptions: [],

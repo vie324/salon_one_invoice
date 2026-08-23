@@ -564,10 +564,13 @@ function BillingDialog({
     >
       <div className="space-y-4">
         <ul className="list-inside list-disc rounded-md bg-muted/60 p-3 text-sm text-muted-foreground">
-          {hasPlan && <li>定期契約を作成し、毎月の請求書を自動生成します</li>}
+          {hasPlan && <li>定期契約を作成し、翌月分から毎月の請求書を自動生成します</li>}
           {(hasPlan || hasInitialFee) && (
-            <li>初期費用がある場合、初期費用の請求書(銀行振込)を作成・送付済にします</li>
+            <li>
+              初期費用＋初月日割り(利用開始日〜月末)の請求書(銀行振込)を作成・送付済にします
+            </li>
           )}
+          <li>支払方法を口座振替に設定します(翌月以降は引き落とし)</li>
         </ul>
         <Field label="利用開始日">
           <Input type="date" value={startedOn} onChange={(e) => setStartedOn(e.target.value)} />

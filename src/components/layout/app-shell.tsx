@@ -13,7 +13,9 @@ import {
   Menu,
   Repeat,
   Settings,
+  SquareKanban,
   Trash2,
+  TrendingUp,
   Users,
   Wallet,
   X,
@@ -32,10 +34,12 @@ import { cn } from "@/lib/utils";
 
 const billingNav = [
   { href: "/dashboard", label: "ダッシュボード", icon: LayoutDashboard },
+  { href: "/pipeline", label: "顧客ステータス", icon: SquareKanban },
   { href: "/applications", label: "申込", icon: Inbox },
   { href: "/contracts", label: "契約書", icon: FileSignature },
   { href: "/invoices", label: "請求書", icon: FileText },
   { href: "/customers", label: "顧客", icon: Users },
+  { href: "/ltv", label: "LTV分析", icon: TrendingUp },
   { href: "/agencies", label: "代理店", icon: Handshake },
   { href: "/subscriptions", label: "定期請求", icon: Repeat },
   { href: "/direct-debit", label: "口座振替", icon: Landmark },
