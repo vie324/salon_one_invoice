@@ -60,6 +60,7 @@ import type {
   NotificationType,
   Organization,
   Payment,
+  PaymentMethod,
   Plan,
   Role,
   Subscription,
@@ -92,6 +93,7 @@ import type {
   InvoiceInput,
   MandateInput,
   OnboardingUpdateInput,
+  OrganizationInput,
   PaymentInput,
   PlanInput,
   Repository,
@@ -123,6 +125,11 @@ export class DemoRepository implements Repository {
   }
 
   async getOrganization(): Promise<Organization> {
+    return this.s.organization;
+  }
+
+  async updateOrganization(input: OrganizationInput): Promise<Organization> {
+    this.s.organization = { ...this.s.organization, ...input };
     return this.s.organization;
   }
 
@@ -567,6 +574,16 @@ export class DemoRepository implements Repository {
       inv.paidAt = toISODate(new Date());
     }
     return inv;
+  }
+
+  async updateInvoicePaymentMethod(id: string, paymentMethod: PaymentMethod): Promise<Invoice> {
+    const inv = this.s.invoices.filter(alive).find((i) => i.id === id);
+    if (!inv) throw new Error("請求書が見つかりません");
+    inv.paymentMethod = paymentMethod;
+    // 入金待ち(振替予定) ⇔ 送付済(振込待ち) を支払方法に合わせて読み替える
+    if (paymentMethod === "direct_debit" && inv.status === "sent") inv.status = "awaiting_payment";
+    if (paymentMethod !== "direct_debit" && inv.status === "awaiting_payment") inv.status = "sent";
+    return decorate(inv);
   }
 
   async sendInvoice(id: string): Promise<Invoice> {

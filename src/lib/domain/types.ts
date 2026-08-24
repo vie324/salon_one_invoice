@@ -81,6 +81,8 @@ export interface Organization {
   /** 振込先(振込払いの顧客向けに請求書へ記載) */
   bankName: string;
   bankBranch: string;
+  /** 支店番号(3桁)。振込先の案内に併記する */
+  bankBranchCode: string;
   bankAccountType: AccountType;
   bankAccountNumber: string;
   bankAccountHolder: string;

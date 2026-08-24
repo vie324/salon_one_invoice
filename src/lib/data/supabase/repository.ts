@@ -65,6 +65,7 @@ import type {
   NotificationType,
   Organization,
   Payment,
+  PaymentMethod,
   Plan,
   Role,
   Subscription,
@@ -97,6 +98,7 @@ import type {
   InvoiceInput,
   MandateInput,
   OnboardingUpdateInput,
+  OrganizationInput,
   PaymentInput,
   PlanInput,
   Repository,
@@ -123,6 +125,7 @@ function mapOrg(r: any): Organization {
     registrationNumber: r.registration_number ?? "",
     bankName: r.bank_name ?? "",
     bankBranch: r.bank_branch ?? "",
+    bankBranchCode: r.bank_branch_code ?? "",
     bankAccountType: r.bank_account_type ?? "普通",
     bankAccountNumber: r.bank_account_number ?? "",
     bankAccountHolder: r.bank_account_holder ?? "",
@@ -593,6 +596,34 @@ export class SupabaseRepository implements Repository {
 
   async getOrganization(): Promise<Organization> {
     const { data, error } = await this.db.from("organizations").select("*").limit(1).single();
+    if (error) throw error;
+    return mapOrg(data);
+  }
+
+  async updateOrganization(input: OrganizationInput): Promise<Organization> {
+    // 組織は1件のみ運用のため、既存行を特定してから更新する
+    const current = await this.getOrganization();
+    const { data, error } = await this.db
+      .from("organizations")
+      .update({
+        name: input.name,
+        postal_code: input.postalCode,
+        address: input.address,
+        tel: input.tel,
+        email: input.email,
+        registration_number: input.registrationNumber,
+        bank_name: input.bankName,
+        bank_branch: input.bankBranch,
+        bank_branch_code: input.bankBranchCode,
+        bank_account_type: input.bankAccountType,
+        bank_account_number: input.bankAccountNumber,
+        bank_account_holder: input.bankAccountHolder,
+        invoice_prefix: input.invoicePrefix,
+        default_tax_rate: input.defaultTaxRate,
+      })
+      .eq("id", current.id)
+      .select("*")
+      .single();
     if (error) throw error;
     return mapOrg(data);
   }
@@ -1237,6 +1268,35 @@ export class SupabaseRepository implements Repository {
         patch.amount_paid = inv.total;
         patch.paid_at = new Date().toISOString();
       }
+    }
+    const { data, error } = await this.db
+      .from("invoices")
+      .update(patch)
+      .eq("id", id)
+      .select(INVOICE_SELECT)
+      .single();
+    if (error) throw error;
+    return mapInvoice(data);
+  }
+
+  async updateInvoicePaymentMethod(id: string, paymentMethod: PaymentMethod): Promise<Invoice> {
+    // 期限超過などの表示用ステータスではなく、保存されている値を見て読み替える
+    const { data: row, error: readError } = await this.db
+      .from("invoices")
+      .select("status")
+      .eq("id", id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (readError) throw readError;
+    if (!row) throw new Error("請求書が見つかりません");
+
+    const patch: Record<string, unknown> = { payment_method: paymentMethod };
+    // 入金待ち(振替予定) ⇔ 送付済(振込待ち) を支払方法に合わせて読み替える
+    if (paymentMethod === "direct_debit" && row.status === "sent") {
+      patch.status = "awaiting_payment";
+    }
+    if (paymentMethod !== "direct_debit" && row.status === "awaiting_payment") {
+      patch.status = "sent";
     }
     const { data, error } = await this.db
       .from("invoices")

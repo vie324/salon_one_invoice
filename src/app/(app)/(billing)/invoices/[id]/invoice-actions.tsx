@@ -6,6 +6,7 @@ import * as React from "react";
 import {
   sendInvoiceAction,
   sendPaymentReminderAction,
+  updateInvoicePaymentMethodAction,
   updateInvoiceStatusAction,
 } from "@/app/actions/invoices";
 import { recordPaymentAction } from "@/app/actions/payments";
@@ -39,7 +40,28 @@ export function InvoiceActions({
   const [pending, start] = React.useTransition();
   const [payOpen, setPayOpen] = React.useState(false);
   const [flash, setFlash] = React.useState<string | null>(null);
+  const [method, setMethod] = React.useState<PaymentMethod>(paymentMethod);
   const outstanding = Math.max(0, total - amountPaid);
+
+  // 保存後(router.refresh)にサーバー側の値へ追従する
+  React.useEffect(() => setMethod(paymentMethod), [paymentMethod]);
+
+  /** 支払方法の変更。請求書の案内文(引き落とし / お振込先)が切り替わる。 */
+  const changeMethod = (next: PaymentMethod) => {
+    const previous = method;
+    setMethod(next);
+    setFlash(null);
+    start(async () => {
+      const res = await updateInvoicePaymentMethodAction(id, next);
+      if (!res.ok) {
+        setMethod(previous);
+        setFlash(res.error ?? "支払方法を変更できませんでした");
+      } else if (res.message) {
+        setFlash(res.message);
+      }
+      router.refresh();
+    });
+  };
 
   const run = (fn: () => Promise<{ ok: boolean; error?: string; emailResult?: string | null }>) =>
     start(async () => {
@@ -111,6 +133,27 @@ export function InvoiceActions({
           <BellRing className="h-4 w-4" />
           督促メールを送信{reminderCount > 0 ? `（${reminderCount}回送信済）` : ""}
         </Button>
+      )}
+
+      {!isPaid && (
+        <div className="border-t border-border pt-3">
+          <Field
+            label="支払方法"
+            hint="請求書の記載（口座引き落としのご案内 / お振込先）が切り替わります。"
+          >
+            <Select
+              value={method}
+              disabled={pending}
+              onChange={(e) => changeMethod(e.target.value as PaymentMethod)}
+            >
+              {(Object.keys(paymentMethodLabels) as PaymentMethod[]).map((m) => (
+                <option key={m} value={m}>
+                  {paymentMethodLabels[m]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
       )}
 
       <a

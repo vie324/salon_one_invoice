@@ -3,6 +3,30 @@ import { paymentMethodLabels } from "@/lib/domain/constants";
 import type { Contract, Invoice, Organization } from "@/lib/domain/types";
 import { formatDate, formatDateTime, formatJPY, formatPercent } from "@/lib/utils";
 
+/** 振込先の1行表記(未設定の項目は省く)。支店番号は括弧で支店名に添える。 */
+function bankLine(org: Organization): string {
+  if (!org.bankName) return "";
+  const branch = org.bankBranchCode
+    ? `${org.bankBranch}（${org.bankBranchCode}）`
+    : org.bankBranch;
+  return [org.bankName, branch, org.bankAccountType, org.bankAccountNumber, org.bankAccountHolder]
+    .filter(Boolean)
+    .map((v) => escapeHtml(String(v)))
+    .join(" ");
+}
+
+/**
+ * メール末尾の発行元表記。適格請求書の要件に合わせて登録番号も記載する
+ * (未設定の項目は出さない)。
+ */
+function orgFooter(org: Organization): string {
+  const line = [org.address, org.tel].filter(Boolean).map((v) => escapeHtml(String(v))).join("　");
+  const registration = org.registrationNumber
+    ? `<br />登録番号: ${escapeHtml(org.registrationNumber)}`
+    : "";
+  return `<p style="color:#999;font-size:12px;margin-top:24px">${escapeHtml(org.name)}　${line}${registration}</p>`;
+}
+
 /** 請求書送付メールの本文(HTML)。 */
 export function invoiceEmailHtml(params: {
   invoice: Invoice;
@@ -29,8 +53,8 @@ export function invoiceEmailHtml(params: {
       : `お支払いは <strong>${paymentMethodLabels[invoice.paymentMethod]}</strong> にて ${formatDate(invoice.dueDate)} までにお願いいたします。`;
 
   const bankInfo =
-    invoice.paymentMethod === "bank_transfer"
-      ? `<p style="margin:4px 0;color:#555">お振込先: ${org.bankName} ${org.bankBranch} ${org.bankAccountType} ${org.bankAccountNumber} ${org.bankAccountHolder}</p>`
+    invoice.paymentMethod === "bank_transfer" && org.bankName
+      ? `<p style="margin:4px 0;color:#555">お振込先: ${bankLine(org)}</p>`
       : "";
 
   return `
@@ -64,7 +88,7 @@ export function invoiceEmailHtml(params: {
           ? `<div style="text-align:center;margin-top:20px"><a href="${viewUrl}" style="background:#0d3b33;color:#fff;text-decoration:none;padding:10px 24px;border-radius:8px;display:inline-block">請求書を表示</a></div>`
           : ""
       }
-      <p style="color:#999;font-size:12px;margin-top:24px">${escapeHtml(org.name)}　${escapeHtml(org.address)}　${org.tel}</p>
+      ${orgFooter(org)}
     </div>
   </div>`;
 }
@@ -85,7 +109,7 @@ export function paymentReminderEmailHtml(params: {
 
   const bankInfo =
     invoice.paymentMethod !== "direct_debit" && org.bankName
-      ? `<p style="margin:4px 0;color:#555">お振込先: ${escapeHtml(org.bankName)} ${escapeHtml(org.bankBranch)} ${escapeHtml(org.bankAccountType)} ${escapeHtml(org.bankAccountNumber)} ${escapeHtml(org.bankAccountHolder)}</p>`
+      ? `<p style="margin:4px 0;color:#555">お振込先: ${bankLine(org)}</p>`
       : "";
 
   const lead =
@@ -112,7 +136,7 @@ export function paymentReminderEmailHtml(params: {
         本メールと行き違いでご入金いただいている場合は、何卒ご容赦ください。<br />
         ご不明な点がございましたら、本メールへご返信いただくかお電話にてお問い合わせください。
       </p>
-      <p style="color:#999;font-size:12px;margin-top:24px">${escapeHtml(org.name)}　${escapeHtml(org.address)}　${org.tel}</p>
+      ${orgFooter(org)}
     </div>
   </div>`;
 }
@@ -258,7 +282,7 @@ export function agencyStatementEmailHtml(params: {
         ※ 支払額は入金済み売上(税抜)に手数料率を乗じて算出しています。未入金分は入金確認後の明細に計上されます。<br/>
         ※ 内容に相違がある場合は、お手数ですが1週間以内にご連絡ください。
       </p>
-      <p style="color:#999;font-size:12px;margin-top:16px">${escapeHtml(org.name)}　${escapeHtml(org.address)}　${org.tel}</p>
+      ${orgFooter(org)}
     </div>
   </div>`;
 }
