@@ -5,15 +5,16 @@
 -- 冪等: 既にデータがある場合は重複挿入しない。
 -- =========================================================================
 
--- 組織(1件のみ)。空欄の項目(TEL/メール/登録番号/振込先)は
--- organizations テーブルを直接更新して設定してください。
+-- 組織(1件のみ)。空欄の項目(TEL/メール/振込先)は
+-- 設定画面「自社情報（請求書の発行元）」から入力してください(管理者のみ)。
+-- 登録番号は適格請求書(インボイス)に必要なため、初期値として投入する。
 insert into organizations (id, name, postal_code, address, tel, email,
-  registration_number, bank_name, bank_branch, bank_account_type,
+  registration_number, bank_name, bank_branch, bank_branch_code, bank_account_type,
   bank_account_number, bank_account_holder, invoice_prefix, default_tax_rate, logo_text)
 select
   'a0000000-0000-0000-0000-000000000001', '株式会社サロンワン', '',
   '東京都大田区蒲田５丁目７−４　エンゼルハイム蒲田第5　1101号室', '', '',
-  '', '', '', '普通', '', '',
+  'T2010801037576', '', '', '', '普通', '', '',
   'INV', 0.10, 'S1'
 where not exists (select 1 from organizations);
 

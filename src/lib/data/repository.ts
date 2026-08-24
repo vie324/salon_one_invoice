@@ -109,6 +109,27 @@ export interface MandateInput {
   registeredAt?: string | null;
 }
 
+/**
+ * 自社情報(請求書の発行元)の更新入力。設定画面から編集する。
+ * インボイス登録番号・電話番号・振込先は請求書/メールにそのまま記載される。
+ */
+export interface OrganizationInput {
+  name: string;
+  postalCode: string;
+  address: string;
+  tel: string;
+  email: string;
+  registrationNumber: string;
+  bankName: string;
+  bankBranch: string;
+  bankBranchCode: string;
+  bankAccountType: import("@/lib/domain/types").AccountType;
+  bankAccountNumber: string;
+  bankAccountHolder: string;
+  invoicePrefix: string;
+  defaultTaxRate: number;
+}
+
 export interface InvoiceItemInput {
   description: string;
   quantity: number;
@@ -393,6 +414,8 @@ export interface DevIssueAttachmentInput {
 export interface Repository {
   // --- 組織 ---
   getOrganization(): Promise<Organization>;
+  /** 自社情報の更新(設定画面から。請求書の記載内容に直結する) */
+  updateOrganization(input: OrganizationInput): Promise<Organization>;
 
   // --- 顧客 ---
   listCustomers(filter?: { status?: CustomerStatus; search?: string }): Promise<Customer[]>;
@@ -447,6 +470,12 @@ export interface Repository {
   getInvoice(id: string): Promise<InvoiceWithCustomer | null>;
   createInvoice(input: InvoiceInput): Promise<Invoice>;
   updateInvoiceStatus(id: string, status: InvoiceStatus): Promise<Invoice>;
+  /**
+   * 支払方法の変更(口座振替 ⇔ 銀行振込 など)。請求書の記載も追従する。
+   * 入金待ち(振替予定)と送付済(振込待ち)はステータスの意味が対になるため、
+   * 変更後の支払方法に合わせて読み替える。
+   */
+  updateInvoicePaymentMethod(id: string, paymentMethod: PaymentMethod): Promise<Invoice>;
   sendInvoice(id: string): Promise<Invoice>;
   /** 督促メール送付の記録(回数を加算し、最終送付日時を更新)。 */
   recordInvoiceReminder(id: string, params: { actor: string }): Promise<Invoice>;

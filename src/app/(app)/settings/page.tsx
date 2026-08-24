@@ -19,6 +19,7 @@ import type { UserProfile } from "@/lib/domain/types";
 import { AccountManager } from "./account-manager";
 import { ClaimAdminCard } from "./claim-admin-card";
 import { EmailTestForm } from "./email-test-form";
+import { OrganizationForm } from "./organization-form";
 import { SelfAccountActions } from "./self-account-actions";
 import { SignOutButton } from "./sign-out-button";
 
@@ -49,7 +50,7 @@ export default async function SettingsPage() {
 
   return (
     <div>
-      <PageHeader title="設定" description="自社情報・アカウント・実行モード・連携プロバイダを確認します。" />
+      <PageHeader title="設定" description="自社情報（請求書の発行元）の編集・アカウント・実行モード・連携プロバイダの確認を行います。" />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
@@ -58,19 +59,35 @@ export default async function SettingsPage() {
             <CardTitle>自社情報（請求書の発行元）</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            <Row label="事業者名" value={org.name} />
-            <Row label="住所" value={`〒${org.postalCode} ${org.address}`} />
-            <Row label="電話 / メール" value={`${org.tel} / ${org.email}`} />
-            <Row label="登録番号" value={org.registrationNumber} />
-            <Row
-              label="振込先"
-              value={`${org.bankName} ${org.bankBranch} ${org.bankAccountType} ${org.bankAccountNumber}`}
-            />
-            <Row label="請求書番号 接頭辞" value={org.invoicePrefix} />
-            <Row label="既定税率" value={`${Math.round(org.defaultTaxRate * 100)}%`} />
-            <p className="pt-1 text-xs text-muted-foreground">
-              ※ 本番では Supabase の organizations テーブルで管理します。
-            </p>
+            {admin ? (
+              <>
+                <p className="pb-1 text-xs text-muted-foreground">
+                  ここで入力した内容が、請求書（画面・印刷）と請求書メール・代理店明細の
+                  発行元欄にそのまま記載されます。
+                </p>
+                <OrganizationForm org={org} />
+              </>
+            ) : (
+              <>
+                <Row label="事業者名" value={org.name} />
+                <Row label="住所" value={`〒${org.postalCode} ${org.address}`} />
+                <Row label="電話 / メール" value={`${org.tel || "未設定"} / ${org.email || "未設定"}`} />
+                <Row label="登録番号" value={org.registrationNumber || "未設定"} />
+                <Row
+                  label="振込先"
+                  value={
+                    org.bankName
+                      ? `${org.bankName} ${org.bankBranch} ${org.bankAccountType} ${org.bankAccountNumber}`
+                      : "未設定"
+                  }
+                />
+                <Row label="請求書番号 接頭辞" value={org.invoicePrefix} />
+                <Row label="既定税率" value={`${Math.round(org.defaultTaxRate * 100)}%`} />
+                <p className="pt-1 text-xs text-muted-foreground">
+                  ※ 変更できるのは管理者のみです。
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
 

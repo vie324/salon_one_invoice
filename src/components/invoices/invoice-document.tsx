@@ -15,6 +15,15 @@ export function InvoiceDocument({
   org: Organization;
 }) {
   const totals = calcInvoiceTotals(invoice.items);
+  // 振込払いの案内に載せる口座情報(未設定の項目は行ごと省く)
+  const bankRows = [
+    { label: "銀行名", value: org.bankName },
+    { label: "支店名", value: org.bankBranch },
+    { label: "支店番号", value: org.bankBranchCode },
+    { label: "預金種別", value: org.bankAccountType },
+    { label: "口座番号", value: org.bankAccountNumber },
+    { label: "口座名義", value: org.bankAccountHolder },
+  ].filter((row) => Boolean(row.value));
   return (
     <div className="print-container mx-auto max-w-3xl rounded-lg border border-border bg-white p-8 text-[13px] text-neutral-900 shadow-sm sm:p-10">
       <div className="flex items-start justify-between">
@@ -59,14 +68,28 @@ export function InvoiceDocument({
             <LogoMark size={34} />
             <span className="font-semibold text-neutral-900">{org.name}</span>
           </div>
+          {/* 未入力の項目はラベルごと省く(空の「TEL:」等を印字しない) */}
           <div className="mt-2 text-xs leading-relaxed">
-            〒{org.postalCode} {org.address}
-            <br />
-            TEL: {org.tel}
-            <br />
-            {org.email}
-            <br />
-            登録番号: {org.registrationNumber}
+            {org.postalCode && <>〒{org.postalCode} </>}
+            {org.address}
+            {org.tel && (
+              <>
+                <br />
+                TEL: {org.tel}
+              </>
+            )}
+            {org.email && (
+              <>
+                <br />
+                {org.email}
+              </>
+            )}
+            {org.registrationNumber && (
+              <>
+                <br />
+                登録番号: {org.registrationNumber}
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -115,21 +138,36 @@ export function InvoiceDocument({
         </div>
       </div>
 
-      {/* 支払方法・備考 */}
+      {/* 支払方法・備考 — 支払方法に応じて引き落とし / お振込みの案内を出し分ける */}
       <div className="mt-8 rounded-md border border-neutral-200 bg-neutral-50 p-4 text-xs text-neutral-600">
         <div className="font-medium text-neutral-800">
           お支払い方法： {paymentMethodLabels[invoice.paymentMethod]}（{invoiceTypeLabels[invoice.type]}）
         </div>
-        {invoice.paymentMethod === "bank_transfer" && (
-          <div className="mt-1">
-            お振込先： {org.bankName} {org.bankBranch} {org.bankAccountType}{" "}
-            {org.bankAccountNumber} {org.bankAccountHolder}
-          </div>
-        )}
         {invoice.paymentMethod === "direct_debit" && (
           <div className="mt-1">
             ご登録の口座より {formatDate(invoice.dueDate)} に引き落とさせていただきます。
           </div>
+        )}
+        {invoice.paymentMethod === "bank_transfer" && (
+          <>
+            <div className="mt-1">
+              {formatDate(invoice.dueDate)} までに下記口座へお振込みくださいますよう、
+              よろしくお願いいたします。
+            </div>
+            {bankRows.length > 0 && (
+              <div className="mt-2">
+                <div className="font-medium text-neutral-800">【お振込先】</div>
+                <dl className="mt-1 space-y-0.5">
+                  {bankRows.map((row) => (
+                    <div key={row.label} className="flex gap-1">
+                      <dt className="w-14 shrink-0">{row.label}</dt>
+                      <dd className="text-neutral-700">： {row.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
+          </>
         )}
         {invoice.notes && <div className="mt-2 whitespace-pre-wrap">{invoice.notes}</div>}
       </div>

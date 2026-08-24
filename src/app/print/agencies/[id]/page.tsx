@@ -82,6 +82,12 @@ export default async function PrintAgencyStatementPage({
                     TEL: {org.tel}
                   </>
                 )}
+                {org.registrationNumber && (
+                  <>
+                    <br />
+                    登録番号: {org.registrationNumber}
+                  </>
+                )}
               </div>
             </div>
           </div>
