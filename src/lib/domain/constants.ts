@@ -315,6 +315,23 @@ export const devIssueExecutionTone: Record<DevIssueExecution, BadgeTone> = {
   rejected: "danger",
 };
 
+/** 追加ヒアリングの返信者(どちら側からの返信か) */
+export const devIssueReplyRoleLabels: Record<
+  import("./types").DevIssueReplyRole,
+  string
+> = {
+  requester: "依頼者",
+  engineer: "エンジニア",
+};
+
+export const devIssueReplyRoleTone: Record<
+  import("./types").DevIssueReplyRole,
+  BadgeTone
+> = {
+  requester: "info",
+  engineer: "primary",
+};
+
 /** 承認者数が把握できない場合に用いる既定の必要承諾数 */
 export const DEV_EXECUTION_REQUIRED_APPROVALS = 2;
 
@@ -341,6 +358,7 @@ export function computeDevExecution(
  * - 新規依頼:     プロダクト管理者 + エンジニア
  * - 対応完了:     依頼者 + プロダクト管理者(トップに通知が出る)
  * - 追加ヒアリング: 依頼者
+ * - ヒアリング返信: 依頼者 + エンジニア(返信した本人は除かれるので相手側へ届く)
  * - 実行判定確定:  依頼者 + エンジニア
  */
 export function devNotificationRecipients(params: {
@@ -364,6 +382,10 @@ export function devNotificationRecipients(params: {
     case "issue_hearing":
       ids = [params.requesterId];
       break;
+    case "issue_hearing_reply":
+      // 依頼者が返信すればエンジニアへ、エンジニアが返信すれば依頼者へ届く
+      ids = [params.requesterId, ...devs];
+      break;
     case "issue_execution":
       ids = [params.requesterId, ...devs];
       break;
@@ -375,6 +397,7 @@ export const notificationTypeLabels: Record<NotificationType, string> = {
   issue_created: "新規依頼",
   issue_done: "対応完了",
   issue_hearing: "追加ヒアリング",
+  issue_hearing_reply: "ヒアリング返信",
   issue_execution: "実行判定",
 };
 
@@ -382,6 +405,7 @@ export const notificationTypeTone: Record<NotificationType, BadgeTone> = {
   issue_created: "info",
   issue_done: "success",
   issue_hearing: "warning",
+  issue_hearing_reply: "info",
   issue_execution: "primary",
 };
 

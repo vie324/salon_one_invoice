@@ -105,6 +105,7 @@ export function EngineerForm({
           {s === "hearing" && (
             <p className="rounded-md bg-info/10 px-3 py-2 text-xs text-info">
               追加ヒアリングで保存すると、依頼者に通知が届きます。確認したい内容を「開発対応内容」に記載してください。
+              依頼者からの回答は「追加ヒアリングのやり取り」に追記され、届くとこちらへ通知されます。
             </p>
           )}
           {error && <p className="text-sm text-destructive">{error}</p>}

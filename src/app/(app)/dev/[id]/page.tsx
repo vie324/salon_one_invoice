@@ -1,18 +1,20 @@
-import { ArrowLeft, CalendarCheck, CalendarClock, User } from "lucide-react";
+import { ArrowLeft, CalendarCheck, CalendarClock, MessageSquare, User } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AttachmentsPanel } from "@/components/dev/attachments-panel";
+import { HearingPanel } from "@/components/dev/hearing-panel";
 import {
   DevIssueCategoryBadge,
   DevIssueExecutionBadge,
   DevIssuePriorityBadge,
   DevIssueStatusBadge,
 } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth";
 import { getServiceRepository } from "@/lib/data";
-import { isProductAdmin } from "@/lib/domain/constants";
-import { issueUrgency, pendingApprovers } from "@/lib/domain/dev-issues";
+import { isEngineer, isProductAdmin } from "@/lib/domain/constants";
+import { hearingState, issueUrgency, pendingApprovers } from "@/lib/domain/dev-issues";
 import type { UserProfile } from "@/lib/domain/types";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import {
@@ -52,6 +54,9 @@ export default async function DevIssueDetailPage({
   const approvers = profiles.filter((p) => isProductAdmin(p.roles));
   const pending = pendingApprovers(issue, profiles);
   const urgency = issueUrgency(issue, profiles);
+  // 追加ヒアリングのやり取り(返信が無く、ヒアリング中でもなければパネルは出さない)
+  const hearing = hearingState(issue);
+  const showHearing = hearing.active || hearing.replyCount > 0;
 
   return (
     <div>
@@ -75,6 +80,18 @@ export default async function DevIssueDetailPage({
             <DevIssueStatusBadge status={issue.status} />
             {issue.category === "request" && (
               <DevIssueExecutionBadge execution={issue.execution} />
+            )}
+            {hearing.answered && (
+              <Badge tone="info">
+                <MessageSquare className="h-3 w-3" />
+                ヒアリング返信あり
+              </Badge>
+            )}
+            {hearing.awaitingReply && (
+              <Badge tone="warning">
+                <MessageSquare className="h-3 w-3" />
+                ヒアリング返信待ち
+              </Badge>
             )}
           </div>
         </div>
@@ -117,6 +134,17 @@ export default async function DevIssueDetailPage({
               )}
             </CardContent>
           </Card>
+
+          {showHearing && (
+            <HearingPanel
+              issueId={issue.id}
+              status={issue.status}
+              devNote={issue.devNote}
+              replies={issue.replies}
+              currentUserId={user.id}
+              isEngineer={isEngineer(user.roles)}
+            />
+          )}
 
           <AttachmentsPanel
             issueId={issue.id}

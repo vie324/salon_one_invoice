@@ -51,6 +51,7 @@ import type {
   DevIssue,
   DevIssueAttachment,
   DevIssueExecution,
+  DevIssueReply,
   DirectDebitBatch,
   DirectDebitMandate,
   Invoice,
@@ -88,6 +89,7 @@ import type {
   DevIssueAttachmentInput,
   DevIssueFilter,
   DevIssueInput,
+  DevIssueReplyInput,
   DevIssueUpdateInput,
   InvoiceFilter,
   InvoiceInput,
@@ -1700,6 +1702,7 @@ export class DemoRepository implements Repository {
       completedDate: null,
       devNote: "",
       approvals: [],
+      replies: [],
       // 新しい依頼は既存の先頭より前(小さい値)に置く
       sortOrder: Math.min(0, ...this.s.devIssues.map((i) => i.sortOrder)) - 1,
       createdAt: now,
@@ -1837,6 +1840,39 @@ export class DemoRepository implements Repository {
   }
 
   // --- 開発依頼の添付画像 ---
+
+  async listDevIssueReplies(issueId: string): Promise<DevIssueReply[]> {
+    const issue = this.s.devIssues.find((i) => i.id === issueId);
+    return [...(issue?.replies ?? [])];
+  }
+
+  async addDevIssueReply(issueId: string, input: DevIssueReplyInput): Promise<DevIssueReply> {
+    const issue = this.s.devIssues.find((i) => i.id === issueId);
+    if (!issue) throw new Error("開発依頼が見つかりません");
+    const body = input.body.trim();
+    if (!body) throw new Error("返信内容を入力してください");
+    // HMR をまたいで残った古い依頼にも追記できるようにする
+    if (!issue.replies) issue.replies = [];
+    const reply: DevIssueReply = {
+      id: genId("rpl"),
+      issueId: issue.id,
+      authorId: input.author.id,
+      authorName: input.author.name,
+      authorRole: input.authorRole,
+      body,
+      notifiedNames: [],
+      createdAt: new Date().toISOString(),
+    };
+    issue.replies.push(reply);
+    issue.updatedAt = reply.createdAt;
+    reply.notifiedNames = this.notifyDevIssue(
+      "issue_hearing_reply",
+      issue,
+      `#${issue.issueNumber}「${issue.title}」の追加ヒアリングに ${input.author.name} さんが返信しました`,
+      input.author.id,
+    );
+    return reply;
+  }
 
   async listDevIssueAttachments(issueId: string): Promise<DevIssueAttachment[]> {
     return this.s.devIssueAttachments
@@ -2106,12 +2142,13 @@ export class DemoRepository implements Repository {
   }
 
   /** 開発依頼イベントの通知を該当ユーザーへ配信(操作者本人は除外) */
+  /** 通知を配信し、届けた相手の氏名を返す(共有先の表示に使う)。 */
   private notifyDevIssue(
     type: NotificationType,
     issue: DevIssue,
     message: string,
     actorId: string,
-  ) {
+  ): string[] {
     const recipients = devNotificationRecipients({
       type,
       profiles: this.s.profiles,
@@ -2130,6 +2167,9 @@ export class DemoRepository implements Repository {
         createdAt: now,
       });
     }
+    return recipients.map(
+      (id) => this.s.profiles.find((p) => p.id === id)?.name ?? "",
+    ).filter(Boolean);
   }
 
   private addActivity(a: {

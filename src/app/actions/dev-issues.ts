@@ -6,6 +6,7 @@ import { requireActionUser } from "@/lib/auth";
 import { getServiceRepository } from "@/lib/data";
 import type { DevIssueUpdateInput } from "@/lib/data/repository";
 import { canAccessDev, isProductAdmin } from "@/lib/domain/constants";
+import { replyAuthorRole } from "@/lib/domain/dev-issues";
 import type {
   DevApprovalDecision,
   DevIssueCategory,
@@ -77,6 +78,36 @@ export async function updateDevIssueAction(id: string, input: DevIssueUpdateInpu
     await repo.updateDevIssue(id, input, { id: user.id, name: user.name });
     revalidateDev(id);
     return { ok: true as const };
+  } catch (e) {
+    return { ok: false as const, error: (e as Error).message };
+  }
+}
+
+/**
+ * 追加ヒアリングへの返信を追記する(依頼者・エンジニアのどちらからでも)。
+ * 返信は相手側へ通知され、誰へ共有できたかを返す。
+ */
+export async function addDevIssueReplyAction(issueId: string, body: string) {
+  try {
+    const user = await requireActionUser();
+    if (!canAccessDev(user.roles)) throw new Error("開発進捗へのアクセス権限がありません");
+    const text = body.trim();
+    if (!text) throw new Error("返信内容を入力してください");
+    if (text.length > 4000) throw new Error("返信は4000文字までです");
+    const repo = await getServiceRepository();
+    const issue = await repo.getDevIssue(issueId);
+    if (!issue) throw new Error("開発依頼が見つかりません");
+    const reply = await repo.addDevIssueReply(issueId, {
+      body: text,
+      author: { id: user.id, name: user.name },
+      authorRole: replyAuthorRole({
+        authorId: user.id,
+        authorRoles: user.roles,
+        requesterId: issue.requesterId,
+      }),
+    });
+    revalidateDev(issueId);
+    return { ok: true as const, notifiedNames: reply.notifiedNames };
   } catch (e) {
     return { ok: false as const, error: (e as Error).message };
   }

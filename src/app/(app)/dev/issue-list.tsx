@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ChevronDown, ChevronUp, GripVertical } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, GripVertical, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import * as React from "react";
@@ -213,6 +213,18 @@ export function IssueList({ rows, manual }: { rows: DevIssueRow[]; manual: boole
                     {u.overdue && <Badge tone="danger">予定日 超過</Badge>}
                     {u.laterThanDesired && <Badge tone="warning">希望日に間に合わない予定</Badge>}
                     {u.missingSchedule && <Badge tone="warning">予定日 未記入</Badge>}
+                    {u.hearingAnswered && (
+                      <Badge tone="info">
+                        <MessageSquare className="h-3 w-3" />
+                        ヒアリング返信あり
+                      </Badge>
+                    )}
+                    {u.hearingAwaitingReply && (
+                      <Badge tone="warning">
+                        <MessageSquare className="h-3 w-3" />
+                        ヒアリング返信待ち
+                      </Badge>
+                    )}
                     {u.pendingApprovers.length > 0 && (
                       <Badge tone="info">{u.pendingApprovers.join("・")} の承諾待ち</Badge>
                     )}
