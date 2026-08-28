@@ -1,5 +1,12 @@
-import { isProductAdmin } from "./constants";
-import type { DevIssue, DevIssuePriority, UserProfile } from "./types";
+import { isEngineer, isProductAdmin } from "./constants";
+import type {
+  DevIssue,
+  DevIssuePriority,
+  DevIssueReply,
+  DevIssueReplyRole,
+  Role,
+  UserProfile,
+} from "./types";
 import { toISODate } from "@/lib/utils";
 
 /**
@@ -101,6 +108,61 @@ export function pendingApprovers(
   return profiles.filter((p) => isProductAdmin(p.roles) && !decided.has(p.id));
 }
 
+/**
+ * 返信がどちら側からのものかを決める。
+ * 依頼者本人はもちろん、業務側(請求管理者・管理者)の代理回答も依頼者側として扱う。
+ * エンジニアの投稿だけが engineer(追いヒアリング)になる。
+ */
+export function replyAuthorRole(params: {
+  authorId: string;
+  authorRoles: Role[];
+  requesterId: string;
+}): DevIssueReplyRole {
+  if (params.authorId === params.requesterId) return "requester";
+  return isEngineer(params.authorRoles) ? "engineer" : "requester";
+}
+
+/** 追加ヒアリングのやり取り状況(バッジ・督促に使う) */
+export interface HearingState {
+  /** 追加ヒアリング中か */
+  active: boolean;
+  /** やり取りの件数 */
+  replyCount: number;
+  /** 最後の返信(無ければ null) */
+  lastReply: DevIssueReply | null;
+  /**
+   * 依頼者の返信が届いていて、エンジニアがまだ動いていない状態。
+   * (ヒアリング中で、最後の返信が依頼者側)
+   */
+  answered: boolean;
+  /**
+   * 依頼者の返信待ち。
+   * (ヒアリング中で、返信が無いか、最後の返信がエンジニア側 = 質問しっぱなし)
+   */
+  awaitingReply: boolean;
+}
+
+/**
+ * 追加ヒアリングの状況を求める。
+ * ステータスが「追加ヒアリング」の間だけ督促対象になり、
+ * エンジニアが対応中・完了に戻せば自然に消える。
+ */
+export function hearingState(
+  issue: Pick<DevIssue, "status" | "replies">,
+): HearingState {
+  const replies = issue.replies ?? [];
+  const active = issue.status === "hearing";
+  const lastReply = replies.length > 0 ? replies[replies.length - 1] : null;
+  const answered = active && lastReply?.authorRole === "requester";
+  return {
+    active,
+    replyCount: replies.length,
+    lastReply,
+    answered,
+    awaitingReply: active && !answered,
+  };
+}
+
 /** 依頼1件の督促サマリー(バッジ・アラート表示に使う) */
 export interface DevIssueUrgency {
   open: boolean;
@@ -116,7 +178,13 @@ export interface DevIssueUrgency {
   desiredPassed: boolean;
   /** 完了予定日が希望日より後(希望に間に合わない見込み) */
   laterThanDesired: boolean;
-  /** 特に急ぐべきか(不具合の高優先 / 予定日超過 / 長期滞留) */
+  /** 追加ヒアリングに依頼者の返信が届いている(エンジニアが確認する番) */
+  hearingAnswered: boolean;
+  /** 追加ヒアリングの返信待ち(依頼者が答える番) */
+  hearingAwaitingReply: boolean;
+  /** 追加ヒアリングのやり取り件数 */
+  hearingReplyCount: number;
+  /** 特に急ぐべきか(不具合の高優先 / 予定日超過 / 長期滞留 / ヒアリング返信の放置) */
   urgent: boolean;
 }
 
@@ -135,10 +203,13 @@ export function issueUrgency(
   const pending = pendingApprovers(issue, profiles).map((p) => p.name);
   const desiredPassed = isDesiredDatePassed(issue, now);
   const laterThanDesired = isLaterThanDesired(issue);
+  const hearing = hearingState(issue);
   const urgent =
     open &&
     (overdue ||
       desiredPassed ||
+      // 返信は届いているのに止まっている状態は、依頼者を待たせているので急ぐ
+      hearing.answered ||
       (issue.category === "bug" && issue.priority === "high") ||
       (issue.category === "bug" && days >= STALE_DAYS));
   return {
@@ -149,6 +220,9 @@ export function issueUrgency(
     pendingApprovers: pending,
     desiredPassed,
     laterThanDesired,
+    hearingAnswered: hearing.answered,
+    hearingAwaitingReply: hearing.awaitingReply,
+    hearingReplyCount: hearing.replyCount,
     urgent,
   };
 }

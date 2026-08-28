@@ -31,6 +31,8 @@ import type {
   DevIssueCategory,
   DevIssueExecution,
   DevIssuePriority,
+  DevIssueReply,
+  DevIssueReplyRole,
   DevIssueStatus,
   DirectDebitBatch,
   DirectDebitMandate,
@@ -348,6 +350,13 @@ export interface DevIssueUpdateInput {
   devNote?: string;
 }
 
+/** 追加ヒアリングへの返信(追記のみ)。どちら側の返信かは呼び出し側が判定して渡す。 */
+export interface DevIssueReplyInput {
+  body: string;
+  author: ActorRef;
+  authorRole: DevIssueReplyRole;
+}
+
 /** アカウント作成(全体管理者のみ)。本番は Supabase Auth のユーザーも作成する。 */
 export interface CreateAccountInput {
   email: string;
@@ -639,6 +648,15 @@ export interface Repository {
    * 実行判定・通知・添付画像も併せて削除する(権限チェックはアプリ層で行う)。
    */
   deleteDevIssue(id: string): Promise<void>;
+
+  // --- 追加ヒアリングの返信 ---
+  /** やり取りの一覧(古い順)。 */
+  listDevIssueReplies(issueId: string): Promise<DevIssueReply[]>;
+  /**
+   * 追加ヒアリングへの返信を追記し、相手側(依頼者⇔エンジニア)へ通知する。
+   * 誰へ通知したかは返信に notifiedNames として記録され、画面で共有先を示せる。
+   */
+  addDevIssueReply(issueId: string, input: DevIssueReplyInput): Promise<DevIssueReply>;
 
   // --- 開発依頼の添付画像 ---
   listDevIssueAttachments(issueId: string): Promise<DevIssueAttachment[]>;

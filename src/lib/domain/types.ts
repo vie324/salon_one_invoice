@@ -561,6 +561,30 @@ export interface DevIssueApproval {
   createdAt: string;
 }
 
+/**
+ * 追加ヒアリングの返信がどちら側からのものか。
+ * requester(依頼者側の回答) / engineer(エンジニア側の確認・追いヒアリング)。
+ */
+export type DevIssueReplyRole = "requester" | "engineer";
+
+/**
+ * 追加ヒアリングのやり取り(追記のみのスレッド)。
+ * エンジニアの確認事項に対して依頼者が返信し、相手側へ通知が飛ぶ。
+ */
+export interface DevIssueReply {
+  id: string;
+  issueId: string;
+  /** 投稿者(profiles.id / デモユーザーID) */
+  authorId: string;
+  authorName: string;
+  /** 依頼者側の回答か、エンジニア側の確認か */
+  authorRole: DevIssueReplyRole;
+  body: string;
+  /** この返信を通知した相手の氏名(共有できたことを画面で示すために保持) */
+  notifiedNames: string[];
+  createdAt: string;
+}
+
 /** 開発依頼(不具合報告・機能要望)。スプレッドシートの1行に相当する。 */
 export interface DevIssue {
   id: string;
@@ -594,6 +618,8 @@ export interface DevIssue {
   devNote: string;
   /** プロダクト管理者の実行判定(要望のみ使用) */
   approvals: DevIssueApproval[];
+  /** 追加ヒアリングのやり取り(古い順) */
+  replies: DevIssueReply[];
   /** 手動の並び順(小さいほど上)。ドラッグで入れ替えたときに更新する。 */
   sortOrder: number;
   /** 記載日 */
@@ -625,6 +651,7 @@ export type NotificationType =
   | "issue_created" // 新しい開発依頼
   | "issue_done" // 対応完了
   | "issue_hearing" // 追加ヒアリング(依頼者への確認)
+  | "issue_hearing_reply" // 追加ヒアリングへの返信(相手側への共有)
   | "issue_execution"; // 実行有無の判定確定
 
 export interface AppNotification {

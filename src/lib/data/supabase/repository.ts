@@ -56,6 +56,7 @@ import type {
   DevIssueApproval,
   DevIssueAttachment,
   DevIssueExecution,
+  DevIssueReply,
   DirectDebitBatch,
   DirectDebitMandate,
   Invoice,
@@ -93,6 +94,7 @@ import type {
   DevIssueAttachmentInput,
   DevIssueFilter,
   DevIssueInput,
+  DevIssueReplyInput,
   DevIssueUpdateInput,
   InvoiceFilter,
   InvoiceInput,
@@ -455,6 +457,19 @@ function mapDevApproval(r: any): DevIssueApproval {
   };
 }
 
+function mapDevReply(r: any): DevIssueReply {
+  return {
+    id: r.id,
+    issueId: r.issue_id,
+    authorId: r.author_id ?? "",
+    authorName: r.author_name ?? "",
+    authorRole: r.author_role === "engineer" ? "engineer" : "requester",
+    body: r.body ?? "",
+    notifiedNames: (r.notified_names as string[]) ?? [],
+    createdAt: r.created_at,
+  };
+}
+
 function mapDevIssue(r: any): DevIssue {
   const approvals = ((r.dev_issue_approvals ?? []) as any[])
     .map(mapDevApproval)
@@ -477,6 +492,8 @@ function mapDevIssue(r: any): DevIssue {
     completedDate: r.completed_date,
     devNote: r.dev_note ?? "",
     approvals,
+    // やり取りは別クエリで添える(attachDevIssueReplies)
+    replies: [],
     sortOrder: Number(r.sort_order ?? 0),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -2773,7 +2790,7 @@ export class SupabaseRepository implements Repository {
     }
     const { data, error } = await q;
     if (error) throw error;
-    return (data ?? []).map(mapDevIssue);
+    return this.attachDevIssueReplies((data ?? []).map(mapDevIssue));
   }
 
   async getDevIssue(id: string): Promise<DevIssue | null> {
@@ -2783,7 +2800,39 @@ export class SupabaseRepository implements Repository {
       .eq("id", id)
       .maybeSingle();
     if (error) throw error;
-    return data ? mapDevIssue(data) : null;
+    if (!data) return null;
+    const [issue] = await this.attachDevIssueReplies([mapDevIssue(data)]);
+    return issue;
+  }
+
+  /**
+   * 依頼に追加ヒアリングのやり取りを添える(まとめて1クエリ)。
+   * 移行(0018)未適用でも一覧・詳細が落ちないよう、取得できなければ返信なしとして扱う。
+   */
+  private async attachDevIssueReplies(issues: DevIssue[]): Promise<DevIssue[]> {
+    if (issues.length === 0) return issues;
+    try {
+      const { data, error } = await this.db
+        .from("dev_issue_replies")
+        .select("*")
+        .in(
+          "issue_id",
+          issues.map((i) => i.id),
+        )
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      const byIssue = new Map<string, DevIssueReply[]>();
+      for (const row of data ?? []) {
+        const reply = mapDevReply(row);
+        const list = byIssue.get(reply.issueId);
+        if (list) list.push(reply);
+        else byIssue.set(reply.issueId, [reply]);
+      }
+      for (const issue of issues) issue.replies = byIssue.get(issue.id) ?? [];
+    } catch {
+      // 移行未適用など。返信は空のままにして本体の表示は続ける
+    }
+    return issues;
   }
 
   async reorderDevIssues(orderedIds: string[]): Promise<void> {
@@ -3044,6 +3093,58 @@ export class SupabaseRepository implements Repository {
           "SUPABASE_SERVICE_ROLE_KEY の設定を確認してください: " + msg,
       );
     }
+  }
+
+  // --- 追加ヒアリングの返信 ---
+
+  async listDevIssueReplies(issueId: string): Promise<DevIssueReply[]> {
+    const { data, error } = await this.db
+      .from("dev_issue_replies")
+      .select("*")
+      .eq("issue_id", issueId)
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    return (data ?? []).map(mapDevReply);
+  }
+
+  async addDevIssueReply(issueId: string, input: DevIssueReplyInput): Promise<DevIssueReply> {
+    const issue = await this.getDevIssue(issueId);
+    if (!issue) throw new Error("開発依頼が見つかりません");
+    const body = input.body.trim();
+    if (!body) throw new Error("返信内容を入力してください");
+    const { data, error } = await this.db
+      .from("dev_issue_replies")
+      .insert({
+        issue_id: issueId,
+        // デモID等の uuid でない投稿者IDは NULL(表示は author_name を使う)
+        author_id: isUuid(input.author.id) ? input.author.id : null,
+        author_name: input.author.name,
+        author_role: input.authorRole,
+        body,
+      })
+      .select("*")
+      .single();
+    if (error) throw error;
+    const reply = mapDevReply(data);
+    reply.authorId = input.author.id;
+    // 相手側(依頼者⇔エンジニア)へ共有し、誰に届いたかを返信に残す
+    const notifiedNames = await this.notifyDevIssue(
+      "issue_hearing_reply",
+      issue,
+      `#${issue.issueNumber}「${issue.title}」の追加ヒアリングに ${input.author.name} さんが返信しました`,
+      input.author.id,
+    );
+    reply.notifiedNames = notifiedNames;
+    if (notifiedNames.length > 0) {
+      // 共有先の表示に使う。記録に失敗しても通知自体は届いている
+      await this.db
+        .from("dev_issue_replies")
+        .update({ notified_names: notifiedNames })
+        .eq("id", reply.id);
+    }
+    // 一覧の「最終更新」がやり取りに追従するようにする(updated_at はトリガーで更新される)
+    await this.db.from("dev_issues").update({ status: issue.status }).eq("id", issueId);
+    return reply;
   }
 
   async listDevIssueAttachments(issueId: string): Promise<DevIssueAttachment[]> {
@@ -3452,20 +3553,24 @@ export class SupabaseRepository implements Repository {
     await this.db.from("notifications").delete().eq("user_id", userId);
   }
 
-  /** 開発依頼イベントの通知を該当ユーザーへ配信(操作者本人は除外)。best-effort。 */
+  /**
+   * 開発依頼イベントの通知を該当ユーザーへ配信(操作者本人は除外)。best-effort。
+   * 届けた相手の氏名を返す(誰に共有できたかの表示に使う)。
+   */
   private async notifyDevIssue(
     type: NotificationType,
     issue: DevIssue,
     message: string,
     actorId: string,
-  ) {
+  ): Promise<string[]> {
     try {
       // roles 列は移行(0014)で追加されるため列指定せず取得する
       const { data: profRows, error } = await this.db.from("profiles").select("*");
       if (error) throw error;
+      const rows = profRows ?? [];
       const recipients = devNotificationRecipients({
         type,
-        profiles: (profRows ?? []).map((r: any) => ({
+        profiles: rows.map((r: any) => ({
           id: r.id,
           role: r.role as Role,
           roles: normalizeRoles({ role: r.role as Role, roles: (r.roles as Role[]) ?? null }),
@@ -3473,8 +3578,8 @@ export class SupabaseRepository implements Repository {
         requesterId: issue.requesterId,
         actorId,
       }).filter(isUuid); // notifications.user_id は uuid のため
-      if (recipients.length === 0) return;
-      await this.db.from("notifications").insert(
+      if (recipients.length === 0) return [];
+      const { error: insError } = await this.db.from("notifications").insert(
         recipients.map((userId) => ({
           user_id: userId,
           type,
@@ -3482,8 +3587,14 @@ export class SupabaseRepository implements Repository {
           issue_id: issue.id,
         })),
       );
+      if (insError) throw insError;
+      const nameOf = new Map<string, string>(
+        rows.map((r: any) => [r.id as string, (r.full_name as string) ?? ""]),
+      );
+      return recipients.map((id) => nameOf.get(id) ?? "").filter(Boolean);
     } catch {
       // 通知の失敗で本体の業務処理(依頼の登録・更新)を失敗させない
+      return [];
     }
   }
 }

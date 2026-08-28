@@ -1,4 +1,4 @@
-import { CalendarX, Clock, GripVertical, Plus, UserCheck } from "lucide-react";
+import { CalendarX, Clock, GripVertical, MessageSquare, Plus, UserCheck } from "lucide-react";
 import Link from "next/link";
 import { CompletionBanner } from "@/components/notifications/completion-banner";
 import { buttonClasses } from "@/components/ui/button";
@@ -89,6 +89,10 @@ export default async function DevIssuesPage({
   const myApproval = openIssues.filter((i) =>
     pendingApprovers(i, profiles).some((p) => p.id === user.id),
   );
+  // 追加ヒアリング: 返信が届いている(エンジニアの番) / 返信待ち(依頼者の番)
+  const hearingAnswered = openIssues.filter((i) => urgencyOf.get(i.id)?.hearingAnswered);
+  const hearingAwaiting = openIssues.filter((i) => urgencyOf.get(i.id)?.hearingAwaitingReply);
+  const myHearing = hearingAwaiting.filter((i) => i.requesterId === user.id);
 
   const engineer = isEngineer(user.roles);
   const approver = isProductAdmin(user.roles);
@@ -136,6 +140,36 @@ export default async function DevIssuesPage({
             linkLabel="確認する"
           />
         )}
+        {myHearing.length > 0 && (
+          <AlertBar
+            tone="danger"
+            icon={<MessageSquare className="h-4 w-4" />}
+            title={`あなたへの追加ヒアリングが ${myHearing.length}件あります`}
+            body={`「${myHearing[0].title}」ほか。返信を追記するとエンジニアへ通知され、対応が再開します。`}
+            href={`/dev/${myHearing[0].id}`}
+            linkLabel="返信する"
+          />
+        )}
+        {engineer && hearingAnswered.length > 0 && (
+          <AlertBar
+            tone="warning"
+            icon={<MessageSquare className="h-4 w-4" />}
+            title={`追加ヒアリングに返信が ${hearingAnswered.length}件届いています`}
+            body={`「${hearingAnswered[0].title}」ほか。内容を確認して、ステータスを「対応中」に戻してください。`}
+            href={`/dev/${hearingAnswered[0].id}`}
+            linkLabel="返信を読む"
+          />
+        )}
+        {!engineer && hearingAwaiting.length > myHearing.length && (
+          <AlertBar
+            tone="warning"
+            icon={<MessageSquare className="h-4 w-4" />}
+            title={`返信待ちの追加ヒアリングが ${hearingAwaiting.length - myHearing.length}件あります`}
+            body="依頼者の返信が無いあいだ対応は進みません。回答をお願いしてください。"
+            href={`/dev/${(hearingAwaiting.find((i) => i.requesterId !== user.id) ?? hearingAwaiting[0]).id}`}
+            linkLabel="確認する"
+          />
+        )}
         {desiredPassed.length > 0 && (
           <AlertBar
             tone="danger"
@@ -178,7 +212,7 @@ export default async function DevIssuesPage({
         )}
       </div>
 
-      <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <SummaryTile
           label="要対応の不具合"
           value={urgentBugs.length}
@@ -192,6 +226,12 @@ export default async function DevIssuesPage({
           value={approver ? myApproval.length : awaitingApproval.length}
           href="/dev?category=request"
           tone="info"
+        />
+        <SummaryTile
+          label={engineer ? "ヒアリング返信あり" : "あなたへのヒアリング"}
+          value={engineer ? hearingAnswered.length : myHearing.length}
+          href="/dev?status=hearing"
+          tone={engineer ? "warning" : "danger"}
         />
       </div>
 
