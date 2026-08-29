@@ -15,7 +15,8 @@ export function RevenueChart({ data }: { data: MonthlyRevenuePoint[] }) {
 
   const height = 260;
   const pad = { top: 16, right: 12, bottom: 28, left: 46 };
-  const w = Math.max(width, 320);
+  // 目盛りとラベルが読める最小幅。これより狭い画面では横スクロールで見せる
+  const w = Math.max(width, 300);
   const plotW = w - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
 
@@ -34,7 +35,7 @@ export function RevenueChart({ data }: { data: MonthlyRevenuePoint[] }) {
   const monthLabel = (m: string) => `${Number(m.split("-")[1])}月`;
 
   return (
-    <div ref={ref} className="relative w-full">
+    <div ref={ref} className="relative w-full overflow-x-auto scrollbar-thin">
       {/* 凡例 */}
       <div className="mb-2 flex items-center gap-4 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">

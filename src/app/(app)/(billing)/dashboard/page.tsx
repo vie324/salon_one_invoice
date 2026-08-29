@@ -85,7 +85,7 @@ export default async function DashboardPage({
     .sort((a, b) => b.value - a.value);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* エラー対応完了などのお知らせ(未読があるあいだトップに表示) */}
       <CompletionBanner />
 
@@ -119,7 +119,7 @@ export default async function DashboardPage({
       <MonthTabs month={month} current={current} />
 
       {/* KPI */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-4">
         <StatCard
           label={`${shortLabel}の請求額`}
           value={formatJPY(metrics.monthInvoiced)}
@@ -151,9 +151,9 @@ export default async function DashboardPage({
         />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-4 sm:gap-6 lg:grid-cols-3">
         {/* 左: グラフ or タスク */}
-        <div className="space-y-6 lg:col-span-2">
+        <div className="space-y-4 sm:space-y-6 lg:col-span-2">
           <Card>
             <CardHeader className="flex-row items-center justify-between">
               <CardTitle>売上・入金の推移</CardTitle>
@@ -181,7 +181,7 @@ export default async function DashboardPage({
               </Link>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-3">
                 <TaskChip href="/invoices?status=draft" label="下書き" count={drafts.length} tone="neutral" />
                 <TaskChip href="/invoices?status=awaiting_payment" label="入金待ち" count={awaiting.length} tone="warning" />
                 <TaskChip href="/invoices?status=overdue" label="期限超過・失敗" count={needsFollow.length} tone="danger" />
@@ -225,7 +225,7 @@ export default async function DashboardPage({
         </div>
 
         {/* 右: 内訳 + アクティビティ */}
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>{shortLabel}の入金内訳</CardTitle>

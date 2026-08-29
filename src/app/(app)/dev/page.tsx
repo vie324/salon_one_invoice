@@ -212,7 +212,7 @@ export default async function DevIssuesPage({
         )}
       </div>
 
-      <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="mb-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
         <SummaryTile
           label="要対応の不具合"
           value={urgentBugs.length}
@@ -235,7 +235,7 @@ export default async function DevIssuesPage({
         />
       </div>
 
-      <Card className="p-4">
+      <Card className="p-3 sm:p-4">
         <IssueFilters
           status={statusParam}
           category={sp.category ?? "all"}
@@ -243,12 +243,12 @@ export default async function DevIssuesPage({
         />
 
         {/* 並び順: 自動(緊急度) / 手動(ドラッグで入替) */}
-        <div className="mb-3 flex flex-wrap items-center gap-1.5 text-xs">
-          <span className="text-muted-foreground">並び順:</span>
+        <div className="snap-rail -mx-1 mb-3 items-center gap-1.5 px-1 text-xs lg:flex-wrap">
+          <span className="self-center whitespace-nowrap text-muted-foreground">並び順:</span>
           <Link
             href={sortHref(sp, null)}
             className={cn(
-              "rounded-full px-3 py-1.5 font-medium transition-colors",
+              "inline-flex h-9 items-center rounded-full px-3.5 font-medium transition-colors",
               manual
                 ? "bg-muted text-muted-foreground hover:text-foreground"
                 : "bg-primary text-primary-foreground",
@@ -259,7 +259,7 @@ export default async function DevIssuesPage({
           <Link
             href={sortHref(sp, "manual")}
             className={cn(
-              "inline-flex items-center gap-1 rounded-full px-3 py-1.5 font-medium transition-colors",
+              "inline-flex h-9 items-center gap-1 rounded-full px-3.5 font-medium transition-colors",
               manual
                 ? "bg-primary text-primary-foreground"
                 : "bg-muted text-muted-foreground hover:text-foreground",
@@ -345,15 +345,26 @@ function AlertBar({
       ? "border-destructive/40 bg-destructive/10 text-destructive"
       : "border-warning/40 bg-warning/10 text-warning";
   return (
-    <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border px-3 py-2.5", cls)}>
-      <span className="flex items-center gap-1.5 text-sm font-semibold">
-        {icon}
+    <div
+      className={cn(
+        "rounded-md border px-3 py-2.5",
+        // スマホは縦積み、PC は1行に収める
+        "flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-1",
+        cls,
+      )}
+    >
+      <span className="flex items-start gap-1.5 text-sm font-semibold">
+        <span className="mt-0.5 shrink-0">{icon}</span>
         {title}
       </span>
-      <span className="text-xs text-foreground/80">{body}</span>
+      <span className="text-xs leading-relaxed text-foreground/80">{body}</span>
       <Link
         href={href}
-        className={buttonClasses({ variant: "outline", size: "sm", className: "ml-auto bg-card" })}
+        className={buttonClasses({
+          variant: "outline",
+          size: "sm",
+          className: "w-full bg-card sm:ml-auto sm:w-auto",
+        })}
       >
         {linkLabel}
       </Link>
@@ -382,9 +393,9 @@ function SummaryTile({
   return (
     <Link
       href={href}
-      className="rounded-lg border border-border bg-card px-4 py-3 transition-colors hover:bg-muted/50"
+      className="rounded-lg border border-border bg-card px-3 py-2.5 transition-colors hover:bg-muted/50 active:bg-muted sm:px-4 sm:py-3"
     >
-      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-[11px] leading-tight text-muted-foreground sm:text-xs">{label}</div>
       <div className={`tabular mt-0.5 text-lg font-bold ${value === 0 ? "text-muted-foreground" : toneCls}`}>
         {value}件
       </div>

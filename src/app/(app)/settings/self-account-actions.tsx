@@ -72,7 +72,7 @@ export function SelfAccountActions({
             <Field label="名前">
               <Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
             </Field>
-            <div className="flex justify-end gap-2">
+            <div className="flex gap-2 [&>*]:flex-1 sm:justify-end sm:[&>*]:flex-none">
               <Button type="button" variant="ghost" onClick={() => setDialog(null)} disabled={pending}>
                 キャンセル
               </Button>

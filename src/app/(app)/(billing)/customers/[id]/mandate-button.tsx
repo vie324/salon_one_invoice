@@ -70,9 +70,14 @@ export function MandateButton({
               <Input value={form.branchName} onChange={(e) => set({ branchName: e.target.value })} placeholder="○○支店" />
             </Field>
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
             <Field label="支店コード">
-              <Input value={form.branchCode} onChange={(e) => set({ branchCode: e.target.value })} placeholder="001" />
+              <Input
+                inputMode="numeric"
+                value={form.branchCode}
+                onChange={(e) => set({ branchCode: e.target.value })}
+                placeholder="001"
+              />
             </Field>
             <Field label="種別">
               <Select
@@ -83,8 +88,13 @@ export function MandateButton({
                 <option value="当座">当座</option>
               </Select>
             </Field>
-            <Field label="口座番号">
-              <Input value={form.accountNumber} onChange={(e) => set({ accountNumber: e.target.value })} placeholder="1234567" />
+            <Field label="口座番号" className="col-span-2 sm:col-span-1">
+              <Input
+                inputMode="numeric"
+                value={form.accountNumber}
+                onChange={(e) => set({ accountNumber: e.target.value })}
+                placeholder="1234567"
+              />
             </Field>
           </div>
           <Field label="口座名義（カナ）" hint="口座番号等は収納代行側で自動取込されるため、名義人の確認・入力を正確に行ってください">

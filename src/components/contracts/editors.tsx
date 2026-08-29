@@ -29,9 +29,11 @@ export function PartyEditor({
       <Field label="会社名 / 屋号">
         <Input value={party.name} onChange={(e) => set({ name: e.target.value })} />
       </Field>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid gap-3 sm:grid-cols-3">
         <Field label="郵便番号">
           <Input
+            inputMode="numeric"
+            autoComplete="postal-code"
             value={party.postalCode}
             onChange={(e) => set({ postalCode: e.target.value })}
           />

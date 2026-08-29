@@ -84,7 +84,7 @@ export default async function AgenciesPage() {
               {rows.map(({ agency, memberCount, customerCount, paidSubtotal, commission }) => (
                 <TR key={agency.id}>
                   <TD className="tabular text-muted-foreground">{agency.code}</TD>
-                  <TD>
+                  <TD primary>
                     <Link
                       href={`/agencies/${agency.id}`}
                       className="font-medium text-primary hover:underline"

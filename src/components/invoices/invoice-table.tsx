@@ -37,7 +37,7 @@ export function InvoiceTable({
           const outstanding = outstandingAmount(inv);
           return (
             <TR key={inv.id} className="cursor-pointer">
-              <TD className="font-medium">
+              <TD primary className="font-medium">
                 <Link href={`/invoices/${inv.id}`} className="hover:text-primary hover:underline">
                   {inv.invoiceNumber}
                 </Link>

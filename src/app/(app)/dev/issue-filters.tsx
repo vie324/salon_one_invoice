@@ -55,43 +55,58 @@ export function IssueFilters({
 
   const pill = (active: boolean) =>
     cn(
-      "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+      // 指で押せる高さ(36px)を確保し、スマホでは横スクロールで並べる
+      "inline-flex h-9 shrink-0 items-center whitespace-nowrap rounded-full px-3.5 text-xs font-medium transition-colors",
       active
         ? "bg-primary text-primary-foreground"
-        : "bg-muted text-muted-foreground hover:text-foreground",
+        : "bg-muted text-muted-foreground hover:text-foreground active:bg-muted/70",
     );
 
   return (
-    <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-      <div className="flex flex-wrap items-center gap-1.5">
-        {statusTabs.map((tab) => (
-          <button
-            key={tab.value}
-            onClick={() => setParam("status", tab.value)}
-            className={pill(status === tab.value)}
-          >
-            {tab.label}
-          </button>
-        ))}
-        <span className="mx-1 hidden h-4 w-px bg-border sm:block" />
-        {categoryTabs.map((tab) => (
-          <button
-            key={tab.value}
-            onClick={() => setParam("category", tab.value)}
-            className={pill((category || "all") === tab.value)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-      <div className="relative lg:w-64">
-        <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+    <div className="mb-4 flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+      {/* スマホでは検索を最上段に置く(いちばん使う操作) */}
+      <div className="relative order-first lg:order-last lg:w-64">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
+          type="search"
+          enterKeyHint="search"
           placeholder="課題名・詳細・依頼者で検索"
-          className="h-9 w-full rounded-md border border-input bg-card pl-8 pr-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="開発依頼を検索"
+          className="h-11 w-full rounded-md border border-input bg-card pl-9 pr-3 text-base placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-9 md:text-sm"
         />
+      </div>
+
+      {/* 状態・分類は横スクロールのレール(折り返して縦に伸びないようにする) */}
+      <div className="-mx-1 flex flex-col gap-1.5 lg:mx-0 lg:flex-row lg:flex-wrap lg:items-center">
+        <div className="snap-rail gap-1.5 px-1 lg:flex-wrap">
+          {statusTabs.map((tab) => (
+            <button
+              key={tab.value}
+              type="button"
+              onClick={() => setParam("status", tab.value)}
+              aria-pressed={status === tab.value}
+              className={pill(status === tab.value)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <span className="mx-1 hidden h-4 w-px bg-border lg:block" />
+        <div className="snap-rail gap-1.5 px-1 lg:flex-wrap">
+          {categoryTabs.map((tab) => (
+            <button
+              key={tab.value}
+              type="button"
+              onClick={() => setParam("category", tab.value)}
+              aria-pressed={(category || "all") === tab.value}
+              className={pill((category || "all") === tab.value)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

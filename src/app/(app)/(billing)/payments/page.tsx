@@ -119,7 +119,7 @@ export default async function PaymentsPage() {
                 {payments.slice(0, 12).map((p) => (
                   <TR key={p.id}>
                     <TD className="whitespace-nowrap text-muted-foreground">{formatDate(p.paidAt)}</TD>
-                    <TD>
+                    <TD primary>
                       <div className="font-medium">{nameOf(p.customerId)}</div>
                       {invoiceNo(p.invoiceId) && (
                         <Link

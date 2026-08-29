@@ -119,7 +119,7 @@ export default async function SignPage({
 
 function Shell({ children, orgName }: { children: React.ReactNode; orgName?: string }) {
   return (
-    <div className="min-h-screen bg-neutral-100 py-8 dark:bg-background">
+    <div className="min-h-screen bg-neutral-100 py-5 dark:bg-background sm:py-8">
       <div className="mx-auto max-w-3xl px-4">
         <div className="no-print mb-6 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
           <FileSignature className="h-4 w-4" />
@@ -133,7 +133,7 @@ function Shell({ children, orgName }: { children: React.ReactNode; orgName?: str
 
 function Notice({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-lg border border-border bg-card p-8 text-center shadow-sm">
+    <div className="rounded-lg border border-border bg-card p-6 text-center shadow-sm sm:p-8">
       <h1 className="text-lg font-bold">{title}</h1>
       <p className="mt-2 text-sm text-muted-foreground">{body}</p>
     </div>

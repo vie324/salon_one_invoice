@@ -25,8 +25,10 @@ function toLogin(request: NextRequest): NextResponse {
   const url = request.nextUrl.clone();
   const path = request.nextUrl.pathname;
   url.pathname = "/login";
-  // ログイン後に元のページへ戻すため、開こうとしたパスを引き継ぐ
-  url.search = path === "/" ? "" : `?redirect=${encodeURIComponent(path)}`;
+  // ログイン後に元のページへ戻すため、開こうとした URL を丸ごと引き継ぐ。
+  // 絞り込み条件などのクエリも保つ(共有された URL をそのまま開けるように)
+  const target = path + request.nextUrl.search;
+  url.search = path === "/" ? "" : `?redirect=${encodeURIComponent(target)}`;
   return NextResponse.redirect(url);
 }
 

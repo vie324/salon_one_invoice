@@ -45,7 +45,7 @@ export function NotificationBell({
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-label={`通知 (未読${unreadCount}件)`}
-        className="relative inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted sm:h-9 sm:w-9"
       >
         <Bell className="h-4 w-4" />
         {unreadCount > 0 && (
@@ -58,7 +58,8 @@ export function NotificationBell({
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-11 z-50 w-[min(92vw,380px)] overflow-hidden rounded-lg border border-border bg-card shadow-xl">
+          {/* スマホでは画面幅いっぱいのシートにして、端で見切れないようにする */}
+          <div className="fixed inset-x-2 top-[calc(env(safe-area-inset-top)+3.5rem)] z-50 overflow-hidden rounded-lg border border-border bg-card shadow-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-11 sm:w-[380px]">
             <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
               <span className="text-sm font-semibold">通知</span>
               {unreadCount > 0 && (
@@ -73,7 +74,7 @@ export function NotificationBell({
                 </button>
               )}
             </div>
-            <div className="max-h-[60vh] overflow-y-auto scrollbar-thin">
+            <div className="max-h-[65vh] overflow-y-auto scroll-contain scrollbar-thin">
               {notifications.length === 0 ? (
                 <p className="px-4 py-8 text-center text-sm text-muted-foreground">
                   通知はまだありません

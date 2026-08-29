@@ -72,7 +72,7 @@ export function ApplyForm({ token, orgName }: { token: string; orgName: string }
 
   if (done) {
     return (
-      <div className="rounded-lg border border-success/40 bg-card p-8 text-center shadow-sm">
+      <div className="rounded-lg border border-success/40 bg-card p-6 text-center shadow-sm sm:p-8">
         <CheckCircle2 className="mx-auto h-10 w-10 text-success" />
         <h1 className="mt-3 text-lg font-bold">お申込みを受け付けました</h1>
         <p className="mt-2 text-sm text-muted-foreground">
@@ -86,7 +86,7 @@ export function ApplyForm({ token, orgName }: { token: string; orgName: string }
 
   return (
     <form onSubmit={onSubmit} className="space-y-6">
-      <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
+      <section className="rounded-lg border border-border bg-card p-4 shadow-sm sm:p-6">
         <h1 className="text-lg font-bold">お申込み内容のご入力</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           以下をご入力のうえ、最後に「この内容で申し込む」を押してください。
@@ -144,6 +144,7 @@ export function ApplyForm({ token, orgName }: { token: string; orgName: string }
             <Field label="電話番号 *">
               <Input
                 type="tel"
+                inputMode="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="03-1234-5678"
@@ -154,6 +155,10 @@ export function ApplyForm({ token, orgName }: { token: string; orgName: string }
             <Field label="メールアドレス *" hint="ご連絡・請求書の送付先になります。">
               <Input
                 type="email"
+                inputMode="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="info@example.com"
@@ -165,7 +170,7 @@ export function ApplyForm({ token, orgName }: { token: string; orgName: string }
         </div>
       </section>
 
-      <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
+      <section className="rounded-lg border border-border bg-card p-4 shadow-sm sm:p-6">
         <h2 className="text-base font-bold">外部サービス連携情報（任意）</h2>
         <p className="mt-1 flex items-start gap-1.5 text-sm text-muted-foreground">
           <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -185,6 +190,9 @@ export function ApplyForm({ token, orgName }: { token: string; orgName: string }
                     value={creds[s.key].id}
                     onChange={(e) => setCred(s.key, { id: e.target.value })}
                     autoComplete="off"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                   />
                 </Field>
                 <Field label="PASS">
@@ -201,12 +209,12 @@ export function ApplyForm({ token, orgName }: { token: string; orgName: string }
         </div>
       </section>
 
-      <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
+      <section className="rounded-lg border border-border bg-card p-4 shadow-sm sm:p-6">
         <h2 className="text-base font-bold">LINE連携申込</h2>
         <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-md border border-border/70 p-4 hover:bg-muted/50">
           <input
             type="checkbox"
-            className="mt-0.5 h-4 w-4 accent-[var(--primary)]"
+            className="mt-0.5 h-5 w-5 accent-[hsl(var(--primary))]"
             checked={lineRequested}
             onChange={(e) => setLineRequested(e.target.checked)}
           />
@@ -225,9 +233,12 @@ export function ApplyForm({ token, orgName }: { token: string; orgName: string }
         </p>
       )}
 
-      <Button type="submit" size="lg" className="w-full" disabled={pending}>
-        {pending ? "送信中…" : "この内容で申し込む"}
-      </Button>
+      {/* スマホでは入力途中でもすぐ押せるよう、送信ボタンを画面下に固定する */}
+      <div className="sticky bottom-0 -mx-4 border-t border-border bg-background/95 px-4 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-3 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none">
+        <Button type="submit" size="lg" className="w-full" disabled={pending}>
+          {pending ? "送信中…" : "この内容で申し込む"}
+        </Button>
+      </div>
     </form>
   );
 }

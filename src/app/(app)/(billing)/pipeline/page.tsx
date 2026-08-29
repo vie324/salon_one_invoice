@@ -76,7 +76,7 @@ export default async function PipelinePage() {
     <div className="flex min-h-0 flex-col">
       <PageHeader
         title="顧客ステータス"
-        description="申込から運用開始までをカンバンで管理します。初期費用＋初月日割りは請求書(銀行振込)、以降は口座振替(引き落とし)の運用です。カードをドラッグしてステージを移動できます。"
+        description="申込から運用開始までをカンバンで管理します。初期費用＋初月日割りは請求書(銀行振込)、以降は口座振替(引き落とし)の運用です。PCではカードをドラッグ、スマートフォンではカードを開いてステージを変更できます。"
       />
       <PipelineBoard initialCards={cards} />
     </div>

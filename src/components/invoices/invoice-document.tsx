@@ -25,7 +25,7 @@ export function InvoiceDocument({
     { label: "口座名義", value: org.bankAccountHolder },
   ].filter((row) => Boolean(row.value));
   return (
-    <div className="print-container mx-auto max-w-3xl rounded-lg border border-border bg-white p-8 text-[13px] text-neutral-900 shadow-sm sm:p-10">
+    <div className="print-container mx-auto max-w-3xl rounded-lg border border-border bg-white p-4 text-[13px] text-neutral-900 shadow-sm sm:p-8 md:p-10">
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-wide text-neutral-900">請求書</h1>
@@ -95,7 +95,8 @@ export function InvoiceDocument({
       </div>
 
       {/* 明細 */}
-      <table className="mt-8 w-full border-collapse text-sm">
+      <div className="mt-8 overflow-x-auto">
+      <table className="w-full min-w-[440px] border-collapse text-sm">
         <thead>
           <tr className="border-b-2 border-neutral-800 text-xs text-neutral-500">
             <th className="py-2 text-left font-medium">品目</th>
@@ -117,6 +118,7 @@ export function InvoiceDocument({
           ))}
         </tbody>
       </table>
+      </div>
 
       {/* 合計 */}
       <div className="mt-4 flex justify-end">

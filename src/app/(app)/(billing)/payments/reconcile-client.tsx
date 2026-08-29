@@ -155,7 +155,7 @@ export function ReconcileClient({
             <Check className="h-3.5 w-3.5" />
             取込後、金額・名義から自動で消込候補を提案します。
           </div>
-          <div className="flex justify-end gap-2">
+          <div className="flex gap-2 [&>*]:flex-1 sm:justify-end sm:[&>*]:flex-none">
             <Button variant="outline" onClick={() => setImportOpen(false)} disabled={pending}>
               キャンセル
             </Button>
