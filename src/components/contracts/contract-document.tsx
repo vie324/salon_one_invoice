@@ -69,7 +69,7 @@ export function ContractDocument({ contract }: { contract: Contract }) {
   const signed = contract.status === "signed";
 
   return (
-    <div className="print-container mx-auto max-w-3xl rounded-lg border border-border bg-white p-8 text-[13px] text-neutral-900 shadow-sm sm:p-10">
+    <div className="print-container mx-auto max-w-3xl rounded-lg border border-border bg-white p-4 text-[13px] text-neutral-900 shadow-sm sm:p-8 md:p-10">
       {/* 表題 */}
       <div className="text-center">
         <h1 className="text-xl font-bold tracking-wide text-neutral-900 sm:text-2xl">

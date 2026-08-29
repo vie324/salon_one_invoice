@@ -98,12 +98,23 @@ export function EditCustomerButton({
               <Input type="email" value={form.email} onChange={(e) => set({ email: e.target.value })} />
             </Field>
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid gap-4 sm:grid-cols-3">
             <Field label="電話番号">
-              <Input value={form.phone} onChange={(e) => set({ phone: e.target.value })} />
+              <Input
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                value={form.phone}
+                onChange={(e) => set({ phone: e.target.value })}
+              />
             </Field>
             <Field label="郵便番号">
-              <Input value={form.postalCode} onChange={(e) => set({ postalCode: e.target.value })} />
+              <Input
+                inputMode="numeric"
+                autoComplete="postal-code"
+                value={form.postalCode}
+                onChange={(e) => set({ postalCode: e.target.value })}
+              />
             </Field>
             <Field label="社内担当者">
               <Input value={form.assignee} onChange={(e) => set({ assignee: e.target.value })} />
@@ -176,7 +187,7 @@ export function EditCustomerButton({
             />
           </Field>
           {error && <p className="text-sm text-destructive">{error}</p>}
-          <div className="flex justify-end gap-2">
+          <div className="flex gap-2 [&>*]:flex-1 sm:justify-end sm:[&>*]:flex-none">
             <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>
               キャンセル
             </Button>

@@ -98,7 +98,7 @@ export default async function AgencyDetailPage({
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid gap-2.5 sm:grid-cols-3 sm:gap-3">
                 <StatBox label="対象請求(税抜)" value={formatJPY(statement.invoicedSubtotal)} />
                 <StatBox label="入金済売上(税抜)" value={formatJPY(statement.paidSubtotal)} />
                 <StatBox

@@ -1,8 +1,9 @@
 "use client";
 
-import { Check, Copy, ExternalLink, QrCode } from "lucide-react";
+import { Check, Copy, ExternalLink, QrCode, Share2 } from "lucide-react";
 import * as React from "react";
 import { Button } from "@/components/ui/button";
+import { canNativeShare, copyText, nativeShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
 
 /**
@@ -74,15 +75,13 @@ export function ShareLink({
 }) {
   const [copied, setCopied] = React.useState(false);
   const [showQr, setShowQr] = React.useState(false);
+  const [supportsNative, setSupportsNative] = React.useState(false);
+
+  React.useEffect(() => setSupportsNative(canNativeShare()), []);
 
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      // クリップボードが使えない環境(権限拒否など)は選択用に表示する
-      window.prompt("このURLをコピーしてお客様にお渡しください", url);
-      return;
-    }
+    const ok = await copyText(url);
+    if (!ok) return; // 手動コピーのプロンプトを出した場合は完了表示を出さない
     setCopied(true);
     window.setTimeout(() => setCopied(false), 2000);
   }
@@ -92,6 +91,17 @@ export function ShareLink({
       <div className="font-medium">{label}</div>
       <p className="mt-1 break-all text-muted-foreground">{url}</p>
       <div className="mt-2 flex flex-wrap gap-1.5">
+        {/* スマホなら LINE・メール等へワンタップで渡せる */}
+        {supportsNative && (
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void nativeShare({ title: label, url })}
+          >
+            <Share2 className="h-4 w-4" />
+            LINE・メールで送る
+          </Button>
+        )}
         <Button type="button" size="sm" variant="outline" onClick={() => void copy()}>
           {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
           {copied ? "コピーしました" : "URLをコピー"}
@@ -110,7 +120,7 @@ export function ShareLink({
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="inline-flex h-9 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted md:h-8"
         >
           <ExternalLink className="h-4 w-4" />
           開いて確認

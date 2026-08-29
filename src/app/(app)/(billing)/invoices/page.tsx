@@ -62,7 +62,7 @@ export default async function InvoicesPage({
         }
       />
 
-      <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="mb-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-4">
         <SummaryTile label="件数" value={`${invoices.length}件`} />
         <SummaryTile label="合計金額" value={formatJPY(total)} />
         <SummaryTile label="未収合計" value={formatJPY(outstanding)} accent />
@@ -87,7 +87,7 @@ export default async function InvoicesPage({
             期限超過の請求を見る
           </Link>
         </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-3">
           {aging.map((b) => (
             <div key={b.key} className="rounded-md border border-border px-3 py-2">
               <div className="text-[11px] text-muted-foreground">{b.label}</div>
@@ -111,7 +111,7 @@ export default async function InvoicesPage({
         </div>
       </div>
 
-      <Card className="p-4">
+      <Card className="p-3 sm:p-4">
         <InvoiceFilters status={sp.status ?? "all"} query={sp.q ?? ""} />
         <InvoiceTable invoices={invoices} />
       </Card>
@@ -121,8 +121,8 @@ export default async function InvoicesPage({
 
 function SummaryTile({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div className="rounded-lg border border-border bg-card px-4 py-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
+    <div className="rounded-lg border border-border bg-card px-3 py-2.5 sm:px-4 sm:py-3">
+      <div className="text-[11px] leading-tight text-muted-foreground sm:text-xs">{label}</div>
       <div className={`tabular mt-0.5 text-lg font-bold ${accent ? "text-warning" : ""}`}>{value}</div>
     </div>
   );

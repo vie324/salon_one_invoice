@@ -62,7 +62,7 @@ export default async function TrashPage() {
                     <TD>
                       <Badge tone="neutral">{ENTITY_LABELS[r.entity]}</Badge>
                     </TD>
-                    <TD>
+                    <TD primary>
                       <div className="font-medium">{r.label}</div>
                       {r.sublabel && (
                         <div className="text-xs text-muted-foreground">{r.sublabel}</div>

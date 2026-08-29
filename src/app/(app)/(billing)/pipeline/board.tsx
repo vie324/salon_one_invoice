@@ -168,6 +168,11 @@ export function PipelineBoard({ initialCards }: { initialCards: PipelineCard[] }
     setDropTarget(null);
   };
 
+  // スマホでは6列を横に並べても読めないため、1ステージずつ切り替えて表示する
+  const [mobileStage, setMobileStage] = React.useState<OnboardingStage>(stages[0]);
+  // 「休止・解約を表示」を切ったときに、消えた列を選んだままにしない
+  const activeStage = stages.includes(mobileStage) ? mobileStage : stages[0];
+
   const syncAll = () => {
     if (mismatched.length === 0) return;
     if (
@@ -192,35 +197,40 @@ export function PipelineBoard({ initialCards }: { initialCards: PipelineCard[] }
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       {/* ツールバー */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:gap-3">
         <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            type="search"
+            enterKeyHint="search"
             placeholder="顧客名・コード・担当で検索"
-            className="h-9 w-64 pl-8"
+            aria-label="顧客を検索"
+            className="pl-9 md:h-9 md:w-64"
           />
         </div>
-        <label className="flex cursor-pointer items-center gap-1.5 text-sm text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={dueOnly}
-            onChange={(e) => setDueOnly(e.target.checked)}
-            className="h-4 w-4 accent-[hsl(var(--primary))]"
-          />
-          期日超過のみ
-        </label>
-        <label className="flex cursor-pointer items-center gap-1.5 text-sm text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={showClosed}
-            onChange={(e) => setShowClosed(e.target.checked)}
-            className="h-4 w-4 accent-[hsl(var(--primary))]"
-          />
-          休止・解約を表示
-        </label>
-        <div className="flex-1" />
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <label className="flex min-h-9 cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={dueOnly}
+              onChange={(e) => setDueOnly(e.target.checked)}
+              className="h-5 w-5 accent-[hsl(var(--primary))] md:h-4 md:w-4"
+            />
+            期日超過のみ
+          </label>
+          <label className="flex min-h-9 cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={showClosed}
+              onChange={(e) => setShowClosed(e.target.checked)}
+              className="h-5 w-5 accent-[hsl(var(--primary))] md:h-4 md:w-4"
+            />
+            休止・解約を表示
+          </label>
+        </div>
+        <div className="hidden flex-1 md:block" />
         {mismatched.length > 0 && (
           <Button variant="outline" size="sm" onClick={syncAll} disabled={pending}>
             <RefreshCw className="h-4 w-4" />
@@ -242,7 +252,37 @@ export function PipelineBoard({ initialCards }: { initialCards: PipelineCard[] }
           }
         />
       ) : (
-        <div className="min-h-0 flex-1 overflow-x-auto pb-2 scrollbar-thin">
+        <>
+          {/* スマホ: ステージを1つずつ切り替える(6列の横スクロールは追えないため) */}
+          <div className="snap-rail -mx-1 gap-1.5 px-1 md:hidden" role="tablist" aria-label="ステージ">
+            {stages.map((stage) => {
+              const count = cards.filter((c) => c.stage === stage && matches(c)).length;
+              const active = stage === activeStage;
+              return (
+                <button
+                  key={stage}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setMobileStage(stage)}
+                  className={cn(
+                    "inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-xs font-medium transition-colors",
+                    active
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground active:bg-muted/70",
+                  )}
+                >
+                  {onboardingStageLabels[stage]}
+                  <span className={cn("tabular", active ? "opacity-80" : "opacity-70")}>{count}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-muted-foreground md:hidden">
+            カードをタップすると詳細が開き、そこでステージを変更できます。
+          </p>
+
+          <div className="min-h-0 flex-1 overflow-x-auto pb-2 scrollbar-thin">
           <div className="flex items-start gap-3">
             {stages.map((stage) => {
               const colCards = cards.filter((c) => c.stage === stage && matches(c));
@@ -252,7 +292,9 @@ export function PipelineBoard({ initialCards }: { initialCards: PipelineCard[] }
                 <div
                   key={stage}
                   className={cn(
-                    "flex w-[276px] shrink-0 flex-col rounded-lg border border-border bg-muted/40",
+                    "flex w-full shrink-0 flex-col rounded-lg border border-border bg-muted/40 md:w-[276px]",
+                    // スマホは選択中のステージだけを画面幅いっぱいに出す
+                    stage === activeStage ? "flex" : "hidden md:flex",
                     isOver && "border-primary/60 bg-primary/5",
                   )}
                   onDragOver={(e) => {
@@ -333,7 +375,8 @@ export function PipelineBoard({ initialCards }: { initialCards: PipelineCard[] }
               );
             })}
           </div>
-        </div>
+          </div>
+        </>
       )}
 
       {selected && (

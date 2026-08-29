@@ -1,6 +1,6 @@
 "use client";
 
-import { ImagePlus, Pencil, X } from "lucide-react";
+import { Camera, ImagePlus, Pencil, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import {
@@ -39,6 +39,7 @@ function annotatedFileName(name: string): string {
 export function NewIssueForm() {
   const router = useRouter();
   const fileRef = React.useRef<HTMLInputElement>(null);
+  const cameraRef = React.useRef<HTMLInputElement>(null);
   const [title, setTitle] = React.useState("");
   const [category, setCategory] = React.useState<DevIssueCategory>("bug");
   const [desiredDate, setDesiredDate] = React.useState("");
@@ -157,13 +158,25 @@ export function NewIssueForm() {
       {/* スクリーンショット添付(ドラッグ&ドロップ / 選択 / 貼り付け) */}
       <Field
         label="スクリーンショット（任意）"
-        hint="エラー画面などを添付できます。ドラッグ&ドロップ、この画面で Ctrl+V（⌘+V）貼り付けも可能。✏️で画像に書き込みできます。"
+        hint="エラー画面などを添付できます。スマートフォンでは写真や画面収録のスクリーンショットを選ぶか、その場でカメラ撮影もできます。PC ではドラッグ&ドロップや Ctrl+V（⌘+V）貼り付けも可能。✏️で画像に書き込みできます。"
       >
         <input
           ref={fileRef}
           type="file"
           accept="image/png,image/jpeg,image/webp,image/gif,image/bmp"
           multiple
+          className="hidden"
+          onChange={(e) => {
+            void addFiles(Array.from(e.target.files ?? []));
+            e.target.value = "";
+          }}
+        />
+        {/* スマホ用: その場でカメラを起動して不具合の画面を撮る */}
+        <input
+          ref={cameraRef}
+          type="file"
+          accept="image/png,image/jpeg"
+          capture="environment"
           className="hidden"
           onChange={(e) => {
             void addFiles(Array.from(e.target.files ?? []));
@@ -220,10 +233,18 @@ export function NewIssueForm() {
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
-            className="flex aspect-[4/3] w-28 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            className="flex aspect-[4/3] w-28 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground active:bg-muted"
           >
             <ImagePlus className="h-5 w-5" />
             <span className="text-[11px]">画像を追加</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => cameraRef.current?.click()}
+            className="flex aspect-[4/3] w-28 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border text-muted-foreground transition-colors active:bg-muted md:hidden"
+          >
+            <Camera className="h-5 w-5" />
+            <span className="text-[11px]">カメラで撮る</span>
           </button>
         </div>
       </Field>
@@ -235,8 +256,8 @@ export function NewIssueForm() {
         </p>
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
-      <div className="flex justify-end gap-2">
-        <Button type="submit" disabled={pending}>
+      <div className="flex gap-2 [&>*]:flex-1 sm:justify-end sm:[&>*]:flex-none">
+        <Button type="submit" size="lg" className="w-full sm:w-auto" disabled={pending}>
           {pending ? "登録中…" : "依頼を登録"}
         </Button>
       </div>

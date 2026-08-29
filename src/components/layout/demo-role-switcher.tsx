@@ -22,7 +22,7 @@ export function DemoRoleSwitcher({ currentId }: { currentId: string }) {
   const current = personas.find((p) => p.profileId === currentId)?.value ?? "admin";
 
   return (
-    <label className="hidden items-center gap-1.5 sm:flex">
+    <label className="hidden items-center gap-1.5 lg:flex">
       <span className="text-[11px] text-muted-foreground">デモ:</span>
       <select
         value={current}
@@ -35,7 +35,7 @@ export function DemoRoleSwitcher({ currentId }: { currentId: string }) {
             router.refresh();
           })
         }
-        className="h-8 rounded-md border border-input bg-card px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+        className="h-9 rounded-md border border-input bg-card px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         aria-label="デモアカウントを切り替え"
       >
         {personas.map((p) => (

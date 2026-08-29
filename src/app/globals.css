@@ -214,3 +214,251 @@
     max-width: 100% !important;
   }
 }
+
+/* =========================================================================
+   モバイル最適化 — スマートフォンでの表示・操作を前提にした基礎スタイル
+   ========================================================================= */
+@layer base {
+  html {
+    /* 端末を横向きにしたときに iOS が文字を勝手に拡大するのを防ぐ */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    /* ヘッダー(56px)に隠れない位置までスクロールする */
+    scroll-padding-top: 4.5rem;
+  }
+  body {
+    /* タップ時の青い矩形ハイライトを消す(押下感は active: で表現する) */
+    -webkit-tap-highlight-color: transparent;
+    /* 想定外の要素がはみ出しても、横スクロールでレイアウトが壊れないようにする */
+    overflow-x: clip;
+  }
+  /* iOS Safari は 16px 未満の入力欄にフォーカスすると画面を勝手に拡大する。
+     スマホ幅では実寸 16px を強制して、この「入力するたびに拡大」を防ぐ。 */
+  @media (max-width: 767px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px;
+    }
+  }
+  /* タップ操作の遅延(ダブルタップズーム待ち)を無くす */
+  button,
+  a,
+  [role="button"],
+  label,
+  select,
+  summary {
+    touch-action: manipulation;
+  }
+  /* 長い URL やメールアドレスで横に伸びて画面を壊さない(スマホ幅のみ) */
+  @media (max-width: 767px) {
+    h1,
+    h2,
+    h3,
+    p,
+    td,
+    th {
+      overflow-wrap: anywhere;
+    }
+  }
+}
+
+@layer utilities {
+  /* --- セーフエリア(ノッチ・ホームバー)対応 --- */
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pl-safe {
+    padding-left: env(safe-area-inset-left);
+  }
+  .pr-safe {
+    padding-right: env(safe-area-inset-right);
+  }
+  .px-safe {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  /* 画面下部の固定バーの下に、ホームバー分の余白を足す */
+  .pb-safe-nav {
+    padding-bottom: calc(env(safe-area-inset-bottom) + var(--mobile-nav-h, 0px));
+  }
+  .h-safe-nav {
+    height: calc(env(safe-area-inset-bottom) + var(--mobile-nav-h, 0px));
+  }
+
+  /* --- スクロールバーを隠す(横スクロールのタブ・レール用) --- */
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* --- 横スクロールのレール(フィルターのピルなど) ---
+     狭い画面では折り返さずに横スクロール、lg 以上では通常の並びに戻す。 */
+  .snap-rail {
+    display: flex;
+    scrollbar-width: none;
+  }
+  .snap-rail::-webkit-scrollbar {
+    display: none;
+  }
+  .snap-rail > * {
+    flex: none;
+  }
+  @media (max-width: 1023px) {
+    .snap-rail {
+      overflow-x: auto;
+      scroll-snap-type: x proximity;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-x: contain;
+    }
+    .snap-rail > * {
+      scroll-snap-align: start;
+    }
+  }
+
+  /* --- 44px 以上のタップ領域(Apple/Google のガイドライン) --- */
+  .tap-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* --- 縦スクロール領域のバウンス連鎖を止める --- */
+  .scroll-contain {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* =========================================================================
+   一覧テーブルのモバイル表示 — 1行を1枚のカードに積み替える。
+   見出し(th)の文言を各セルのラベルとして data-label に引き継ぐため、
+   横スクロールせずに全項目を読める。md 以上では通常のテーブルに戻る。
+   ========================================================================= */
+@media (max-width: 767px) {
+  .table-cards table,
+  .table-cards tbody,
+  .table-cards tbody > tr,
+  .table-cards tbody > tr > td {
+    display: block;
+    width: 100%;
+  }
+  .table-cards thead {
+    display: none;
+  }
+  .table-cards tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+  }
+  .table-cards tbody > tr {
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    background-color: hsl(var(--card));
+    padding: 0.125rem 0.875rem 0.375rem;
+  }
+  .table-cards tbody > tr > td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    max-width: 100%;
+    padding: 0.4375rem 0;
+    text-align: left;
+    white-space: normal;
+    border: 0;
+  }
+  .table-cards tbody > tr > td + td {
+    border-top: 1px solid hsl(var(--border) / 0.5);
+  }
+  .table-cards tbody > tr > td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    color: hsl(var(--muted-foreground));
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.5;
+  }
+  .table-cards tbody > tr > td:not([data-label])::before,
+  .table-cards tbody > tr > td[data-label=""]::before {
+    content: none;
+  }
+  /* 行の主役(名称・番号など)はラベルを出さず、カード見出しとして大きく置く */
+  .table-cards tbody > tr > td[data-primary] {
+    display: block;
+    padding-top: 0.625rem;
+    padding-bottom: 0.5rem;
+    font-size: 0.9375rem;
+  }
+  .table-cards tbody > tr > td[data-primary]::before {
+    content: none;
+  }
+  /* 「該当なし」などの colspan セルはカード枠を持たせない */
+  .table-cards tbody > tr:has(> td[colspan]) {
+    border: 0;
+    background: transparent;
+    padding: 0;
+  }
+  .table-cards tbody > tr > td[colspan] {
+    display: block;
+    text-align: center;
+  }
+}
+
+/* =========================================================================
+   モーション — 端末の「視差効果を減らす」設定を尊重する
+   ========================================================================= */
+@keyframes slide-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes slide-up {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@layer utilities {
+  .animate-slide-in-left {
+    animation: slide-in-left 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .animate-slide-up {
+    animation: slide-up 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .animate-fade-in {
+    animation: fade-in 0.18s ease-out;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

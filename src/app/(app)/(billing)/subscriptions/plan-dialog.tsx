@@ -178,7 +178,7 @@ export function PlanFormDialog({
 
         {error && <p className="text-sm text-destructive">{error}</p>}
 
-        <div className="flex justify-end gap-2">
+        <div className="flex gap-2 [&>*]:flex-1 sm:justify-end sm:[&>*]:flex-none">
           <Button variant="outline" onClick={onClose} disabled={pending}>
             キャンセル
           </Button>

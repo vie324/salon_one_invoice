@@ -17,7 +17,8 @@ export function LtvChart({ data }: { data: LtvPoint[] }) {
 
   const height = 240;
   const pad = { top: 16, right: 56, bottom: 28, left: 52 };
-  const w = Math.max(width, 320);
+  // 目盛りとラベルが読める最小幅。これより狭い画面では横スクロールで見せる
+  const w = Math.max(width, 300);
   const plotW = w - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
 
@@ -49,7 +50,7 @@ export function LtvChart({ data }: { data: LtvPoint[] }) {
   const labelEvery = Math.ceil(data.length / Math.max(1, Math.floor(plotW / 46)));
 
   return (
-    <div ref={ref} className="relative w-full">
+    <div ref={ref} className="relative w-full overflow-x-auto scrollbar-thin">
       <div className="mb-2 flex items-center gap-4 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-sm bg-chart-1" /> 月々の入金（左軸）

@@ -100,7 +100,7 @@ export function SignClient({
   /* ---- アクセスコード入力ゲート ---- */
   if (!contract) {
     return (
-      <div className="mx-auto max-w-md rounded-lg border border-border bg-card p-8 shadow-sm">
+      <div className="mx-auto max-w-md rounded-lg border border-border bg-card p-5 shadow-sm sm:p-8">
         <div className="flex items-center gap-2 font-semibold">
           <KeyRound className="h-5 w-5 text-primary" />
           アクセスコードの入力
@@ -155,7 +155,7 @@ export function SignClient({
 
       <ContractDocument contract={contract} />
 
-      <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
+      <div className="rounded-lg border border-border bg-card p-4 shadow-sm sm:p-6">
         <h2 className="font-semibold">電子署名（同意）</h2>
         <p className="mt-1 text-xs text-muted-foreground">
           下記に署名者ご本人の氏名をご入力のうえ、同意にチェックして「同意して締結する」を押してください。
@@ -168,6 +168,7 @@ export function SignClient({
               value={signerName}
               onChange={(e) => setSignerName(e.target.value)}
               placeholder="例）山田 花子"
+              autoComplete="name"
               disabled={pending}
             />
           </Field>
@@ -175,7 +176,7 @@ export function SignClient({
           <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border bg-muted/40 p-4 text-sm">
             <input
               type="checkbox"
-              className="mt-0.5 h-4 w-4 accent-[var(--color-primary)]"
+              className="mt-0.5 h-5 w-5 shrink-0 accent-[hsl(var(--primary))]"
               checked={agreed}
               onChange={(e) => setAgreed(e.target.checked)}
               disabled={pending}

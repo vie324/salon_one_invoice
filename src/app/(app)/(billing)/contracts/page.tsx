@@ -92,7 +92,7 @@ export default async function ContractsPage({
             <TBody>
               {contracts.map((c) => (
                 <TR key={c.id}>
-                  <TD>
+                  <TD primary>
                     <Link
                       href={`/contracts/${c.id}`}
                       className="tabular font-medium text-primary hover:underline"

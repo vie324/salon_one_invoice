@@ -86,7 +86,7 @@ export function NewAgencyButton() {
             <Textarea value={form.notes} onChange={(e) => set({ notes: e.target.value })} placeholder="契約条件・特記事項など" />
           </Field>
           {error && <p className="text-sm text-destructive">{error}</p>}
-          <div className="flex justify-end gap-2">
+          <div className="flex gap-2 [&>*]:flex-1 sm:justify-end sm:[&>*]:flex-none">
             <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>
               キャンセル
             </Button>

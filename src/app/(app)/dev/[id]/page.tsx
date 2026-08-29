@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AttachmentsPanel } from "@/components/dev/attachments-panel";
 import { HearingPanel } from "@/components/dev/hearing-panel";
+import { ShareButton } from "@/components/share/share-sheet";
 import {
   DevIssueCategoryBadge,
   DevIssueExecutionBadge,
@@ -14,8 +15,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth";
 import { getServiceRepository } from "@/lib/data";
 import { isEngineer, isProductAdmin } from "@/lib/domain/constants";
-import { hearingState, issueUrgency, pendingApprovers } from "@/lib/domain/dev-issues";
+import {
+  devIssueShareSummary,
+  hearingState,
+  issueUrgency,
+  pendingApprovers,
+} from "@/lib/domain/dev-issues";
 import type { UserProfile } from "@/lib/domain/types";
+import { devIssueShortPath } from "@/lib/share";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import {
   ApprovalPanel,
@@ -95,20 +102,29 @@ export default async function DevIssueDetailPage({
             )}
           </div>
         </div>
-        {admin && (
-          <div className="shrink-0">
+        {/* 共有: 依頼番号だけの短いURL(/d/12)を、端末の共有シートでそのまま送れる */}
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <ShareButton
+            target={{
+              url: devIssueShortPath(issue.issueNumber),
+              title: `#${issue.issueNumber} ${issue.title}`,
+              text: devIssueShareSummary(issue),
+            }}
+            label="共有"
+          />
+          {admin && (
             <DeleteIssueButton
               issueId={issue.id}
               issueNumber={issue.issueNumber}
               title={issue.title}
               category={issue.category}
             />
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
+      <div className="grid gap-4 sm:gap-6 lg:grid-cols-3">
+        <div className="space-y-4 sm:space-y-6 lg:col-span-2">
           <Card>
             <CardHeader>
               <CardTitle>詳細（修正や不具合の中身）</CardTitle>
@@ -166,7 +182,7 @@ export default async function DevIssueDetailPage({
           )}
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>概要</CardTitle>
@@ -247,12 +263,12 @@ function MetaRow({
   value: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-        {icon}
+    <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+      <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground sm:text-sm">
+        <span className="shrink-0">{icon}</span>
         {label}
       </span>
-      <span className="text-right font-medium">{value || "—"}</span>
+      <span className="font-medium sm:text-right">{value || "—"}</span>
     </div>
   );
 }

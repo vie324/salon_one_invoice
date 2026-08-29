@@ -60,7 +60,7 @@ export default async function CustomersPage() {
               return (
                 <TR key={c.id}>
                   <TD className="tabular text-muted-foreground">{c.code}</TD>
-                  <TD>
+                  <TD primary>
                     <Link href={`/customers/${c.id}`} className="font-medium hover:text-primary hover:underline">
                       {c.name}
                     </Link>

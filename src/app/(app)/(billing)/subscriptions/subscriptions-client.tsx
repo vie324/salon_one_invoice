@@ -282,7 +282,7 @@ function EditSubscriptionButton({ row, pending }: { row: Row; pending: boolean }
             </strong>
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
-          <div className="flex justify-end gap-2">
+          <div className="flex gap-2 [&>*]:flex-1 sm:justify-end sm:[&>*]:flex-none">
             <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>
               キャンセル
             </Button>
@@ -389,7 +389,7 @@ function NewSubscriptionDialog({
             />
           </Field>
         </div>
-        <div className="flex justify-end gap-2">
+        <div className="flex gap-2 [&>*]:flex-1 sm:justify-end sm:[&>*]:flex-none">
           <Button variant="outline" onClick={onClose} disabled={pending}>
             キャンセル
           </Button>

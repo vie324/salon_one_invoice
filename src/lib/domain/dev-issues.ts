@@ -1,4 +1,10 @@
-import { isEngineer, isProductAdmin } from "./constants";
+import {
+  devIssueCategoryLabels,
+  devIssuePriorityLabels,
+  devIssueStatusLabels,
+  isEngineer,
+  isProductAdmin,
+} from "./constants";
 import type {
   DevIssue,
   DevIssuePriority,
@@ -7,7 +13,7 @@ import type {
   Role,
   UserProfile,
 } from "./types";
-import { toISODate } from "@/lib/utils";
+import { formatDate, toISODate } from "@/lib/utils";
 
 /**
  * 開発進捗の並べ替え・督促判定(純粋関数)。
@@ -225,4 +231,23 @@ export function issueUrgency(
     hearingReplyCount: hearing.replyCount,
     urgent,
   };
+}
+
+/**
+ * 共有メッセージ用の1行サマリー。
+ * 受け取った相手が、リンクを開く前に「何を・どれくらい急ぐか」を掴めるようにする。
+ */
+export function devIssueShareSummary(
+  issue: Pick<
+    DevIssue,
+    "issueNumber" | "title" | "category" | "priority" | "status" | "desiredDate"
+  >,
+): string {
+  const meta = [
+    devIssueCategoryLabels[issue.category],
+    `優先度${devIssuePriorityLabels[issue.priority]}`,
+    devIssueStatusLabels[issue.status],
+  ].join("・");
+  const desired = issue.desiredDate ? ` / 希望日 ${formatDate(issue.desiredDate)}` : "";
+  return `#${issue.issueNumber} ${issue.title}（${meta}${desired}）`;
 }

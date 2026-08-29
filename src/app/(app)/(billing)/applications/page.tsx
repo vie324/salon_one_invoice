@@ -73,7 +73,7 @@ export default async function ApplicationsPage() {
                 const services = requestedServices(a);
                 return (
                   <TR key={a.id}>
-                    <TD>
+                    <TD primary>
                       <Link
                         href={`/applications/${a.id}`}
                         className="font-medium text-primary hover:underline"

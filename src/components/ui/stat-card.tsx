@@ -30,16 +30,16 @@ export function StatCard({
   return (
     <Card
       className={cn(
-        "relative overflow-hidden p-5",
+        "relative overflow-hidden p-3.5 sm:p-5",
         "before:absolute before:inset-y-0 before:left-0 before:w-1",
         accentBar,
       )}
     >
       <div className="flex items-start justify-between">
-        <span className="text-sm text-muted-foreground">{label}</span>
+        <span className="text-[13px] leading-tight text-muted-foreground sm:text-sm">{label}</span>
         {icon && <span className="text-muted-foreground/70">{icon}</span>}
       </div>
-      <div className="mt-2 tabular text-2xl font-bold tracking-tight">{value}</div>
+      <div className="tabular mt-1.5 text-xl font-bold tracking-tight sm:mt-2 sm:text-2xl">{value}</div>
       <div className="mt-1 flex items-center gap-2 text-xs">
         {typeof delta === "number" && (
           <span
