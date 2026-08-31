@@ -2,6 +2,7 @@
 
 import {
   Banknote,
+  CalendarRange,
   ClipboardList,
   FileSignature,
   FileText,
@@ -29,9 +30,11 @@ import { DemoRoleSwitcher } from "@/components/layout/demo-role-switcher";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { CurrentUser } from "@/lib/auth";
-import { canAccessBilling, canAccessDev, roleLabels } from "@/lib/domain/constants";
+import { canAccessBilling, canAccessDev, canViewDevSchedule, roleLabels } from "@/lib/domain/constants";
 import type { AppNotification } from "@/lib/domain/types";
 import { cn } from "@/lib/utils";
+
+type NavItem = { href: string; label: string; icon: React.ElementType };
 
 const billingNav = [
   { href: "/dashboard", label: "ダッシュボード", icon: LayoutDashboard },
@@ -49,11 +52,17 @@ const billingNav = [
   { href: "/help", label: "ヘルプ", icon: LifeBuoy },
 ] as const;
 
-const devNav = [{ href: "/dev", label: "開発進捗", icon: ClipboardList }] as const;
+/**
+ * 開発セクション。開発スケジュールは閲覧を許可されたメンバーにだけ出す
+ * (許可が無い人にはメニューにも現れない)。
+ */
+function devNavFor(showSchedule: boolean): NavItem[] {
+  const nav: NavItem[] = [{ href: "/dev", label: "開発進捗", icon: ClipboardList }];
+  if (showSchedule) nav.push({ href: "/dev/schedule", label: "開発スケジュール", icon: CalendarRange });
+  return nav;
+}
 
 const settingsNav = { href: "/settings", label: "設定", icon: Settings } as const;
-
-type NavItem = { href: string; label: string; icon: React.ElementType };
 
 /**
  * スマホ下部タブに出す 4件。役割ごとに「毎日使うもの」を選ぶ。
@@ -82,6 +91,11 @@ function bottomTabsFor(showBilling: boolean, showDev: boolean): NavItem[] {
     { href: "/payments", label: "入金", icon: Wallet },
   ];
 }
+
+/** 入れ子の判定に使う、ナビに存在する全パス(権限に関わらず列挙する) */
+const NAV_PATHS = [...billingNav, ...devNavFor(true), settingsNav].map(
+  (n) => n.href.split("?")[0],
+);
 
 export function AppShell({
   user,
@@ -120,13 +134,18 @@ export function AppShell({
     };
   }, [open]);
 
+  // ナビの中で「いちばん具体的に一致する項目」だけをアクティブにする。
+  // /dev と /dev/schedule のように入れ子になっていても両方が光らない。
+  const matchesPath = (path: string) => pathname === path || pathname.startsWith(path + "/");
   const isActive = (href: string) => {
     const path = href.split("?")[0];
-    return pathname === path || pathname.startsWith(path + "/");
+    if (!matchesPath(path)) return false;
+    return !NAV_PATHS.some((p) => p !== path && p.startsWith(path + "/") && matchesPath(p));
   };
 
   const showBilling = canAccessBilling(user.roles);
   const showDev = canAccessDev(user.roles);
+  const devNav = devNavFor(showDev && canViewDevSchedule(user));
   const tagline = showBilling && showDev
     ? "請求・開発進捗の管理"
     : showDev
