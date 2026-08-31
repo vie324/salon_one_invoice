@@ -8,15 +8,15 @@ import {
 } from "@/app/actions/dev-schedule";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Field, Input, Select, Textarea } from "@/components/ui/input";
+import { Field, Input, Select } from "@/components/ui/input";
 import {
   DEV_SCHEDULE_CATEGORIES,
   DEV_SCHEDULE_PRIORITY_MAX,
   DEV_SCHEDULE_PRIORITY_MIN,
   devScheduleStatusLabels,
 } from "@/lib/domain/constants";
-import { parseIssueNumbers } from "@/lib/domain/dev-schedule";
 import type { DevScheduleStatus } from "@/lib/domain/types";
+import { IssuePicker, type PickerIssue } from "./issue-picker";
 import { cn } from "@/lib/utils";
 
 /** ダイアログが扱う1件分の入力値 */
@@ -30,8 +30,8 @@ export interface ScheduleItemDraft {
   targetDate: string;
   confirmed: boolean;
   note: string;
-  /** 「#143/#156」のような自由入力。開発MTGで送られてくる形をそのまま貼れる。 */
-  issueNumbers: string;
+  /** 連動させる開発進捗(dev_issues.id)。画面の一覧から選ぶ。 */
+  issueIds: string[];
 }
 
 export function emptyDraft(targetMonth = ""): ScheduleItemDraft {
@@ -45,7 +45,7 @@ export function emptyDraft(targetMonth = ""): ScheduleItemDraft {
     targetDate: "",
     confirmed: false,
     note: "",
-    issueNumbers: "",
+    issueIds: [],
   };
 }
 
@@ -54,14 +54,16 @@ const STATUSES: DevScheduleStatus[] = ["planned", "in_progress", "done", "droppe
 /** 機能の追加・編集。連動する依頼は番号(#143)で指定する。 */
 export function ScheduleItemDialog({
   draft,
+  issues,
   onClose,
 }: {
   draft: ScheduleItemDraft | null;
+  /** 連動先として選べる開発進捗 */
+  issues: PickerIssue[];
   onClose: () => void;
 }) {
   const [form, setForm] = React.useState<ScheduleItemDraft>(draft ?? emptyDraft());
   const [error, setError] = React.useState("");
-  const [notice, setNotice] = React.useState("");
   const [pending, startTransition] = React.useTransition();
   const [confirmDelete, setConfirmDelete] = React.useState(false);
 
@@ -69,7 +71,6 @@ export function ScheduleItemDialog({
     if (draft) {
       setForm(draft);
       setError("");
-      setNotice("");
       setConfirmDelete(false);
     }
   }, [draft]);
@@ -79,7 +80,6 @@ export function ScheduleItemDialog({
 
   const submit = () => {
     setError("");
-    setNotice("");
     const payload = {
       category: form.category,
       title: form.title,
@@ -89,7 +89,7 @@ export function ScheduleItemDialog({
       targetDate: form.targetDate || null,
       confirmed: form.confirmed,
       note: form.note,
-      issueNumbers: parseIssueNumbers(form.issueNumbers),
+      issueIds: form.issueIds,
     };
     startTransition(async () => {
       const res = form.id
@@ -97,13 +97,6 @@ export function ScheduleItemDialog({
         : await createDevScheduleItemAction(payload);
       if (!res.ok) {
         setError(res.error);
-        return;
-      }
-      // 存在しない番号があっても登録自体は通す(番号の打ち間違いを知らせるだけ)
-      if (res.missing.length > 0) {
-        setNotice(
-          `#${res.missing.join("・#")} は開発進捗に見つからなかったため連動していません`,
-        );
         return;
       }
       onClose();
@@ -127,7 +120,7 @@ export function ScheduleItemDialog({
       open={!!draft}
       onClose={onClose}
       title={form.id ? "機能を編集" : "機能を追加"}
-      description="スプレッドシートの1行にあたります。連動させる依頼は #143 のように番号で指定できます。"
+      description="スプレッドシートの1行にあたります。開発進捗にある不具合・要望を選んで、この機能にまとめられます。"
     >
       <div className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
@@ -205,13 +198,12 @@ export function ScheduleItemDialog({
 
         <Field
           label="連動する開発進捗"
-          hint="開発MTGで送っている番号をそのまま貼れます（例: #143/#156/#138）。"
+          hint="いま挙がっている不具合・要望から選びます。複数まとめて1つの機能にできます。"
         >
-          <Textarea
-            value={form.issueNumbers}
-            onChange={(e) => set("issueNumbers", e.target.value)}
-            placeholder="#143/#156/#138"
-            className="min-h-[64px]"
+          <IssuePicker
+            issues={issues}
+            selected={form.issueIds}
+            onChange={(ids) => set("issueIds", ids)}
           />
         </Field>
 
@@ -223,11 +215,6 @@ export function ScheduleItemDialog({
           />
         </Field>
 
-        {notice && (
-          <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
-            {notice}
-          </p>
-        )}
         {error && (
           <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {error}

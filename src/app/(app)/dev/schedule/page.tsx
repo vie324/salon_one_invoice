@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { requireUser } from "@/lib/auth";
 import { getServiceRepository } from "@/lib/data";
 import { canEditDevSchedule, canViewDevSchedule } from "@/lib/domain/constants";
+import { isOpenIssue } from "@/lib/domain/dev-issues";
 import {
   formatWeekLabel,
   isCarriedOver,
@@ -14,12 +15,13 @@ import {
   timelineMonths,
   weekRange,
 } from "@/lib/domain/dev-schedule";
-import type { UserProfile } from "@/lib/domain/types";
+import { currentMonth } from "@/lib/utils";
 import { ScheduleBoard } from "./schedule-board";
 
 export const metadata = { title: "開発スケジュール" };
 
-// 依頼の最新ステータスと連動するため、常にサーバーで描画する
+// 依頼の最新ステータスと「今週」の判定を毎回やり直すため、常にサーバーで描画する。
+// これにより週をまたぐと表示中の週が自動で切り替わる。
 export const dynamic = "force-dynamic";
 
 export default async function DevSchedulePage() {
@@ -30,20 +32,15 @@ export default async function DevSchedulePage() {
   const repo = await getServiceRepository();
   const editable = canEditDevSchedule(user.roles);
 
-  const items = await repo.listDevScheduleItems();
-
-  // 閲覧メンバーの設定は管理者だけが触るため、必要なときだけ読む
-  let profiles: UserProfile[] = [];
-  if (editable) {
-    try {
-      profiles = await repo.listUserProfiles();
-    } catch {
-      profiles = [];
-    }
-  }
+  const [items, issues] = await Promise.all([
+    repo.listDevScheduleItems(),
+    // 連動先として選ぶ開発進捗(不具合・要望)
+    repo.listDevIssues(),
+  ]);
 
   const now = new Date();
   const week = weekRange(now);
+  const month = currentMonth(now);
   const sorted = sortScheduleItems(items);
   const thisWeek = sorted.filter((i) => isThisWeek(i, week));
   const carriedOver = sorted.filter((i) => isCarriedOver(i, week) && !isThisWeek(i, week));
@@ -53,7 +50,7 @@ export default async function DevSchedulePage() {
     <div>
       <PageHeader
         title="開発スケジュール"
-        description={`${formatWeekLabel(week)}に進める分をいちばん上に出します。機能ごとに開発進捗の依頼をまとめてあるので、番号を追わなくても状況が分かります。`}
+        description={`${formatWeekLabel(week)}に進める分をいちばん上に出します。週が変わると自動で切り替わります。機能ごとに開発進捗の依頼をまとめてあるので、番号を追わなくても状況が分かります。`}
       />
 
       {sorted.length === 0 ? (
@@ -72,15 +69,19 @@ export default async function DevSchedulePage() {
         editable={editable}
         week={week}
         weekLabel={formatWeekLabel(week)}
+        currentMonth={month}
         months={months}
         items={sorted.map((i) => ({ ...i, month: itemMonth(i) }))}
         thisWeekIds={thisWeek.map((i) => i.id)}
         carriedOverIds={carriedOver.map((i) => i.id)}
-        members={profiles.map((p) => ({
-          id: p.id,
-          name: p.name,
-          roles: p.roles,
-          scheduleVisible: p.scheduleVisible,
+        issues={issues.map((i) => ({
+          id: i.id,
+          issueNumber: i.issueNumber,
+          title: i.title,
+          category: i.category,
+          priority: i.priority,
+          status: i.status,
+          open: isOpenIssue(i),
         }))}
       />
     </div>

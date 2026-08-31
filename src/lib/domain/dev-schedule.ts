@@ -157,15 +157,6 @@ export function isCarriedOver(
 
 /* ---- 開発進捗との連動 ---- */
 
-/**
- * 「#143/#156 #138」のような入力から依頼番号を取り出す。
- * 開発MTGでは番号(#00)で会話しているため、送られてきた文字列をそのまま貼れるようにする。
- */
-export function parseIssueNumbers(input: string): number[] {
-  const numbers = (input.match(/\d+/g) ?? []).map(Number).filter((n) => n > 0);
-  return [...new Set(numbers)];
-}
-
 
 /** 連動している依頼の進み具合 */
 export interface ScheduleProgress {
