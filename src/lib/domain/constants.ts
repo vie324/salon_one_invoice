@@ -7,6 +7,7 @@ import type {
   DevIssueExecution,
   DevIssuePriority,
   DevIssueStatus,
+  DevScheduleStatus,
   InvoiceStatus,
   InvoiceType,
   MandateStatus,
@@ -118,6 +119,20 @@ export function isEngineer(roles: Role[]): boolean {
 /** 開発・修正管理者(依頼の起票・進捗管理)か */
 export function isDevManager(roles: Role[]): boolean {
   return roles.includes("dev_manager");
+}
+
+/**
+ * 開発スケジュール表を閲覧できるか。
+ * 管理者は常に閲覧・編集できる(自分でチェックを外して締め出されないため)。
+ * それ以外のメンバーは、管理者がチェックを付けた人だけが見られる。
+ */
+export function canViewDevSchedule(user: { roles: Role[]; scheduleVisible?: boolean }): boolean {
+  return isProductAdmin(user.roles) || user.scheduleVisible === true;
+}
+
+/** 開発スケジュール表を編集できるか(項目の追加・並べ替え・閲覧メンバーの設定) */
+export function canEditDevSchedule(roles: Role[]): boolean {
+  return isProductAdmin(roles);
 }
 
 /**
@@ -408,6 +423,51 @@ export const notificationTypeTone: Record<NotificationType, BadgeTone> = {
   issue_hearing_reply: "info",
   issue_execution: "primary",
 };
+
+/* ---- 開発スケジュール (中長期ロードマップ) ---- */
+
+export const devScheduleStatusLabels: Record<DevScheduleStatus, string> = {
+  planned: "予定",
+  in_progress: "今週対応",
+  done: "完了",
+  dropped: "見送り",
+};
+
+export const devScheduleStatusTone: Record<DevScheduleStatus, BadgeTone> = {
+  planned: "neutral",
+  in_progress: "primary",
+  done: "success",
+  dropped: "neutral",
+};
+
+/** スケジュール項目の優先度(★の数)の範囲 */
+export const DEV_SCHEDULE_PRIORITY_MIN = 1;
+export const DEV_SCHEDULE_PRIORITY_MAX = 5;
+
+/**
+ * よく使うカテゴリ。入力補助(datalist)に出すだけで、自由入力も受け付ける。
+ * 既存のスプレッドシートの並びに合わせている。
+ */
+export const DEV_SCHEDULE_CATEGORIES = [
+  "基盤",
+  "分析",
+  "人事",
+  "CRM",
+  "外部連携",
+  "会計",
+  "AI",
+  "契約",
+  "本部",
+] as const;
+
+/** 優先度を ★★★☆☆ の表記にする(スプレッドシートと同じ見た目) */
+export function devSchedulePriorityStars(priority: number): string {
+  const filled = Math.min(
+    DEV_SCHEDULE_PRIORITY_MAX,
+    Math.max(DEV_SCHEDULE_PRIORITY_MIN, Math.round(priority)),
+  );
+  return "★".repeat(filled) + "☆".repeat(DEV_SCHEDULE_PRIORITY_MAX - filled);
+}
 
 /* ---- 申込 ---- */
 

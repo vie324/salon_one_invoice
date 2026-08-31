@@ -1,4 +1,12 @@
-import { CalendarX, Clock, GripVertical, MessageSquare, Plus, UserCheck } from "lucide-react";
+import {
+  CalendarRange,
+  CalendarX,
+  Clock,
+  GripVertical,
+  MessageSquare,
+  Plus,
+  UserCheck,
+} from "lucide-react";
 import Link from "next/link";
 import { CompletionBanner } from "@/components/notifications/completion-banner";
 import { buttonClasses } from "@/components/ui/button";
@@ -7,7 +15,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireUser } from "@/lib/auth";
 import { getServiceRepository } from "@/lib/data";
-import { isEngineer, isProductAdmin } from "@/lib/domain/constants";
+import { canViewDevSchedule, isEngineer, isProductAdmin } from "@/lib/domain/constants";
 import {
   isOpenIssue,
   issueUrgency,
@@ -96,6 +104,8 @@ export default async function DevIssuesPage({
 
   const engineer = isEngineer(user.roles);
   const approver = isProductAdmin(user.roles);
+  // スケジュール表への導線は、閲覧を許可されたメンバーにだけ出す
+  const showSchedule = canViewDevSchedule(user);
 
   return (
     <div>
@@ -109,10 +119,21 @@ export default async function DevIssuesPage({
             : "不具合を最優先に、緊急度の高い順で表示します。完了した依頼は「完了」タブから確認できます。"
         }
         actions={
-          <Link href="/dev/new" className={buttonClasses()}>
-            <Plus className="h-4 w-4" />
-            新規依頼
-          </Link>
+          <>
+            {showSchedule && (
+              <Link
+                href="/dev/schedule"
+                className={buttonClasses({ variant: "outline" })}
+              >
+                <CalendarRange className="h-4 w-4" />
+                スケジュール
+              </Link>
+            )}
+            <Link href="/dev/new" className={buttonClasses()}>
+              <Plus className="h-4 w-4" />
+              新規依頼
+            </Link>
+          </>
         }
       />
 

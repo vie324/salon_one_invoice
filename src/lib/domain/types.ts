@@ -645,6 +645,64 @@ export interface DevIssueAttachment {
   createdAt: string;
 }
 
+/* ---- 開発スケジュール (中長期ロードマップ) ---- */
+
+/**
+ * スケジュール項目の進み具合。
+ * planned(予定) → in_progress(今週対応中) → done(完了)。
+ * dropped(見送り) はスプレッドシートの取り消し線に相当し、表では控えめに残す。
+ */
+export type DevScheduleStatus = "planned" | "in_progress" | "done" | "dropped";
+
+/**
+ * スケジュール項目に連動している開発進捗(依頼)の要約。
+ * 一覧では折りたたんで件数だけ出し、開いたときにこの内容を見せる。
+ */
+export interface DevScheduleLinkedIssue {
+  issueId: string;
+  /** 表示用の連番 (#143)。開発MTGではこの番号で会話している。 */
+  issueNumber: number;
+  title: string;
+  category: DevIssueCategory;
+  priority: DevIssuePriority;
+  status: DevIssueStatus;
+  execution: DevIssueExecution;
+  scheduledDate: string | null;
+  completedDate: string | null;
+}
+
+/**
+ * スケジュール表の1行 = 「機能」1件。
+ * スプレッドシートの「カテゴリ / 機能 / 優先度 / 9月・10月…」に対応する。
+ *
+ * 依頼(DevIssue)は機能の下にぶら下げる。1機能に複数の依頼を束ねられるので、
+ * 開発MTGでは「依頼◯件」ではなく「機能◯件」で共有できる。
+ */
+export interface DevScheduleItem {
+  id: string;
+  /** カテゴリ(基盤 / 分析 / 人事 / CRM / 外部連携 …)。自由入力。 */
+  category: string;
+  /** 機能名 */
+  title: string;
+  /** 優先度(★の数 1〜5) */
+  priority: number;
+  status: DevScheduleStatus;
+  /** 表の列(YYYY-MM)。未定なら null。 */
+  targetMonth: string | null;
+  /** 着手・完了の目安日(YYYY-MM-DD)。「★9/7」の 9/7 にあたる。 */
+  targetDate: string | null;
+  /** 日程が確定しているか(★=確定 / ☆=未確定) */
+  confirmed: boolean;
+  /** 補足メモ(「酒井モック」など) */
+  note: string;
+  /** 表示順(小さいほど上) */
+  sortOrder: number;
+  /** 連動している開発進捗(依頼番号の小さい順) */
+  links: DevScheduleLinkedIssue[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 /* ---- アプリ内通知 ---- */
 
 export type NotificationType =
@@ -800,6 +858,11 @@ export interface UserProfile {
   role: Role;
   /** 保有ロール(兼務可)。正規化済み(旧種別は読み替え済み)。 */
   roles: Role[];
+  /**
+   * 開発スケジュール表を閲覧できるか(管理者がチェックで付け外しする)。
+   * 管理者は常に閲覧できるため、この値に関わらず表示される。
+   */
+  scheduleVisible: boolean;
   createdAt: string;
 }
 
