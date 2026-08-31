@@ -27,6 +27,7 @@ export default function manifest(): MetadataRoute.Manifest {
       { src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "maskable" },
     ],
     shortcuts: [
+      { name: "進捗ホーム", short_name: "ホーム", url: "/home" },
       { name: "開発進捗", short_name: "開発進捗", url: "/dev" },
       { name: "請求書", short_name: "請求書", url: "/invoices" },
       { name: "ダッシュボード", short_name: "ダッシュボード", url: "/dashboard" },

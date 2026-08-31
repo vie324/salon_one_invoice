@@ -6,6 +6,7 @@ import {
   FileSignature,
   FileText,
   Handshake,
+  Home,
   Inbox,
   LayoutDashboard,
   Landmark,
@@ -32,6 +33,9 @@ import type { CurrentUser } from "@/lib/auth";
 import { canAccessBilling, canAccessDev, roleLabels } from "@/lib/domain/constants";
 import type { AppNotification } from "@/lib/domain/types";
 import { cn } from "@/lib/utils";
+
+/** 役割に関係なく全員に出す入口。売上・開発の進捗を1画面にまとめたホーム。 */
+const homeNav = { href: "/home", label: "進捗ホーム", icon: Home } as const;
 
 const billingNav = [
   { href: "/dashboard", label: "ダッシュボード", icon: LayoutDashboard },
@@ -62,7 +66,7 @@ type NavItem = { href: string; label: string; icon: React.ElementType };
 function bottomTabsFor(showBilling: boolean, showDev: boolean): NavItem[] {
   if (showBilling && showDev) {
     return [
-      { href: "/dashboard", label: "ホーム", icon: LayoutDashboard },
+      { href: "/home", label: "ホーム", icon: Home },
       { href: "/invoices", label: "請求書", icon: FileText },
       { href: "/customers", label: "顧客", icon: Users },
       { href: "/dev", label: "開発進捗", icon: ClipboardList },
@@ -70,13 +74,14 @@ function bottomTabsFor(showBilling: boolean, showDev: boolean): NavItem[] {
   }
   if (showDev) {
     return [
+      { href: "/home", label: "ホーム", icon: Home },
       { href: "/dev", label: "開発進捗", icon: ClipboardList },
       { href: "/dev?category=bug", label: "不具合", icon: LifeBuoy },
       { href: "/settings", label: "設定", icon: Settings },
     ];
   }
   return [
-    { href: "/dashboard", label: "ホーム", icon: LayoutDashboard },
+    { href: "/home", label: "ホーム", icon: Home },
     { href: "/invoices", label: "請求書", icon: FileText },
     { href: "/customers", label: "顧客", icon: Users },
     { href: "/payments", label: "入金", icon: Wallet },
@@ -134,9 +139,8 @@ export function AppShell({
       : "請求・入金管理";
 
   // ヘッダーに出す「いまどこにいるか」(スマホはサイドバーが見えないため)
-  const allNav: NavItem[] = [...billingNav, ...devNav, settingsNav];
-  const currentLabel =
-    allNav.find((n) => isActive(n.href))?.label ?? (showDev && !showBilling ? "開発進捗" : "ホーム");
+  const allNav: NavItem[] = [homeNav, ...billingNav, ...devNav, settingsNav];
+  const currentLabel = allNav.find((n) => isActive(n.href))?.label ?? "ホーム";
 
   const bottomTabs = bottomTabsFor(showBilling, showDev);
 
@@ -177,6 +181,7 @@ export function AppShell({
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto scroll-contain px-3 py-2 scrollbar-thin">
+        {renderItem(homeNav)}
         {showBilling && (
           <>
             {showDev && sectionLabel("請求管理")}
