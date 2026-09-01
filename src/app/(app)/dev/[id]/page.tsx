@@ -15,12 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth";
 import { getServiceRepository } from "@/lib/data";
 import { isEngineer, isProductAdmin } from "@/lib/domain/constants";
-import {
-  devIssueShareSummary,
-  hearingState,
-  issueUrgency,
-  pendingApprovers,
-} from "@/lib/domain/dev-issues";
+import { devIssueShareSummary, hearingState, pendingApprovers } from "@/lib/domain/dev-issues";
 import type { UserProfile } from "@/lib/domain/types";
 import { devIssueShortPath } from "@/lib/share";
 import { formatDate, formatDateTime } from "@/lib/utils";
@@ -60,7 +55,6 @@ export default async function DevIssueDetailPage({
   }
   const approvers = profiles.filter((p) => isProductAdmin(p.roles));
   const pending = pendingApprovers(issue, profiles);
-  const urgency = issueUrgency(issue, profiles);
   // 追加ヒアリングのやり取り(返信が無く、ヒアリング中でもなければパネルは出さない)
   const hearing = hearingState(issue);
   const showHearing = hearing.active || hearing.replyCount > 0;
@@ -177,7 +171,6 @@ export default async function DevIssueDetailPage({
               detail={issue.detail}
               category={issue.category}
               priority={issue.priority}
-              desiredDate={issue.desiredDate}
             />
           )}
         </div>
@@ -195,26 +188,6 @@ export default async function DevIssueDetailPage({
                 value={formatDate(issue.createdAt)}
               />
               <MetaRow
-                icon={<CalendarClock className="h-4 w-4" />}
-                label="完了してほしい日（依頼者の希望）"
-                value={formatDate(issue.desiredDate)}
-              />
-              <MetaRow
-                icon={<CalendarClock className="h-4 w-4" />}
-                label="対応完了予定日（エンジニア）"
-                value={formatDate(issue.scheduledDate)}
-              />
-              {urgency.laterThanDesired && (
-                <p className="rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs">
-                  対応完了予定日が希望日より後です。依頼者へ相談するか、予定日の見直しをご検討ください。
-                </p>
-              )}
-              {urgency.desiredPassed && (
-                <p className="rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-2 text-xs">
-                  希望されていた完了日を過ぎています。対応状況の共有をお願いします。
-                </p>
-              )}
-              <MetaRow
                 icon={<CalendarCheck className="h-4 w-4" />}
                 label="対応完了日"
                 value={formatDate(issue.completedDate)}
@@ -228,7 +201,6 @@ export default async function DevIssueDetailPage({
           <EngineerForm
             issueId={issue.id}
             status={issue.status}
-            scheduledDate={issue.scheduledDate}
             completedDate={issue.completedDate}
             devNote={issue.devNote}
           />

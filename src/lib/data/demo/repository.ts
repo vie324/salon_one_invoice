@@ -1712,8 +1712,6 @@ export class DemoRepository implements Repository {
       executionSetAt: null,
       requesterId: input.requester.id,
       requesterName: input.requester.name,
-      desiredDate: input.desiredDate ?? null,
-      scheduledDate: null,
       completedDate: null,
       devNote: "",
       approvals: [],
@@ -1746,8 +1744,6 @@ export class DemoRepository implements Repository {
     if (input.category !== undefined) issue.category = input.category;
     if (input.priority !== undefined) issue.priority = input.priority;
     if (input.status !== undefined) issue.status = input.status;
-    if (input.desiredDate !== undefined) issue.desiredDate = input.desiredDate;
-    if (input.scheduledDate !== undefined) issue.scheduledDate = input.scheduledDate;
     if (input.completedDate !== undefined) issue.completedDate = input.completedDate;
     if (input.devNote !== undefined) issue.devNote = input.devNote;
     // 対応完了にした場合、完了日が未入力なら当日を補完する

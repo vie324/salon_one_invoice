@@ -202,7 +202,6 @@ export function toLinkedIssue(issue: DevIssue): DevScheduleLinkedIssue {
     priority: issue.priority,
     status: issue.status,
     execution: issue.execution,
-    scheduledDate: issue.scheduledDate,
     completedDate: issue.completedDate,
   };
 }

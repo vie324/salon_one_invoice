@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  AlertTriangle,
   Check,
   ChevronDown,
   ChevronRight,
@@ -52,8 +51,6 @@ export interface DevIssueRow {
   execution: DevIssueExecution;
   requesterName: string;
   createdAt: string;
-  desiredDate: string | null;
-  scheduledDate: string | null;
   completedDate: string | null;
   urgency: DevIssueUrgency;
 }
@@ -62,15 +59,6 @@ export interface DevIssueRow {
 function UrgencyBadges({ u }: { u: DevIssueUrgency }) {
   return (
     <>
-      {u.desiredPassed && (
-        <Badge tone="danger">
-          <AlertTriangle className="h-3 w-3" />
-          希望日 超過
-        </Badge>
-      )}
-      {u.overdue && <Badge tone="danger">予定日 超過</Badge>}
-      {u.laterThanDesired && <Badge tone="warning">希望日に間に合わない予定</Badge>}
-      {u.missingSchedule && <Badge tone="warning">予定日 未記入</Badge>}
       {u.hearingAnswered && (
         <Badge tone="info">
           <MessageSquare className="h-3 w-3" />
@@ -286,8 +274,6 @@ export function IssueList({ rows, manual }: { rows: DevIssueRow[]; manual: boole
               <TH className="whitespace-nowrap">ステータス</TH>
               <TH className="whitespace-nowrap">実行有無</TH>
               <TH className="min-w-[240px]">課題名 / 依頼者</TH>
-              <TH className="whitespace-nowrap">希望日</TH>
-              <TH className="whitespace-nowrap">完了予定</TH>
               <TH className="whitespace-nowrap">完了日</TH>
             </TR>
           </THead>
@@ -401,23 +387,6 @@ export function IssueList({ rows, manual }: { rows: DevIssueRow[]; manual: boole
                       <UrgencyBadges u={u} />
                     </div>
                   </TD>
-                  <TD
-                    className={cn(
-                      "whitespace-nowrap text-xs",
-                      u.desiredPassed && "font-medium text-destructive",
-                    )}
-                  >
-                    {formatDate(row.desiredDate)}
-                  </TD>
-                  <TD
-                    className={cn(
-                      "whitespace-nowrap text-xs",
-                      u.overdue && "font-medium text-destructive",
-                      !u.overdue && u.laterThanDesired && "font-medium text-warning",
-                    )}
-                  >
-                    {formatDate(row.scheduledDate)}
-                  </TD>
                   <TD className="whitespace-nowrap text-xs">{formatDate(row.completedDate)}</TD>
                 </TR>
               );
@@ -483,41 +452,19 @@ function IssueCard({
           <DevIssueExecutionBadge execution={row.execution} muted={false} />
         )}
       </div>
-      {(u.desiredPassed ||
-        u.overdue ||
-        u.laterThanDesired ||
-        u.missingSchedule ||
-        u.hearingAnswered ||
-        u.hearingAwaitingReply ||
-        u.pendingApprovers.length > 0) && (
+      {(u.hearingAnswered || u.hearingAwaitingReply || u.pendingApprovers.length > 0) && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <UrgencyBadges u={u} />
         </div>
       )}
-      <dl className="mt-2.5 grid grid-cols-3 gap-2 rounded-md bg-muted/50 px-2.5 py-2 text-[11px]">
-        <div>
-          <dt className="text-muted-foreground">希望日</dt>
-          <dd className={cn("tabular mt-0.5 font-medium", u.desiredPassed && "text-destructive")}>
-            {formatDate(row.desiredDate)}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-muted-foreground">完了予定</dt>
-          <dd
-            className={cn(
-              "tabular mt-0.5 font-medium",
-              u.overdue && "text-destructive",
-              !u.overdue && u.laterThanDesired && "text-warning",
-            )}
-          >
-            {formatDate(row.scheduledDate)}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-muted-foreground">完了日</dt>
-          <dd className="tabular mt-0.5 font-medium">{formatDate(row.completedDate)}</dd>
-        </div>
-      </dl>
+      {row.completedDate && (
+        <dl className="mt-2.5 rounded-md bg-muted/50 px-2.5 py-2 text-[11px]">
+          <div>
+            <dt className="text-muted-foreground">完了日</dt>
+            <dd className="tabular mt-0.5 font-medium">{formatDate(row.completedDate)}</dd>
+          </div>
+        </dl>
+      )}
     </>
   );
 

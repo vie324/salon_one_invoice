@@ -29,23 +29,20 @@ import type {
 } from "@/lib/domain/types";
 import { formatDateTime } from "@/lib/utils";
 
-/** エンジニア入力欄(ステータス・完了予定日・完了日・開発対応内容) */
+/** エンジニア入力欄(ステータス・完了日・開発対応内容) */
 export function EngineerForm({
   issueId,
   status,
-  scheduledDate,
   completedDate,
   devNote,
 }: {
   issueId: string;
   status: DevIssueStatus;
-  scheduledDate: string | null;
   completedDate: string | null;
   devNote: string;
 }) {
   const router = useRouter();
   const [s, setS] = React.useState<DevIssueStatus>(status);
-  const [sched, setSched] = React.useState(scheduledDate ?? "");
   const [comp, setComp] = React.useState(completedDate ?? "");
   const [note, setNote] = React.useState(devNote);
   const [error, setError] = React.useState<string | null>(null);
@@ -59,7 +56,6 @@ export function EngineerForm({
     startTransition(async () => {
       const res = await updateDevIssueAction(issueId, {
         status: s,
-        scheduledDate: sched || null,
         completedDate: comp || null,
         devNote: note,
       });
@@ -87,9 +83,6 @@ export function EngineerForm({
               <option value="hearing">{devIssueStatusLabels.hearing}</option>
               <option value="done">{devIssueStatusLabels.done}</option>
             </Select>
-          </Field>
-          <Field label="対応完了予定日">
-            <Input type="date" value={sched} onChange={(e) => setSched(e.target.value)} />
           </Field>
           <Field label="対応完了日" hint="「対応完了」で保存すると未入力でも当日が記録されます。">
             <Input type="date" value={comp} onChange={(e) => setComp(e.target.value)} />
@@ -412,15 +405,12 @@ export function RequestEditForm({
   detail,
   category,
   priority,
-  desiredDate,
 }: {
   issueId: string;
   title: string;
   detail: string;
   category: DevIssueCategory;
   priority: DevIssuePriority;
-  /** 完了してほしい日(依頼者の希望) */
-  desiredDate: string | null;
 }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
@@ -428,7 +418,6 @@ export function RequestEditForm({
   const [d, setD] = React.useState(detail);
   const [c, setC] = React.useState<DevIssueCategory>(category);
   const [p, setP] = React.useState<DevIssuePriority>(priority);
-  const [desired, setDesired] = React.useState(desiredDate ?? "");
   const [error, setError] = React.useState<string | null>(null);
   const [pending, startTransition] = React.useTransition();
 
@@ -441,7 +430,6 @@ export function RequestEditForm({
         detail: d,
         category: c,
         priority: p,
-        desiredDate: desired || null,
       });
       if (!res.ok) {
         setError(res.error);
@@ -486,17 +474,6 @@ export function RequestEditForm({
               </Select>
             </Field>
           </div>
-          <Field
-            label="完了してほしい日（任意）"
-            hint="依頼側の希望日です。エンジニアの「対応完了予定日」とは別に記録されます。"
-          >
-            <Input
-              type="date"
-              value={desired}
-              onChange={(e) => setDesired(e.target.value)}
-              className="sm:max-w-xs"
-            />
-          </Field>
           <Field label="詳細">
             <Textarea value={d} onChange={(e) => setD(e.target.value)} rows={8} />
           </Field>
