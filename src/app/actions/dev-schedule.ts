@@ -9,6 +9,8 @@ import type { DevScheduleStatus } from "@/lib/domain/types";
 
 function revalidateSchedule() {
   revalidatePath("/dev/schedule");
+  // 閲覧メンバーのチェックは設定画面にあるため、そちらも更新する
+  revalidatePath("/settings");
   // ナビの表示可否が変わるためレイアウトごと再検証する
   revalidatePath("/", "layout");
 }
@@ -22,22 +24,16 @@ async function requireScheduleEditor() {
   return user;
 }
 
-/** 依頼番号 → 依頼ID。存在しない番号は呼び出し側へ伝える。 */
-async function resolveIssueIds(
-  numbers: number[],
-): Promise<{ ids: string[]; missing: number[] }> {
-  if (numbers.length === 0) return { ids: [], missing: [] };
+/**
+ * 選ばれた依頼IDを、実在するものだけに絞る。
+ * 画面で選んだあとに依頼が削除された場合でも、保存自体は通す。
+ */
+async function existingIssueIds(issueIds: string[]): Promise<string[]> {
+  if (issueIds.length === 0) return [];
   const repo = await getServiceRepository();
   const issues = await repo.listDevIssues();
-  const byNumber = new Map(issues.map((i) => [i.issueNumber, i.id]));
-  const ids: string[] = [];
-  const missing: number[] = [];
-  for (const n of numbers) {
-    const id = byNumber.get(n);
-    if (id) ids.push(id);
-    else missing.push(n);
-  }
-  return { ids, missing };
+  const known = new Set(issues.map((i) => i.id));
+  return [...new Set(issueIds)].filter((id) => known.has(id));
 }
 
 export interface ScheduleItemFormInput {
@@ -49,8 +45,8 @@ export interface ScheduleItemFormInput {
   targetDate?: string | null;
   confirmed?: boolean;
   note?: string;
-  /** 連動させる開発進捗の依頼番号(#143 など)。未指定なら連動を変更しない。 */
-  issueNumbers?: number[];
+  /** 連動させる開発進捗(dev_issues.id)。未指定なら連動を変更しない。 */
+  issueIds?: string[];
 }
 
 /** スケジュール項目の追加(管理者のみ)。 */
@@ -59,7 +55,7 @@ export async function createDevScheduleItemAction(input: ScheduleItemFormInput) 
     await requireScheduleEditor();
     const title = input.title.trim();
     if (!title) throw new Error("機能名を入力してください");
-    const { ids, missing } = await resolveIssueIds(input.issueNumbers ?? []);
+    const ids = await existingIssueIds(input.issueIds ?? []);
     const repo = await getServiceRepository();
     const item = await repo.createDevScheduleItem({
       category: input.category?.trim() ?? "",
@@ -73,7 +69,7 @@ export async function createDevScheduleItemAction(input: ScheduleItemFormInput) 
       issueIds: ids,
     });
     revalidateSchedule();
-    return { ok: true as const, id: item.id, missing };
+    return { ok: true as const, id: item.id };
   } catch (e) {
     return { ok: false as const, error: (e as Error).message };
   }
@@ -97,16 +93,13 @@ export async function updateDevScheduleItemAction(id: string, input: ScheduleIte
       if (!title) throw new Error("機能名を入力してください");
       patch.title = title;
     }
-    let missing: number[] = [];
-    if (input.issueNumbers !== undefined) {
-      const resolved = await resolveIssueIds(input.issueNumbers);
-      patch.issueIds = resolved.ids;
-      missing = resolved.missing;
+    if (input.issueIds !== undefined) {
+      patch.issueIds = await existingIssueIds(input.issueIds);
     }
     const repo = await getServiceRepository();
     await repo.updateDevScheduleItem(id, patch);
     revalidateSchedule();
-    return { ok: true as const, missing };
+    return { ok: true as const };
   } catch (e) {
     return { ok: false as const, error: (e as Error).message };
   }

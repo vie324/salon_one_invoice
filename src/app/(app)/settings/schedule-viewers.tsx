@@ -1,11 +1,10 @@
 "use client";
 
-import { Eye, Users } from "lucide-react";
+import { Eye } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import { setScheduleVisibilityAction } from "@/app/actions/dev-schedule";
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
 import { isProductAdmin, roleLabels } from "@/lib/domain/constants";
 import type { Role } from "@/lib/domain/types";
 
@@ -17,11 +16,11 @@ export interface ScheduleMember {
 }
 
 /**
- * スケジュール表を見せるメンバーの設定(管理者のみ)。
+ * 開発スケジュール表を見せるメンバーの設定(設定画面・管理者のみ)。
  * チェックを入れた人だけが /dev/schedule を開ける。
  * 管理者は表の管理者自身なので、常に閲覧できる扱いにして締め出しを防ぐ。
  */
-export function ViewerPanel({ members }: { members: ScheduleMember[] }) {
+export function ScheduleViewers({ members }: { members: ScheduleMember[] }) {
   const router = useRouter();
   const [pendingId, setPendingId] = React.useState<string | null>(null);
   const [error, setError] = React.useState("");
@@ -49,15 +48,14 @@ export function ViewerPanel({ members }: { members: ScheduleMember[] }) {
   const shownCount = admins.length + others.filter(visibleOf).length;
 
   return (
-    <Card className="p-3 sm:p-4">
+    <div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Users className="h-4 w-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold">この表を見られるメンバー</h2>
-        <Badge tone="neutral">{shownCount}名</Badge>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          チェックを入れたメンバーだけが「開発スケジュール」を開けます（メニューにも表示されません）。
+          管理者は表の管理者のため、チェックに関わらず常に閲覧・編集できます。
+        </p>
+        <Badge tone="neutral">閲覧できる人 {shownCount}名</Badge>
       </div>
-      <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
-        チェックを入れたメンバーだけが開発スケジュールを開けます。管理者は表の管理者のため常に閲覧できます。
-      </p>
 
       <div className="space-y-2">
         {others.map((m) => (
@@ -106,6 +104,6 @@ export function ViewerPanel({ members }: { members: ScheduleMember[] }) {
           {error}
         </p>
       )}
-    </Card>
+    </div>
   );
 }

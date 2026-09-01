@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   Building2,
+  CalendarRange,
   CreditCard,
   Database,
   Mail,
@@ -20,6 +21,7 @@ import { AccountManager } from "./account-manager";
 import { ClaimAdminCard } from "./claim-admin-card";
 import { EmailTestForm } from "./email-test-form";
 import { OrganizationForm } from "./organization-form";
+import { ScheduleViewers } from "./schedule-viewers";
 import { SelfAccountActions } from "./self-account-actions";
 import { SignOutButton } from "./sign-out-button";
 
@@ -263,6 +265,25 @@ export default async function SettingsPage() {
           </CardHeader>
           <CardContent>
             <AccountManager profiles={profiles} currentUserId={user.id} demo={isDemoMode} />
+          </CardContent>
+        </Card>
+      )}
+
+      {admin && (
+        <Card className="mt-6">
+          <CardHeader className="flex-row items-center gap-2">
+            <CalendarRange className="h-5 w-5 text-primary" />
+            <CardTitle>開発スケジュールを見られるメンバー（全体管理者のみ）</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ScheduleViewers
+              members={profiles.map((p) => ({
+                id: p.id,
+                name: p.name,
+                roles: p.roles,
+                scheduleVisible: p.scheduleVisible,
+              }))}
+            />
           </CardContent>
         </Card>
       )}
