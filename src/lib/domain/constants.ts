@@ -58,7 +58,7 @@ export const ASSIGNABLE_ROLES: { value: Role; label: string; description: string
   {
     value: "engineer",
     label: "エンジニア",
-    description: "開発進捗の対応担当。完了予定日・完了日・対応内容を入力します",
+    description: "開発進捗の対応担当。完了日・対応内容を入力します",
   },
   {
     value: "billing",

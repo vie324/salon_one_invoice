@@ -6,7 +6,7 @@
 /**
  * アカウントの役割。1アカウントに複数割り当てできる(兼務)。
  * - admin       管理者。全機能 + アカウント管理 + 要望の実行承認(承認者)
- * - engineer    エンジニア。開発対応(完了予定日・完了日・対応内容)の実務担当
+ * - engineer    エンジニア。開発対応(完了日・対応内容)の実務担当
  * - billing     請求管理者。請求書・顧客・入金などの請求業務
  * - dev_manager 開発・修正管理者。開発依頼・不具合報告の起票と進捗管理
  *
@@ -608,10 +608,6 @@ export interface DevIssue {
   /** 依頼者(入力したアカウント) */
   requesterId: string;
   requesterName: string;
-  /** 完了してほしい日(依頼者が入力する希望日) */
-  desiredDate: string | null;
-  /** 対応完了予定日(エンジニアが入力) */
-  scheduledDate: string | null;
   /** 対応完了日(エンジニアが入力) */
   completedDate: string | null;
   /** 開発対応内容(エンジニアの追記) */
@@ -667,7 +663,6 @@ export interface DevScheduleLinkedIssue {
   priority: DevIssuePriority;
   status: DevIssueStatus;
   execution: DevIssueExecution;
-  scheduledDate: string | null;
   completedDate: string | null;
 }
 

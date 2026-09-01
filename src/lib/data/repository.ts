@@ -333,8 +333,6 @@ export interface DevIssueInput {
   detail?: string;
   category: DevIssueCategory;
   priority?: DevIssuePriority;
-  /** 完了してほしい日(依頼者の希望) */
-  desiredDate?: string | null;
   requester: ActorRef;
 }
 
@@ -345,9 +343,6 @@ export interface DevIssueUpdateInput {
   category?: DevIssueCategory;
   priority?: DevIssuePriority;
   status?: DevIssueStatus;
-  /** 完了してほしい日(依頼者が入力) */
-  desiredDate?: string | null;
-  scheduledDate?: string | null;
   completedDate?: string | null;
   devNote?: string;
 }
@@ -655,7 +650,7 @@ export interface Repository {
   /** 依頼を登録し、管理者・エンジニアへ通知する。 */
   createDevIssue(input: DevIssueInput): Promise<DevIssue>;
   /**
-   * 依頼の更新(ステータス・完了予定日・完了日・開発対応内容・依頼内容)。
+   * 依頼の更新(ステータス・完了日・開発対応内容・依頼内容)。
    * 対応完了/追加ヒアリングへの変更時は関係者へ通知する。
    */
   updateDevIssue(id: string, input: DevIssueUpdateInput, actor: ActorRef): Promise<DevIssue>;
