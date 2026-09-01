@@ -10,6 +10,8 @@ export interface CurrentUser {
   role: Role;
   /** 保有役割(兼務可)。権限判定はこちらを使う。 */
   roles: Role[];
+  /** 開発スケジュール表を閲覧できるか(管理者は常に閲覧できる) */
+  scheduleVisible: boolean;
   demo: boolean;
 }
 
@@ -45,6 +47,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
       email: profile.email,
       role: profile.role,
       roles: normalizeRoles(profile),
+      scheduleVisible: profile.scheduleVisible === true,
       demo: true,
     };
   }
@@ -86,6 +89,8 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     email: user.email ?? "",
     role,
     roles: normalizeRoles({ role, roles: (profile?.roles as Role[]) ?? null }),
+    // schedule_visible 列は移行(0019)で追加される。未適用でも「未許可」として扱う。
+    scheduleVisible: profile?.schedule_visible === true,
     demo: false,
   };
 }

@@ -16,11 +16,14 @@ import {
 } from "@/lib/domain/calculations";
 import {
   CONTRACT_CODE_MAX_ATTEMPTS,
+  DEV_SCHEDULE_PRIORITY_MAX,
+  DEV_SCHEDULE_PRIORITY_MIN,
   computeDevExecution,
   devIssueExecutionLabels,
   devNotificationRecipients,
   isProductAdmin,
 } from "@/lib/domain/constants";
+import { toLinkedIssue } from "@/lib/domain/dev-schedule";
 import { computeDashboardMetrics } from "@/lib/domain/metrics";
 import {
   defaultChecklist,
@@ -52,6 +55,7 @@ import type {
   DevIssueAttachment,
   DevIssueExecution,
   DevIssueReply,
+  DevScheduleItem,
   DirectDebitBatch,
   DirectDebitMandate,
   Invoice,
@@ -91,6 +95,8 @@ import type {
   DevIssueInput,
   DevIssueReplyInput,
   DevIssueUpdateInput,
+  DevScheduleItemInput,
+  DevScheduleItemUpdateInput,
   InvoiceFilter,
   InvoiceInput,
   MandateInput,
@@ -112,6 +118,15 @@ function decorate(inv: Invoice): Invoice {
 
 function ym(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** 優先度(★の数)を 1〜5 に収める */
+function clampSchedulePriority(priority: number | undefined): number {
+  if (priority === undefined || Number.isNaN(priority)) return 3;
+  return Math.min(
+    DEV_SCHEDULE_PRIORITY_MAX,
+    Math.max(DEV_SCHEDULE_PRIORITY_MIN, Math.round(priority)),
+  );
 }
 
 /** インメモリのデモ実装。Repository を完全に満たす。 */
@@ -1697,8 +1712,6 @@ export class DemoRepository implements Repository {
       executionSetAt: null,
       requesterId: input.requester.id,
       requesterName: input.requester.name,
-      desiredDate: input.desiredDate ?? null,
-      scheduledDate: null,
       completedDate: null,
       devNote: "",
       approvals: [],
@@ -1731,8 +1744,6 @@ export class DemoRepository implements Repository {
     if (input.category !== undefined) issue.category = input.category;
     if (input.priority !== undefined) issue.priority = input.priority;
     if (input.status !== undefined) issue.status = input.status;
-    if (input.desiredDate !== undefined) issue.desiredDate = input.desiredDate;
-    if (input.scheduledDate !== undefined) issue.scheduledDate = input.scheduledDate;
     if (input.completedDate !== undefined) issue.completedDate = input.completedDate;
     if (input.devNote !== undefined) issue.devNote = input.devNote;
     // 対応完了にした場合、完了日が未入力なら当日を補完する
@@ -1909,6 +1920,102 @@ export class DemoRepository implements Repository {
     const idx = this.s.devIssueAttachments.findIndex((a) => a.id === id);
     if (idx < 0) throw new Error("添付画像が見つかりません");
     this.s.devIssueAttachments.splice(idx, 1);
+  }
+
+  // --- 開発スケジュール (中長期ロードマップ) ---
+
+  /**
+   * 保存されている連動を、最新の依頼内容で解決して行に添える(依頼番号の小さい順)。
+   * 依頼側でステータスが変わっても、スケジュール表には常に最新が出る。
+   */
+  private withScheduleLinks(item: DevScheduleItem): DevScheduleItem {
+    const links = this.s.devScheduleLinks
+      .filter((l) => l.itemId === item.id)
+      .map((l) => this.s.devIssues.find((i) => i.id === l.issueId))
+      .filter((i): i is DevIssue => !!i)
+      .map(toLinkedIssue)
+      .sort((a, b) => a.issueNumber - b.issueNumber);
+    return { ...item, links };
+  }
+
+  /** 連動先を渡された集合に入れ替える(実在しない依頼・重複は捨てる) */
+  private setScheduleLinks(itemId: string, issueIds: string[]): void {
+    const next = [...new Set(issueIds)].filter((id) =>
+      this.s.devIssues.some((i) => i.id === id),
+    );
+    this.s.devScheduleLinks = [
+      ...this.s.devScheduleLinks.filter((l) => l.itemId !== itemId),
+      ...next.map((issueId) => ({ itemId, issueId })),
+    ];
+  }
+
+  async listDevScheduleItems(): Promise<DevScheduleItem[]> {
+    return this.s.devScheduleItems
+      .map((i) => this.withScheduleLinks(i))
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+
+  async getDevScheduleItem(id: string): Promise<DevScheduleItem | null> {
+    const item = this.s.devScheduleItems.find((i) => i.id === id);
+    return item ? this.withScheduleLinks(item) : null;
+  }
+
+  async createDevScheduleItem(input: DevScheduleItemInput): Promise<DevScheduleItem> {
+    const now = new Date().toISOString();
+    const item: DevScheduleItem = {
+      id: genId("dsc"),
+      category: input.category ?? "",
+      title: input.title,
+      priority: clampSchedulePriority(input.priority),
+      status: input.status ?? "planned",
+      targetMonth: input.targetMonth ?? null,
+      targetDate: input.targetDate ?? null,
+      confirmed: input.confirmed ?? false,
+      note: input.note ?? "",
+      // 新しい項目は既存の末尾へ置く
+      sortOrder: Math.max(0, ...this.s.devScheduleItems.map((i) => i.sortOrder)) + 1,
+      links: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.s.devScheduleItems.push(item);
+    this.setScheduleLinks(item.id, input.issueIds ?? []);
+    return this.withScheduleLinks(item);
+  }
+
+  async updateDevScheduleItem(
+    id: string,
+    input: DevScheduleItemUpdateInput,
+  ): Promise<DevScheduleItem> {
+    const item = this.s.devScheduleItems.find((i) => i.id === id);
+    if (!item) throw new Error("スケジュール項目が見つかりません");
+    if (input.category !== undefined) item.category = input.category;
+    if (input.title !== undefined) item.title = input.title;
+    if (input.priority !== undefined) item.priority = clampSchedulePriority(input.priority);
+    if (input.status !== undefined) item.status = input.status;
+    if (input.targetMonth !== undefined) item.targetMonth = input.targetMonth;
+    if (input.targetDate !== undefined) item.targetDate = input.targetDate;
+    if (input.confirmed !== undefined) item.confirmed = input.confirmed;
+    if (input.note !== undefined) item.note = input.note;
+    if (input.issueIds !== undefined) this.setScheduleLinks(item.id, input.issueIds);
+    item.updatedAt = new Date().toISOString();
+    return this.withScheduleLinks(item);
+  }
+
+  async deleteDevScheduleItem(id: string): Promise<void> {
+    this.s.devScheduleItems = this.s.devScheduleItems.filter((i) => i.id !== id);
+    this.s.devScheduleLinks = this.s.devScheduleLinks.filter((l) => l.itemId !== id);
+  }
+
+  async reorderDevScheduleItems(orderedIds: string[]): Promise<void> {
+    // 対象の項目が現在持っている並び順の枠を、渡された順に割り当て直す
+    const targets = orderedIds
+      .map((id) => this.s.devScheduleItems.find((i) => i.id === id))
+      .filter((i): i is DevScheduleItem => !!i);
+    const slots = targets.map((i) => i.sortOrder).sort((a, b) => a - b);
+    targets.forEach((item, index) => {
+      item.sortOrder = slots[index];
+    });
   }
 
   // --- 申込用URL ---
@@ -2105,6 +2212,12 @@ export class DemoRepository implements Repository {
     p.role = roles[0];
   }
 
+  async setScheduleVisibility(userId: string, visible: boolean): Promise<void> {
+    const p = this.s.profiles.find((x) => x.id === userId);
+    if (!p) throw new Error("アカウントが見つかりません");
+    p.scheduleVisible = visible;
+  }
+
   async createUserAccount(input: CreateAccountInput): Promise<UserProfile> {
     if (this.s.profiles.some((p) => p.email === input.email)) {
       throw new Error("同じメールアドレスのアカウントが既に存在します");
@@ -2115,6 +2228,8 @@ export class DemoRepository implements Repository {
       email: input.email,
       role: input.roles[0],
       roles: input.roles,
+      // 新しいアカウントは既定で非表示。管理者がチェックを付けて公開する。
+      scheduleVisible: false,
       createdAt: new Date().toISOString(),
     };
     this.s.profiles.push(profile);

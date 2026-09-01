@@ -7,6 +7,7 @@ import { switchDemoRole } from "@/app/actions/session";
 /**
  * デモモード専用: アカウントを切り替えて各役割の画面を試せる。
  * 管理者(承認者)は2名用意し、要望の承諾フローも確認できる。
+ * 酒井・若林は開発スケジュールの閲覧を許可されたメンバーの例。
  */
 const personas: { value: string; profileId: string; label: string }[] = [
   { value: "admin", profileId: "demo-admin-1", label: "管理者（佐々木）" },
@@ -14,6 +15,9 @@ const personas: { value: string; profileId: string; label: string }[] = [
   { value: "billing", profileId: "demo-billing-1", label: "請求＋開発管理 兼務（田中）" },
   { value: "dev", profileId: "demo-dev-1", label: "エンジニア（山田）" },
   { value: "dev_manager", profileId: "demo-devmgr-1", label: "開発・修正管理者（小林）" },
+  // スケジュール表の閲覧をオンにしてある2名(管理者以外の見え方を確認できる)
+  { value: "sakai", profileId: "demo-sakai", label: "スケジュール閲覧可（酒井）" },
+  { value: "wakabayashi", profileId: "demo-wakabayashi", label: "スケジュール閲覧可（若林）" },
 ];
 
 export function DemoRoleSwitcher({ currentId }: { currentId: string }) {

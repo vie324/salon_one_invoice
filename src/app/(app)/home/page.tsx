@@ -325,7 +325,7 @@ async function loadDev(repo: Repository, user: CurrentUser, month: string) {
     (i) => i.status === "done" && (i.completedDate ?? "").startsWith(month),
   ).length;
   const createdThisMonth = issues.filter((i) => i.createdAt.startsWith(month)).length;
-  const overdue = open.filter((i) => urgencyFor(i).overdue).length;
+  const stale = open.filter((i) => urgencyFor(i).days >= STALE_DAYS).length;
   const urgent = sortByUrgency(open.filter((i) => urgencyFor(i).urgent));
 
   const todos: TodoItem[] = [];
@@ -334,7 +334,10 @@ async function loadDev(repo: Repository, user: CurrentUser, month: string) {
       href: "/dev",
       icon: ClipboardList,
       label: "急ぎの開発依頼",
-      detail: overdue > 0 ? `うち予定日 超過 ${overdue}件` : "不具合・高優先・長期滞留",
+      detail:
+        stale > 0
+          ? `うち${STALE_DAYS}日以上の滞留 ${stale}件`
+          : "不具合・高優先・ヒアリング返信の放置",
       count: urgent.length,
       tone: "danger",
     });
@@ -389,7 +392,7 @@ async function loadDev(repo: Repository, user: CurrentUser, month: string) {
     byStatus,
     doneThisMonth,
     createdThisMonth,
-    overdue,
+    stale,
     urgent: urgent.slice(0, 3).map((issue) => ({ issue, urgency: urgencyFor(issue) })),
     urgentCount: urgent.length,
     todos,
@@ -435,10 +438,10 @@ function DevSection({
           accent="success"
         />
         <StatCard
-          label="完了予定日 超過"
-          value={`${dev.overdue}件`}
-          sub={dev.overdue > 0 ? "予定日の見直しが必要です" : "遅れはありません"}
-          accent={dev.overdue > 0 ? "danger" : "success"}
+          label={`${STALE_DAYS}日以上 滞留`}
+          value={`${dev.stale}件`}
+          sub={dev.stale > 0 ? "着手の見直しが必要です" : "滞留はありません"}
+          accent={dev.stale > 0 ? "danger" : "success"}
         />
       </div>
 
@@ -501,10 +504,9 @@ function DevSection({
 
 /** 「なぜ急ぎなのか」を1語で示す(バッジ表示用)。該当が無ければ null。 */
 function urgentReason(u: DevIssueUrgency): string | null {
-  if (u.overdue) return "予定日 超過";
-  if (u.desiredPassed) return "希望日 超過";
   if (u.hearingAnswered) return "返信あり";
   if (u.days >= STALE_DAYS) return `${u.days}日 経過`;
+  if (u.pendingApprovers.length > 0) return "承諾待ち";
   return null;
 }
 

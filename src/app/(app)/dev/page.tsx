@@ -1,4 +1,4 @@
-import { CalendarX, Clock, GripVertical, MessageSquare, Plus, UserCheck } from "lucide-react";
+import { CalendarRange, GripVertical, MessageSquare, Plus, UserCheck } from "lucide-react";
 import Link from "next/link";
 import { CompletionBanner } from "@/components/notifications/completion-banner";
 import { buttonClasses } from "@/components/ui/button";
@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireUser } from "@/lib/auth";
 import { getServiceRepository } from "@/lib/data";
-import { isEngineer, isProductAdmin } from "@/lib/domain/constants";
+import { canViewDevSchedule, isEngineer, isProductAdmin } from "@/lib/domain/constants";
 import {
   isOpenIssue,
   issueUrgency,
@@ -80,9 +80,6 @@ export default async function DevIssuesPage({
   const urgentBugs = openIssues.filter(
     (i) => i.category === "bug" && (i.priority === "high" || (urgencyOf.get(i.id)?.days ?? 0) >= STALE_DAYS),
   );
-  const overdue = openIssues.filter((i) => urgencyOf.get(i.id)?.overdue);
-  const missingSchedule = openIssues.filter((i) => urgencyOf.get(i.id)?.missingSchedule);
-  const desiredPassed = openIssues.filter((i) => urgencyOf.get(i.id)?.desiredPassed);
   const awaitingApproval = openIssues.filter(
     (i) => (urgencyOf.get(i.id)?.pendingApprovers.length ?? 0) > 0,
   );
@@ -96,6 +93,8 @@ export default async function DevIssuesPage({
 
   const engineer = isEngineer(user.roles);
   const approver = isProductAdmin(user.roles);
+  // スケジュール表への導線は、閲覧を許可されたメンバーにだけ出す
+  const showSchedule = canViewDevSchedule(user);
 
   return (
     <div>
@@ -109,10 +108,21 @@ export default async function DevIssuesPage({
             : "不具合を最優先に、緊急度の高い順で表示します。完了した依頼は「完了」タブから確認できます。"
         }
         actions={
-          <Link href="/dev/new" className={buttonClasses()}>
-            <Plus className="h-4 w-4" />
-            新規依頼
-          </Link>
+          <>
+            {showSchedule && (
+              <Link
+                href="/dev/schedule"
+                className={buttonClasses({ variant: "outline" })}
+              >
+                <CalendarRange className="h-4 w-4" />
+                スケジュール
+              </Link>
+            )}
+            <Link href="/dev/new" className={buttonClasses()}>
+              <Plus className="h-4 w-4" />
+              新規依頼
+            </Link>
+          </>
         }
       />
 
@@ -170,57 +180,15 @@ export default async function DevIssuesPage({
             linkLabel="確認する"
           />
         )}
-        {desiredPassed.length > 0 && (
-          <AlertBar
-            tone="danger"
-            icon={<CalendarX className="h-4 w-4" />}
-            title={`依頼者の希望日を過ぎた依頼が ${desiredPassed.length}件あります`}
-            body="依頼側が「この日までに」と指定した日を過ぎています。対応状況を共有してください。"
-            href={`/dev/${desiredPassed[0].id}`}
-            linkLabel="確認する"
-          />
-        )}
-        {engineer && overdue.length > 0 && (
-          <AlertBar
-            tone="danger"
-            icon={<CalendarX className="h-4 w-4" />}
-            title={`完了予定日を過ぎた依頼が ${overdue.length}件あります`}
-            body="予定日を更新するか、対応を完了してください。"
-            href={`/dev/${overdue[0].id}`}
-            linkLabel="対応する"
-          />
-        )}
-        {engineer && missingSchedule.length > 0 && (
-          <AlertBar
-            tone="warning"
-            icon={<Clock className="h-4 w-4" />}
-            title={`完了予定日が未記入の依頼が ${missingSchedule.length}件あります`}
-            body="いつ対応できるかを入力してください。依頼者が状況を追えるようになります。"
-            href={`/dev/${missingSchedule[0].id}`}
-            linkLabel="予定日を入力"
-          />
-        )}
-        {!engineer && missingSchedule.length > 0 && (
-          <AlertBar
-            tone="warning"
-            icon={<Clock className="h-4 w-4" />}
-            title={`完了予定日が未記入の依頼が ${missingSchedule.length}件あります`}
-            body="エンジニアへ完了予定日の記入を依頼してください。"
-            href={`/dev/${missingSchedule[0].id}`}
-            linkLabel="確認する"
-          />
-        )}
       </div>
 
-      <div className="mb-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
+      <div className="mb-4 grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-3">
         <SummaryTile
           label="要対応の不具合"
           value={urgentBugs.length}
           href="/dev?category=bug"
           tone="danger"
         />
-        <SummaryTile label="希望日 超過" value={desiredPassed.length} href="/dev" tone="danger" />
-        <SummaryTile label="予定日 未記入" value={missingSchedule.length} href="/dev" tone="warning" />
         <SummaryTile
           label={approver ? "あなたの承諾待ち" : "承諾待ちの要望"}
           value={approver ? myApproval.length : awaitingApproval.length}
@@ -297,8 +265,6 @@ export default async function DevIssuesPage({
               execution: i.execution,
               requesterName: i.requesterName,
               createdAt: i.createdAt,
-              desiredDate: i.desiredDate,
-              scheduledDate: i.scheduledDate,
               completedDate: i.completedDate,
               urgency: urgencyOf.get(i.id) ?? issueUrgency(i, profiles),
             }))}

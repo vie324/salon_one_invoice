@@ -27,8 +27,6 @@ export async function createDevIssueAction(input: {
   detail?: string;
   category: DevIssueCategory;
   priority?: DevIssuePriority;
-  /** 完了してほしい日(依頼者の希望) */
-  desiredDate?: string | null;
 }) {
   try {
     const user = await requireActionUser();
@@ -42,7 +40,6 @@ export async function createDevIssueAction(input: {
       detail: input.detail ?? "",
       category: input.category,
       priority: input.priority,
-      desiredDate: input.desiredDate || null,
       requester: { id: user.id, name: user.name },
     });
     revalidateDev(issue.id);
@@ -54,8 +51,8 @@ export async function createDevIssueAction(input: {
 
 /**
  * 依頼の更新。
- * - エンジニア入力欄(ステータス・完了予定日・完了日・開発対応内容)は開発進捗の権限があれば更新可
- * - 依頼内容(課題名・詳細・分類・優先度・希望完了日)は依頼者本人または管理者のみ
+ * - エンジニア入力欄(ステータス・完了日・開発対応内容)は開発進捗の権限があれば更新可
+ * - 依頼内容(課題名・詳細・分類・優先度)は依頼者本人または管理者のみ
  */
 export async function updateDevIssueAction(id: string, input: DevIssueUpdateInput) {
   try {
@@ -66,8 +63,7 @@ export async function updateDevIssueAction(id: string, input: DevIssueUpdateInpu
       input.title !== undefined ||
       input.detail !== undefined ||
       input.category !== undefined ||
-      input.priority !== undefined ||
-      input.desiredDate !== undefined;
+      input.priority !== undefined;
     if (editsRequest) {
       const existing = await repo.getDevIssue(id);
       if (!existing) throw new Error("開発依頼が見つかりません");

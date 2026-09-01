@@ -17,6 +17,8 @@ import {
 } from "@/lib/domain/calculations";
 import {
   CONTRACT_CODE_MAX_ATTEMPTS,
+  DEV_SCHEDULE_PRIORITY_MAX,
+  DEV_SCHEDULE_PRIORITY_MIN,
   computeDevExecution,
   devIssueExecutionLabels,
   devNotificationRecipients,
@@ -57,6 +59,8 @@ import type {
   DevIssueAttachment,
   DevIssueExecution,
   DevIssueReply,
+  DevScheduleItem,
+  DevScheduleLinkedIssue,
   DirectDebitBatch,
   DirectDebitMandate,
   Invoice,
@@ -96,6 +100,8 @@ import type {
   DevIssueInput,
   DevIssueReplyInput,
   DevIssueUpdateInput,
+  DevScheduleItemInput,
+  DevScheduleItemUpdateInput,
   InvoiceFilter,
   InvoiceInput,
   MandateInput,
@@ -487,8 +493,6 @@ function mapDevIssue(r: any): DevIssue {
     executionSetAt: r.execution_set_at ?? null,
     requesterId: r.requester_id ?? "",
     requesterName: r.requester_name ?? "",
-    desiredDate: r.desired_date ?? null,
-    scheduledDate: r.scheduled_date,
     completedDate: r.completed_date,
     devNote: r.dev_note ?? "",
     approvals,
@@ -512,6 +516,40 @@ function mapNotification(r: any): AppNotification {
   };
 }
 
+function mapScheduleItem(r: any): DevScheduleItem {
+  return {
+    id: r.id,
+    category: r.category ?? "",
+    title: r.title ?? "",
+    priority: Number(r.priority ?? 3),
+    status: r.status ?? "planned",
+    // target_month は date 型(その月の1日)で保持しているため YYYY-MM に戻す
+    targetMonth: r.target_month ? String(r.target_month).slice(0, 7) : null,
+    targetDate: r.target_date ?? null,
+    confirmed: r.confirmed ?? false,
+    note: r.note ?? "",
+    sortOrder: Number(r.sort_order ?? 0),
+    // 連動先は別クエリで添える(attachScheduleLinks)
+    links: [],
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+/** 優先度(★の数)を 1〜5 に収める */
+function clampSchedulePriority(priority: number | undefined): number {
+  if (priority === undefined || Number.isNaN(priority)) return 3;
+  return Math.min(
+    DEV_SCHEDULE_PRIORITY_MAX,
+    Math.max(DEV_SCHEDULE_PRIORITY_MIN, Math.round(priority)),
+  );
+}
+
+/** 表の列(YYYY-MM)を date 型へ入れるため、その月の1日にする */
+function monthColumn(month: string | null | undefined): string | null {
+  return month ? `${month}-01` : null;
+}
+
 function mapProfile(r: any, email = ""): UserProfile {
   const role = (r.role as Role) ?? "billing";
   return {
@@ -521,6 +559,8 @@ function mapProfile(r: any, email = ""): UserProfile {
     role,
     // roles 列は移行(0014)で追加される。未適用でも主ロールから復元する。
     roles: normalizeRoles({ role, roles: (r.roles as Role[]) ?? null }),
+    // schedule_visible 列は移行(0019)で追加される。未適用でも「未許可」として扱う。
+    scheduleVisible: r.schedule_visible === true,
     createdAt: r.created_at,
   };
 }
@@ -2869,7 +2909,6 @@ export class SupabaseRepository implements Repository {
         priority: input.priority ?? "medium",
         status: "open",
         execution: "undecided",
-        desired_date: input.desiredDate ?? null,
         // デモID等の uuid でない依頼者IDは NULL(表示は requester_name を使う)
         requester_id: isUuid(input.requester.id) ? input.requester.id : null,
         requester_name: input.requester.name,
@@ -2902,8 +2941,6 @@ export class SupabaseRepository implements Repository {
     if (input.category !== undefined) patch.category = input.category;
     if (input.priority !== undefined) patch.priority = input.priority;
     if (input.status !== undefined) patch.status = input.status;
-    if (input.desiredDate !== undefined) patch.desired_date = input.desiredDate;
-    if (input.scheduledDate !== undefined) patch.scheduled_date = input.scheduledDate;
     if (input.completedDate !== undefined) patch.completed_date = input.completedDate;
     if (input.devNote !== undefined) patch.dev_note = input.devNote;
     // 対応完了にした場合、完了日が未入力なら当日を補完する
@@ -3242,6 +3279,208 @@ export class SupabaseRepository implements Repository {
     if (delError) throw delError;
     // 実体の削除は best-effort(メタデータが消えていれば表示されない)
     await this.db.storage.from(ATTACHMENT_BUCKET).remove([data.storage_path]);
+  }
+
+  // --- 開発スケジュール (中長期ロードマップ) ---
+
+  /**
+   * 行に連動先の依頼を添える(まとめて2クエリ)。
+   * 依頼の最新のステータスを毎回引き直すので、スケジュール表は開発進捗と常に一致する。
+   */
+  private async attachScheduleLinks(items: DevScheduleItem[]): Promise<DevScheduleItem[]> {
+    if (items.length === 0) return items;
+    const { data: linkRows, error: linkError } = await this.db
+      .from("dev_schedule_links")
+      .select("item_id, issue_id")
+      .in(
+        "item_id",
+        items.map((i) => i.id),
+      );
+    if (linkError) throw linkError;
+    const rows = linkRows ?? [];
+    if (rows.length === 0) return items;
+
+    const issueIds = [...new Set(rows.map((r: any) => r.issue_id as string))];
+    const { data: issueRows, error: issueError } = await this.db
+      .from("dev_issues")
+      .select(
+        "id, issue_number, title, category, priority, status, execution, completed_date",
+      )
+      .in("id", issueIds);
+    if (issueError) throw issueError;
+    const byIssue = new Map<string, DevScheduleLinkedIssue>(
+      (issueRows ?? []).map((r: any) => [
+        r.id as string,
+        {
+          issueId: r.id,
+          issueNumber: Number(r.issue_number ?? 0),
+          title: r.title ?? "",
+          category: r.category,
+          priority: r.priority,
+          status: r.status,
+          execution: r.execution ?? "undecided",
+          completedDate: r.completed_date ?? null,
+        },
+      ]),
+    );
+
+    const byItem = new Map<string, DevScheduleLinkedIssue[]>();
+    for (const row of rows as any[]) {
+      const linked = byIssue.get(row.issue_id);
+      if (!linked) continue;
+      const list = byItem.get(row.item_id);
+      if (list) list.push(linked);
+      else byItem.set(row.item_id, [linked]);
+    }
+    for (const item of items) {
+      item.links = (byItem.get(item.id) ?? []).sort((a, b) => a.issueNumber - b.issueNumber);
+    }
+    return items;
+  }
+
+  /** 連動先を渡された集合に入れ替える(uuid でないIDと重複は捨てる) */
+  private async replaceScheduleLinks(itemId: string, issueIds: string[]): Promise<void> {
+    const next = [...new Set(issueIds)].filter(isUuid);
+    const { error: delError } = await this.db
+      .from("dev_schedule_links")
+      .delete()
+      .eq("item_id", itemId);
+    if (delError) throw delError;
+    if (next.length === 0) return;
+    const { error } = await this.db
+      .from("dev_schedule_links")
+      .insert(next.map((issueId) => ({ item_id: itemId, issue_id: issueId })));
+    if (error) throw error;
+  }
+
+  async listDevScheduleItems(): Promise<DevScheduleItem[]> {
+    const { data, error } = await this.db
+      .from("dev_schedule_items")
+      .select("*")
+      .order("sort_order", { ascending: true });
+    if (error) throw error;
+    return this.attachScheduleLinks((data ?? []).map(mapScheduleItem));
+  }
+
+  async getDevScheduleItem(id: string): Promise<DevScheduleItem | null> {
+    const { data, error } = await this.db
+      .from("dev_schedule_items")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    const [item] = await this.attachScheduleLinks([mapScheduleItem(data)]);
+    return item;
+  }
+
+  async createDevScheduleItem(input: DevScheduleItemInput): Promise<DevScheduleItem> {
+    // 新しい項目は既存の末尾へ置く
+    const { data: last, error: lastError } = await this.db
+      .from("dev_schedule_items")
+      .select("sort_order")
+      .order("sort_order", { ascending: false })
+      .limit(1);
+    if (lastError) throw lastError;
+    const sortOrder = Number(last?.[0]?.sort_order ?? 0) + 1;
+
+    const { data, error } = await this.db
+      .from("dev_schedule_items")
+      .insert({
+        category: input.category ?? "",
+        title: input.title,
+        priority: clampSchedulePriority(input.priority),
+        status: input.status ?? "planned",
+        target_month: monthColumn(input.targetMonth),
+        target_date: input.targetDate ?? null,
+        confirmed: input.confirmed ?? false,
+        note: input.note ?? "",
+        sort_order: sortOrder,
+      })
+      .select("*")
+      .single();
+    if (error) throw error;
+    const item = mapScheduleItem(data);
+    await this.replaceScheduleLinks(item.id, input.issueIds ?? []);
+    const [withLinks] = await this.attachScheduleLinks([item]);
+    return withLinks;
+  }
+
+  async updateDevScheduleItem(
+    id: string,
+    input: DevScheduleItemUpdateInput,
+  ): Promise<DevScheduleItem> {
+    const patch: Record<string, unknown> = {};
+    if (input.category !== undefined) patch.category = input.category;
+    if (input.title !== undefined) patch.title = input.title;
+    if (input.priority !== undefined) patch.priority = clampSchedulePriority(input.priority);
+    if (input.status !== undefined) patch.status = input.status;
+    if (input.targetMonth !== undefined) patch.target_month = monthColumn(input.targetMonth);
+    if (input.targetDate !== undefined) patch.target_date = input.targetDate;
+    if (input.confirmed !== undefined) patch.confirmed = input.confirmed;
+    if (input.note !== undefined) patch.note = input.note;
+
+    let row: any;
+    if (Object.keys(patch).length > 0) {
+      const { data, error } = await this.db
+        .from("dev_schedule_items")
+        .update(patch)
+        .eq("id", id)
+        .select("*")
+        .single();
+      if (error) throw error;
+      row = data;
+    } else {
+      const { data, error } = await this.db
+        .from("dev_schedule_items")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
+      if (error) throw error;
+      row = data;
+    }
+    if (!row) throw new Error("スケジュール項目が見つかりません");
+    if (input.issueIds !== undefined) await this.replaceScheduleLinks(id, input.issueIds);
+    const [item] = await this.attachScheduleLinks([mapScheduleItem(row)]);
+    return item;
+  }
+
+  async deleteDevScheduleItem(id: string): Promise<void> {
+    // dev_schedule_links は on delete cascade で一緒に消える(依頼本体は残る)
+    const { error } = await this.db.from("dev_schedule_items").delete().eq("id", id);
+    if (error) throw error;
+  }
+
+  async reorderDevScheduleItems(orderedIds: string[]): Promise<void> {
+    if (orderedIds.length === 0) return;
+    // 対象の項目が現在持っている並び順の枠を、渡された順に割り当て直す
+    const { data, error } = await this.db
+      .from("dev_schedule_items")
+      .select("id, sort_order")
+      .in("id", orderedIds);
+    if (error) throw error;
+    const current = new Map<string, number>(
+      (data ?? []).map((r: any) => [r.id as string, Number(r.sort_order ?? 0)]),
+    );
+    const slots = [...current.values()].sort((a, b) => a - b);
+    const targets = orderedIds.filter((id) => current.has(id));
+    for (const [index, id] of targets.entries()) {
+      const next = slots[index];
+      if (current.get(id) === next) continue;
+      const { error: upError } = await this.db
+        .from("dev_schedule_items")
+        .update({ sort_order: next })
+        .eq("id", id);
+      if (upError) throw upError;
+    }
+  }
+
+  async setScheduleVisibility(userId: string, visible: boolean): Promise<void> {
+    const { error } = await this.db
+      .from("profiles")
+      .update({ schedule_visible: visible })
+      .eq("id", userId);
+    if (error) throw error;
   }
 
   // --- 申込用URL ---

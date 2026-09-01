@@ -34,6 +34,8 @@ import type {
   DevIssueReply,
   DevIssueReplyRole,
   DevIssueStatus,
+  DevScheduleItem,
+  DevScheduleStatus,
   DirectDebitBatch,
   DirectDebitMandate,
   Invoice,
@@ -331,8 +333,6 @@ export interface DevIssueInput {
   detail?: string;
   category: DevIssueCategory;
   priority?: DevIssuePriority;
-  /** 完了してほしい日(依頼者の希望) */
-  desiredDate?: string | null;
   requester: ActorRef;
 }
 
@@ -343,9 +343,6 @@ export interface DevIssueUpdateInput {
   category?: DevIssueCategory;
   priority?: DevIssuePriority;
   status?: DevIssueStatus;
-  /** 完了してほしい日(依頼者が入力) */
-  desiredDate?: string | null;
-  scheduledDate?: string | null;
   completedDate?: string | null;
   devNote?: string;
 }
@@ -355,6 +352,39 @@ export interface DevIssueReplyInput {
   body: string;
   author: ActorRef;
   authorRole: DevIssueReplyRole;
+}
+
+/* ---- 開発スケジュール (中長期ロードマップ) ---- */
+
+/** スケジュール項目の新規登録。省略した項目は既定値で埋める。 */
+export interface DevScheduleItemInput {
+  category?: string;
+  title: string;
+  /** 優先度(★の数 1〜5)。既定は3。 */
+  priority?: number;
+  status?: DevScheduleStatus;
+  /** 表の列(YYYY-MM) */
+  targetMonth?: string | null;
+  /** 着手・完了の目安日(YYYY-MM-DD) */
+  targetDate?: string | null;
+  confirmed?: boolean;
+  note?: string;
+  /** 連動させる開発進捗(dev_issues.id) */
+  issueIds?: string[];
+}
+
+/** スケジュール項目の更新。undefined の項目は変更しない。 */
+export interface DevScheduleItemUpdateInput {
+  category?: string;
+  title?: string;
+  priority?: number;
+  status?: DevScheduleStatus;
+  targetMonth?: string | null;
+  targetDate?: string | null;
+  confirmed?: boolean;
+  note?: string;
+  /** 指定したときだけ連動先を入れ替える(渡した集合がそのまま連動先になる) */
+  issueIds?: string[];
 }
 
 /** アカウント作成(全体管理者のみ)。本番は Supabase Auth のユーザーも作成する。 */
@@ -620,7 +650,7 @@ export interface Repository {
   /** 依頼を登録し、管理者・エンジニアへ通知する。 */
   createDevIssue(input: DevIssueInput): Promise<DevIssue>;
   /**
-   * 依頼の更新(ステータス・完了予定日・完了日・開発対応内容・依頼内容)。
+   * 依頼の更新(ステータス・完了日・開発対応内容・依頼内容)。
    * 対応完了/追加ヒアリングへの変更時は関係者へ通知する。
    */
   updateDevIssue(id: string, input: DevIssueUpdateInput, actor: ActorRef): Promise<DevIssue>;
@@ -666,6 +696,27 @@ export interface Repository {
   ): Promise<DevIssueAttachment>;
   getDevIssueAttachment(id: string): Promise<DevIssueAttachment | null>;
   deleteDevIssueAttachment(id: string): Promise<void>;
+
+  // --- 開発スケジュール (中長期ロードマップ) ---
+  /**
+   * スケジュール項目の一覧(連動している開発進捗つき)。
+   * 連動先は依頼番号の小さい順で添える。
+   */
+  listDevScheduleItems(): Promise<DevScheduleItem[]>;
+  getDevScheduleItem(id: string): Promise<DevScheduleItem | null>;
+  /** 項目を追加する(連動させる依頼も同時に指定できる)。 */
+  createDevScheduleItem(input: DevScheduleItemInput): Promise<DevScheduleItem>;
+  /** 項目の更新。issueIds を渡したときだけ連動先を入れ替える。 */
+  updateDevScheduleItem(id: string, input: DevScheduleItemUpdateInput): Promise<DevScheduleItem>;
+  /** 項目の削除(連動は外れるだけで、開発進捗の依頼自体は残る)。 */
+  deleteDevScheduleItem(id: string): Promise<void>;
+  /**
+   * 手動の並び順を保存する(ドラッグでの入れ替え)。
+   * 渡された順に sortOrder を振り直す。含まれない項目の並び順は変えない。
+   */
+  reorderDevScheduleItems(orderedIds: string[]): Promise<void>;
+  /** スケジュール表を閲覧できるメンバーの設定(チェックの付け外し)。 */
+  setScheduleVisibility(userId: string, visible: boolean): Promise<void>;
 
   // --- 申込用URL ---
   listApplicationLinks(): Promise<ApplicationLink[]>;

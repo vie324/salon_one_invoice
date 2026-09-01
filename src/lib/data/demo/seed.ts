@@ -14,6 +14,7 @@ import type {
   DataDeletionLog,
   DevIssue,
   DevIssueAttachment,
+  DevScheduleItem,
   DirectDebitBatch,
   DirectDebitMandate,
   Invoice,
@@ -46,6 +47,10 @@ export interface DataStore {
   profiles: UserProfile[];
   devIssues: DevIssue[];
   devIssueAttachments: DevIssueAttachment[];
+  /** 開発スケジュール(中長期ロードマップ)の行 */
+  devScheduleItems: DevScheduleItem[];
+  /** スケジュール項目 ↔ 開発進捗(依頼)の連動。DBの dev_schedule_links と同じ形。 */
+  devScheduleLinks: { itemId: string; issueId: string }[];
   applicationLinks: ApplicationLink[];
   applications: Application[];
   notifications: AppNotification[];
@@ -59,6 +64,7 @@ export interface DataStore {
  * デモモードのアカウント。右上の切替で各役割になりきれる。
  * 要望の承諾フローを試せるよう、承認者(管理者)は2名用意する。
  * 田中は請求管理者と開発・修正管理者の兼務例。
+ * 酒井・若林は開発スケジュール表の閲覧をオンにしてある2名。
  */
 export const DEMO_PROFILES: UserProfile[] = [
   {
@@ -67,6 +73,7 @@ export const DEMO_PROFILES: UserProfile[] = [
     email: "sasaki@salon-one.example.jp",
     role: "admin",
     roles: ["admin"],
+    scheduleVisible: false,
     createdAt: "2026-01-01T00:00:00.000Z",
   },
   {
@@ -75,6 +82,7 @@ export const DEMO_PROFILES: UserProfile[] = [
     email: "takahashi@salon-one.example.jp",
     role: "admin",
     roles: ["admin"],
+    scheduleVisible: false,
     createdAt: "2026-01-01T00:00:00.000Z",
   },
   {
@@ -84,6 +92,7 @@ export const DEMO_PROFILES: UserProfile[] = [
     email: "tanaka@salon-one.example.jp",
     role: "billing",
     roles: ["billing", "dev_manager"],
+    scheduleVisible: false,
     createdAt: "2026-01-01T00:00:00.000Z",
   },
   {
@@ -92,6 +101,7 @@ export const DEMO_PROFILES: UserProfile[] = [
     email: "yamada@salon-one.example.jp",
     role: "engineer",
     roles: ["engineer"],
+    scheduleVisible: false,
     createdAt: "2026-01-01T00:00:00.000Z",
   },
   {
@@ -100,6 +110,26 @@ export const DEMO_PROFILES: UserProfile[] = [
     email: "kobayashi@salon-one.example.jp",
     role: "dev_manager",
     roles: ["dev_manager"],
+    scheduleVisible: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+  {
+    // 開発スケジュール表の閲覧を最初に許可した2名(酒井・若林)
+    id: "demo-sakai",
+    name: "酒井 亮",
+    email: "sakai@salon-one.example.jp",
+    role: "dev_manager",
+    roles: ["dev_manager"],
+    scheduleVisible: true,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+  {
+    id: "demo-wakabayashi",
+    name: "若林 千尋",
+    email: "wakabayashi@salon-one.example.jp",
+    role: "dev_manager",
+    roles: ["dev_manager"],
+    scheduleVisible: true,
     createdAt: "2026-01-01T00:00:00.000Z",
   },
 ];
@@ -118,6 +148,8 @@ export function demoProfileIdForRole(role: string | undefined): string {
     dev: "demo-dev-1",
     engineer: "demo-dev-1",
     dev_manager: "demo-devmgr-1",
+    sakai: "demo-sakai",
+    wakabayashi: "demo-wakabayashi",
   };
   return map[role ?? "admin"] ?? "demo-admin-1";
 }
@@ -209,6 +241,8 @@ export function buildSeed(): DataStore {
     profiles: DEMO_PROFILES.map((p) => ({ ...p })),
     devIssues: [],
     devIssueAttachments: [],
+    devScheduleItems: [],
+    devScheduleLinks: [],
     applicationLinks: [],
     applications: [],
     notifications: [],
