@@ -24,13 +24,21 @@
 8. `0008_agencies_pricing.sql` … 営業代理店・営業マン・個別料金
 9. `0009_dev_progress.sql` 〜 `0013_application_contact.sql` … 開発進捗・添付・申込
 10. `0014_roles_and_soft_delete.sql` … **役割の複数割当（兼務）** と **削除・復元（ゴミ箱）＋操作ログ**
-11. `0015_dev_issue_desired_date_order.sql` … 開発依頼の**希望完了日**（`0020` で廃止）と**手動の並び順**
+11. `0015_dev_issue_desired_date_order.sql` … 開発依頼の**希望完了日**と**手動の並び順**
 12. `0016_customer_onboarding_reminders.sql` … 顧客ステータス（カンバン）と督促メールの記録
 13. `0017_organization_invoice_info.sql` … 自社情報の**インボイス登録番号**の投入と**支店番号**カラム
 14. `0018_dev_issue_replies.sql` … **追加ヒアリングの返信**（やり取りスレッド）と通知種別の追加
 15. `0019_dev_schedule.sql` … **開発スケジュール（中長期ロードマップ）**、開発進捗との連動、**閲覧できるメンバー**（`profiles.schedule_visible`）
-16. `0020_drop_dev_issue_dates.sql` … 開発依頼の**完了希望日・対応完了予定日を廃止**（`desired_date` / `scheduled_date` を削除）
+16. `0021_restore_dev_issue_dates.sql` … 開発依頼の `desired_date` / `scheduled_date` を**残すための復旧**（無ければ追加・あれば何もしない）
 17. （任意）`seed.sql` … 初期データ（自社情報・料金プラン）
+
+> 開発進捗の**完了希望日・対応完了予定日はアプリから廃止**しましたが、`dev_issues` の
+> `desired_date` / `scheduled_date` カラムは**残してあります**（機能を復活させる可能性があるため）。
+> どちらも NULL 許容で、アプリは読み書きしません。入力済みの日付もそのまま保持されます。
+>
+> 一時期このカラムを削除する `0020_drop_dev_issue_dates.sql` がありましたが、方針変更により
+> 取り下げました（番号 `0020` は欠番）。**すでに適用してしまった場合は `0021` を実行**すると
+> カラムが戻ります（削除時に失われた日付の中身までは戻りません）。
 
 > `0017` は登録番号が未設定（空）の場合のみ、適格請求書発行事業者の登録番号を投入します。
 > 電話番号・振込先などの残りの項目は、アプリの **設定 → 自社情報（請求書の発行元）** から入力してください（管理者のみ）。
@@ -152,7 +160,6 @@
 | ログイン後に何も表示されない | migrations 未適用の可能性。`0001`〜`0003` を実行。 |
 | 役割を兼務させられない / ゴミ箱でエラーになる | `0014_roles_and_soft_delete.sql` が未適用。SQL Editor で実行してください。 |
 | 開発依頼を並び替えできない | `0015_dev_issue_desired_date_order.sql` が未適用。SQL Editor で実行してください。 |
-| 開発進捗に「希望日」「完了予定」の列が残っている | `0020_drop_dev_issue_dates.sql` が未適用。SQL Editor で実行してください（列を削除すると入力済みの日付は失われます）。 |
 | 追加ヒアリングに返信を追記できない / やり取りが表示されない | `0018_dev_issue_replies.sql` が未適用。SQL Editor で実行してください。 |
 | 開発スケジュールが開けない / 酒井・若林にチェックが付いていない | `0019_dev_schedule.sql` が未適用。SQL Editor で実行してください。 |
 | 保存・作成後に「ページが見つかりません」になる / 保存時に `SUPABASE_SERVICE_ROLE_KEY が未設定…` と表示される | `SUPABASE_SERVICE_ROLE_KEY` が未設定。Vercel の環境変数に service_role キーを設定し、再デプロイ。 |

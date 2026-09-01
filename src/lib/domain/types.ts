@@ -585,7 +585,13 @@ export interface DevIssueReply {
   createdAt: string;
 }
 
-/** 開発依頼(不具合報告・機能要望)。スプレッドシートの1行に相当する。 */
+/**
+ * 開発依頼(不具合報告・機能要望)。スプレッドシートの1行に相当する。
+ *
+ * 完了希望日(desired_date)・対応完了予定日(scheduled_date)は、日付を突き合わせる
+ * 運用が負担だったため廃止した。DBのカラムは復活させる可能性を見て残してあるが、
+ * アプリからは読み書きしないので、ここにも持たせない。
+ */
 export interface DevIssue {
   id: string;
   /** 表示用の連番 (#12) */
