@@ -22,6 +22,8 @@ import type {
   Payment,
   Plan,
   PlanOption,
+  Referral,
+  ReferralLink,
   Subscription,
   UserProfile,
 } from "@/lib/domain/types";
@@ -53,6 +55,10 @@ export interface DataStore {
   devScheduleLinks: { itemId: string; issueId: string }[];
   applicationLinks: ApplicationLink[];
   applications: Application[];
+  /** 紹介フォームのURL(発行済み) */
+  referralLinks: ReferralLink[];
+  /** 紹介フォームからの申込 */
+  referrals: Referral[];
   notifications: AppNotification[];
   /** 削除・復元の操作ログ(追記のみ) */
   deletionLogs: DataDeletionLog[];
@@ -245,6 +251,8 @@ export function buildSeed(): DataStore {
     devScheduleLinks: [],
     applicationLinks: [],
     applications: [],
+    referralLinks: [],
+    referrals: [],
     notifications: [],
     deletionLogs: [],
     devIssueSeq: 0,

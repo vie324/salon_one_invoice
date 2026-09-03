@@ -14,6 +14,10 @@ import type {
   NotificationType,
   PaymentMethod,
   PaymentStatus,
+  ReferralContactMethod,
+  ReferralRewardStatus,
+  ReferralStatus,
+  ReferralTimeSlot,
   Role,
   SubscriptionStatus,
 } from "./types";
@@ -500,6 +504,72 @@ export const APPLICATION_SERVICES = [
 ] as const;
 
 export type ApplicationServiceKey = (typeof APPLICATION_SERVICES)[number]["key"];
+
+/* ---- 紹介制度 ---- */
+
+/**
+ * 紹介した側へのお支払い率。紹介された方の初期費用(税抜)に乗じる。
+ * 0.25 = 初期費用の25%。
+ */
+export const REFERRAL_REWARD_RATE = 0.25;
+
+/**
+ * 紹介された側が無料になる月数(初月の端数日数に加えて、まるまる無料になる月)。
+ * 初月の日割りぶんは別途 free(0円)にするため、合計では「端数日数＋2ヶ月」無料になる。
+ */
+export const REFERRAL_FREE_MONTHS = 2;
+
+/** 紹介フォームURLの既定有効日数(0 = 無期限) */
+export const REFERRAL_LINK_EXPIRY_DAYS = 0;
+
+export const referralContactMethodLabels: Record<ReferralContactMethod, string> = {
+  phone: "電話",
+  email: "メール",
+  sms: "SMS（ショートメール）",
+  line: "LINE",
+};
+
+/** 一覧・バッジ用の短い表記 */
+export const referralContactMethodShort: Record<ReferralContactMethod, string> = {
+  phone: "電話",
+  email: "メール",
+  sms: "SMS",
+  line: "LINE",
+};
+
+export const referralTimeSlotLabels: Record<ReferralTimeSlot, string> = {
+  anytime: "いつでも可",
+  morning: "午前中（9〜12時）",
+  early_afternoon: "12〜15時",
+  late_afternoon: "15〜18時",
+  evening: "18時以降",
+};
+
+export const referralStatusLabels: Record<ReferralStatus, string> = {
+  submitted: "未対応",
+  contacted: "連絡済",
+  customer_created: "顧客登録済",
+  archived: "対応不要",
+};
+
+export const referralStatusTone: Record<ReferralStatus, BadgeTone> = {
+  submitted: "warning",
+  contacted: "info",
+  customer_created: "success",
+  archived: "neutral",
+};
+
+export const referralRewardStatusLabels: Record<ReferralRewardStatus, string> = {
+  pending: "金額未確定",
+  payable: "お支払い待ち",
+  paid: "お支払い済",
+};
+
+export const referralRewardStatusTone: Record<ReferralRewardStatus, BadgeTone> = {
+  pending: "neutral",
+  payable: "warning",
+  paid: "success",
+};
 
 /** 署名依頼の既定有効日数 */
 export const CONTRACT_SIGN_EXPIRY_DAYS = 14;

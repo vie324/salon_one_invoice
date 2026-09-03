@@ -10,7 +10,8 @@ function isPublicPath(path: string): boolean {
     isAuthPath(path) ||
     path.startsWith("/billing") ||
     path.startsWith("/sign") || // 電子契約の署名ページ(トークンで保護)
-    path.startsWith("/apply") // 申込フォーム(お客様に渡すURL。トークンで保護)
+    path.startsWith("/apply") || // 申込フォーム(お客様に渡すURL。トークンで保護)
+    path.startsWith("/refer") // 紹介フォーム(常設URL。誰でも開ける入口)
   );
   // /print(顧客情報を含む印刷ページ)と /api/direct-debit(口座情報CSV)は
   // スタッフ専用のため認証ゲートの対象。公開したままだと、データ取得の
