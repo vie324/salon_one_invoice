@@ -26,6 +26,7 @@ import {
   normalizeRoles,
 } from "@/lib/domain/constants";
 import { computeDashboardMetrics } from "@/lib/domain/metrics";
+import { referralNotes, referralReward } from "@/lib/domain/referral";
 import {
   defaultChecklist,
   initialStageFor,
@@ -72,6 +73,9 @@ import type {
   Payment,
   PaymentMethod,
   Plan,
+  Referral,
+  ReferralLink,
+  ReferralStatus,
   Role,
   Subscription,
   UserProfile,
@@ -109,6 +113,10 @@ import type {
   OrganizationInput,
   PaymentInput,
   PlanInput,
+  ReferralInput,
+  ReferralLinkInput,
+  ReferralRewardInput,
+  ReferralUpdateInput,
   Repository,
   StripeInvoiceInput,
   StripeSubscriptionInput,
@@ -162,6 +170,8 @@ function mapCustomer(r: any): Customer {
     stripeCustomerId: r.stripe_customer_id ?? null,
     agencyId: r.agency_id ?? null,
     agencyMemberId: r.agency_member_id ?? null,
+    // referred_by_customer_id 列は移行(0022)で追加される。未適用でも読み書きは落とさない。
+    referredByCustomerId: r.referred_by_customer_id ?? null,
   };
 }
 
@@ -586,6 +596,49 @@ function mapAttachment(r: any, url: string): DevIssueAttachment {
   };
 }
 
+function mapReferralLink(r: any): ReferralLink {
+  // referrals(count) は [{ count: n }] 形式で返る(select に含めない場合は 0)
+  const counts = Array.isArray(r.referrals) ? r.referrals : [];
+  return {
+    id: r.id,
+    token: r.token,
+    name: r.name ?? "",
+    referrerCustomerId: r.referrer_customer_id ?? null,
+    referrerName: r.referrer_name ?? "",
+    active: Boolean(r.active),
+    expiresAt: r.expires_at ?? null,
+    submissionCount: Number(counts[0]?.count ?? 0),
+    createdBy: r.created_by ?? "",
+    createdAt: r.created_at,
+  };
+}
+
+function mapReferral(r: any): Referral {
+  return {
+    id: r.id,
+    linkId: r.link_id ?? null,
+    referrerName: r.referrer_name ?? "",
+    referrerCustomerId: r.referrer_customer_id ?? null,
+    companyName: r.company_name ?? "",
+    contactName: r.contact_name ?? "",
+    phone: r.phone ?? "",
+    email: r.email ?? "",
+    contactMethod: r.contact_method ?? "phone",
+    preferredDate: r.preferred_date ?? null,
+    preferredTimeSlot: r.preferred_time_slot ?? "anytime",
+    note: r.note ?? "",
+    status: r.status ?? "submitted",
+    customerId: r.customer_id ?? null,
+    rewardBaseAmount: Number(r.reward_base_amount ?? 0),
+    rewardAmount: Number(r.reward_amount ?? 0),
+    rewardStatus: r.reward_status ?? "pending",
+    rewardPaidAt: r.reward_paid_at ?? null,
+    submittedAt: r.submitted_at,
+    submittedIp: r.submitted_ip ?? "",
+    updatedAt: r.updated_at ?? r.submitted_at,
+  };
+}
+
 function mapApplicationLink(r: any): ApplicationLink {
   // applications(count) は [{ count: n }] 形式で返る(select に含めない場合は 0)
   const counts = Array.isArray(r.applications) ? r.applications : [];
@@ -736,6 +789,7 @@ export class SupabaseRepository implements Repository {
         notes: input.notes ?? "",
         agency_id: input.agencyId ?? null,
         agency_member_id: input.agencyMemberId ?? null,
+        referred_by_customer_id: input.referredByCustomerId ?? null,
       })
       .select("*")
       .single();
@@ -883,7 +937,11 @@ export class SupabaseRepository implements Repository {
         plan_id: input.planId,
         status: "active",
         started_on: input.startedOn,
-        next_billing_date: computeNextBillingDate(input.startedOn, billingDay),
+        next_billing_date: deferBilling(
+          computeNextBillingDate(input.startedOn, billingDay),
+          input.freeMonths ?? 0,
+          billingDay,
+        ),
         billing_day: billingDay,
         option_keys: input.optionKeys ?? [],
         price_override: input.priceOverride ?? null,
@@ -3660,6 +3718,227 @@ export class SupabaseRepository implements Repository {
     return customer;
   }
 
+  // --- 紹介制度 ---
+
+  async listReferralLinks(): Promise<ReferralLink[]> {
+    const { data, error } = await this.db
+      .from("referral_links")
+      .select("*, referrals(count)")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map(mapReferralLink);
+  }
+
+  async createReferralLink(input: ReferralLinkInput): Promise<ReferralLink> {
+    const days = input.expiryDays ?? 0;
+    // 紹介者を指定したリンクは、顧客名も控えて顧客削除後も分かるようにする
+    let referrerName = "";
+    if (input.referrerCustomerId) {
+      const customer = await this.getCustomer(input.referrerCustomerId);
+      referrerName = customer?.name ?? "";
+    }
+    const { data, error } = await this.db
+      .from("referral_links")
+      .insert({
+        token: generateApplicationToken(),
+        name: input.name.trim(),
+        referrer_customer_id: input.referrerCustomerId ?? null,
+        referrer_name: referrerName,
+        active: true,
+        expires_at:
+          days > 0 ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString() : null,
+        created_by: input.createdBy,
+      })
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapReferralLink(data);
+  }
+
+  async setReferralLinkActive(id: string, active: boolean): Promise<ReferralLink> {
+    const { data, error } = await this.db
+      .from("referral_links")
+      .update({ active })
+      .eq("id", id)
+      .select("*, referrals(count)")
+      .single();
+    if (error) throw error;
+    return mapReferralLink(data);
+  }
+
+  async deleteReferralLink(id: string): Promise<void> {
+    // 受付済みの紹介は残す(link_id は on delete set null)
+    const { error } = await this.db.from("referral_links").delete().eq("id", id);
+    if (error) throw error;
+  }
+
+  async getReferralLinkByToken(
+    token: string,
+  ): Promise<{ link: ReferralLink | null; state: ApplicationLinkState }> {
+    if (!token) return { link: null, state: "not_found" };
+    const { data, error } = await this.db
+      .from("referral_links")
+      .select("*, referrals(count)")
+      .eq("token", token)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return { link: null, state: "not_found" };
+    const link = mapReferralLink(data);
+    return { link, state: applicationLinkAvailability(link) };
+  }
+
+  async listReferrals(filter?: { status?: ReferralStatus | "all" }): Promise<Referral[]> {
+    let q = this.db.from("referrals").select("*").order("submitted_at", { ascending: false });
+    if (filter?.status && filter.status !== "all") q = q.eq("status", filter.status);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []).map(mapReferral);
+  }
+
+  async getReferral(id: string): Promise<Referral | null> {
+    const { data, error } = await this.db
+      .from("referrals")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapReferral(data) : null;
+  }
+
+  async submitReferral(token: string | null, input: ReferralInput): Promise<Referral> {
+    // token 無し = 常設フォーム(/refer)からの受付
+    let link: ReferralLink | null = null;
+    if (token) {
+      const found = await this.getReferralLinkByToken(token);
+      if (!found.link || found.state === "not_found") {
+        throw new Error("紹介フォームURLが見つかりません");
+      }
+      if (found.state === "inactive") throw new Error("この紹介URLは現在受付を停止しています");
+      if (found.state === "expired") throw new Error("この紹介URLは有効期限が切れています");
+      link = found.link;
+    }
+
+    // 紹介者を指定したURLからの受付なら、その顧客を紹介者として引き継ぐ
+    const referrerName = (link?.referrerName || input.referrerName).trim();
+    const referrerCustomerId =
+      link?.referrerCustomerId ?? (await this.matchReferrerCustomer(referrerName));
+
+    const { data, error } = await this.db
+      .from("referrals")
+      .insert({
+        link_id: link?.id ?? null,
+        referrer_name: referrerName,
+        referrer_customer_id: referrerCustomerId,
+        company_name: input.companyName.trim(),
+        contact_name: input.contactName.trim(),
+        phone: input.phone.trim(),
+        email: input.email.trim(),
+        contact_method: input.contactMethod,
+        preferred_date: input.preferredDate || null,
+        preferred_time_slot: input.preferredTimeSlot,
+        note: input.note?.trim() ?? "",
+        status: "submitted",
+        submitted_ip: input.submittedIp ?? "",
+      })
+      .select("*")
+      .single();
+    if (error) throw error;
+    const referral = mapReferral(data);
+    await this.logActivity({
+      kind: "referral_submitted",
+      message: `紹介フォームから「${referral.companyName || referral.contactName}」のご紹介がありました（紹介者: ${referral.referrerName}）`,
+      actor: referral.contactName,
+      amount: null,
+      linkInvoiceId: null,
+    });
+    return referral;
+  }
+
+  async updateReferral(id: string, input: ReferralUpdateInput): Promise<Referral> {
+    const patch: Record<string, unknown> = {};
+    if (input.status !== undefined) patch.status = input.status;
+    if (input.note !== undefined) patch.note = input.note;
+    if (input.referrerCustomerId !== undefined) {
+      patch.referrer_customer_id = input.referrerCustomerId;
+      if (input.referrerCustomerId) {
+        // 顧客に紐付けたら、表示名もその顧客名に合わせる
+        const customer = await this.getCustomer(input.referrerCustomerId);
+        if (customer) patch.referrer_name = customer.name;
+      }
+    }
+    const { data, error } = await this.db
+      .from("referrals")
+      .update(patch)
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapReferral(data);
+  }
+
+  async createCustomerFromReferral(id: string, actor: string): Promise<Customer> {
+    const referral = await this.getReferral(id);
+    if (!referral) throw new Error("紹介が見つかりません");
+    if (referral.customerId) throw new Error("この紹介は既に顧客として登録されています");
+    const customer = await this.createCustomer({
+      name: referral.companyName || referral.contactName,
+      contactName: referral.contactName,
+      email: referral.email,
+      phone: referral.phone,
+      paymentMethod: "direct_debit",
+      notes: referralNotes(referral),
+      assignee: actor,
+      referredByCustomerId: referral.referrerCustomerId,
+    });
+    const { error } = await this.db
+      .from("referrals")
+      .update({ customer_id: customer.id, status: "customer_created" })
+      .eq("id", id);
+    if (error) throw error;
+    return customer;
+  }
+
+  async setReferralReward(id: string, input: ReferralRewardInput): Promise<Referral> {
+    const amount = input.rewardAmount ?? referralReward(input.rewardBaseAmount);
+    const { data, error } = await this.db
+      .from("referrals")
+      .update({
+        reward_base_amount: input.rewardBaseAmount,
+        reward_amount: amount,
+        reward_status: input.status,
+        reward_paid_at: input.status === "paid" ? new Date().toISOString() : null,
+      })
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapReferral(data);
+  }
+
+  async findReferralByCustomerId(customerId: string): Promise<Referral | null> {
+    const { data, error } = await this.db
+      .from("referrals")
+      .select("*")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapReferral(data) : null;
+  }
+
+  /** 「誰に紹介されたか」の入力を、同じ名前の顧客に突き合わせる(1件に定まる場合だけ) */
+  private async matchReferrerCustomer(name: string): Promise<string | null> {
+    const q = name.trim();
+    if (!q) return null;
+    const { data, error } = await this.db
+      .from("customers")
+      .select("id")
+      .eq("name", q)
+      .is("deleted_at", null)
+      .limit(2);
+    if (error) return null;
+    return data?.length === 1 ? (data[0].id as string) : null;
+  }
+
   // --- アプリ内通知 ---
 
   async listNotifications(
@@ -3836,6 +4115,19 @@ export class SupabaseRepository implements Repository {
       return [];
     }
   }
+}
+
+/**
+ * 無料月数のぶん、次回請求日を先送りする(0 ならそのまま)。
+ * 月末が短い月でも請求日が溢れないよう、その月の末日に丸める。
+ */
+function deferBilling(nextBillingDate: string, freeMonths: number, billingDay: number): string {
+  if (!freeMonths || freeMonths <= 0) return nextBillingDate;
+  const d = new Date(nextBillingDate);
+  const year = d.getFullYear();
+  const month = d.getMonth() + freeMonths;
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  return toISODate(new Date(year, month, Math.min(billingDay, lastDay)));
 }
 
 /** uuid 形式か(デモID等を uuid カラムへ入れないためのガード) */

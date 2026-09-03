@@ -20,7 +20,12 @@ import {
   contractSignRequestEmailHtml,
   contractSignedEmailHtml,
 } from "@/lib/email/templates";
-import { CONTRACT_SIGN_EXPIRY_DAYS } from "@/lib/domain/constants";
+import {
+  CONTRACT_SIGN_EXPIRY_DAYS,
+  REFERRAL_FREE_MONTHS,
+  REFERRAL_REWARD_RATE,
+} from "@/lib/domain/constants";
+import { referralFreePeriodLabel, referralReward } from "@/lib/domain/referral";
 import {
   computeDueDate,
   prorateMonthly,
@@ -235,6 +240,11 @@ export async function markContractSignedManuallyAction(
  * - プランが紐付いていれば定期契約(毎月の請求書自動生成)を作成。翌月分から生成される。
  * - 初期費用＋初月日割り(利用開始日〜月末)の請求書(銀行振込・送付済)を作成
  * - 顧客の支払方法を口座振替に設定し、翌月以降の定期請求は引き落としで請求する
+ *
+ * 紹介制度で登録された顧客(referredByCustomerId あり)は特典を自動で適用する:
+ * - 初月の端数日数(日割り)は無料。請求書には0円の明細として残し、何が無料かを示す
+ * - さらに2ヶ月ぶん無料。定期契約の初回請求日をその月数だけ先送りする
+ * - 紹介した側へのお支払い(初期費用の25%)を紹介レコードに記録する
  */
 export async function startContractBillingAction(id: string, params: { startedOn: string }) {
   try {
@@ -249,9 +259,15 @@ export async function startContractBillingAction(id: string, params: { startedOn
       return { ok: false as const, error: "この契約の請求連携は既に開始されています" };
     }
 
+    // 紹介制度の特典対象か(紹介された側として登録された顧客か)を先に調べる
+    const customer = await repo.getCustomer(contract.customerId);
+    const referred = Boolean(customer?.referredByCustomerId);
+
     const details: string[] = [];
     let subscriptionId: string | null = null;
     let invoiceId: string | null = null;
+    // 紹介謝礼の対象になる初期費用(税抜)。初回請求に計上した額をそのまま使う
+    let initialFeeCharged = 0;
 
     // 初回請求書(銀行振込)の明細。契約書第5条: 初月分・初期費用は銀行振込。
     const initialItems: { description: string; quantity: number; unitPrice: number; taxRate: number }[] = [];
@@ -267,6 +283,8 @@ export async function startContractBillingAction(id: string, params: { startedOn
         planId: plan.id,
         startedOn: params.startedOn,
         optionKeys: contract.terms.optionKeys,
+        // 紹介特典: 初月の日割りに加えて2ヶ月ぶん無料にする
+        freeMonths: referred ? REFERRAL_FREE_MONTHS : 0,
       });
       subscriptionId = sub.id;
       details.push(`定期契約(${plan.name})を開始`);
@@ -278,6 +296,7 @@ export async function startContractBillingAction(id: string, params: { startedOn
           unitPrice: plan.initialFee,
           taxRate: plan.taxRate,
         });
+        initialFeeCharged = plan.initialFee;
       }
       // 初月日割り: 利用開始日〜月末を暦日按分。翌月分からは定期請求(引き落とし)で
       // 自動生成されるため、開始月のみここで請求する。
@@ -285,13 +304,20 @@ export async function startContractBillingAction(id: string, params: { startedOn
         contract.terms.monthlyFee ?? subscriptionMonthly(plan, contract.terms.optionKeys);
       const proration = prorateMonthly(monthly, params.startedOn);
       if (proration.amount > 0) {
+        // 紹介特典: 初月の端数日数は無料。0円の明細として残し、何が無料かを示す
         initialItems.push({
-          description: `月額利用料 初月日割り（${proration.label}）`,
+          description: referred
+            ? `月額利用料 初月日割り（${proration.label}）※ご紹介特典により無料`
+            : `月額利用料 初月日割り（${proration.label}）`,
           quantity: 1,
-          unitPrice: proration.amount,
+          unitPrice: referred ? 0 : proration.amount,
           taxRate: plan.taxRate,
         });
-        details.push(`初月日割り ${proration.amount.toLocaleString("ja-JP")}円(税抜・${proration.days}日分)を初回請求に計上`);
+        details.push(
+          referred
+            ? `ご紹介特典により初月日割り ${proration.amount.toLocaleString("ja-JP")}円(税抜・${proration.days}日分)を無料`
+            : `初月日割り ${proration.amount.toLocaleString("ja-JP")}円(税抜・${proration.days}日分)を初回請求に計上`,
+        );
       }
       if (plan.initialFee > 0) {
         details.push(`初期費用 ${plan.initialFee.toLocaleString("ja-JP")}円 を初回請求に計上`);
@@ -307,18 +333,25 @@ export async function startContractBillingAction(id: string, params: { startedOn
           unitPrice: contract.terms.initialFee,
           taxRate: 0.1,
         });
+        initialFeeCharged = contract.terms.initialFee;
         details.push(`初期費用の請求書を作成`);
       }
       if (contract.terms.monthlyFee && contract.terms.monthlyFee > 0) {
         const proration = prorateMonthly(contract.terms.monthlyFee, params.startedOn);
         if (proration.amount > 0) {
           initialItems.push({
-            description: `月額利用料 初月日割り（${proration.label}）`,
+            description: referred
+              ? `月額利用料 初月日割り（${proration.label}）※ご紹介特典により無料`
+              : `月額利用料 初月日割り（${proration.label}）`,
             quantity: 1,
-            unitPrice: proration.amount,
+            unitPrice: referred ? 0 : proration.amount,
             taxRate: 0.1,
           });
-          details.push(`初月日割り ${proration.amount.toLocaleString("ja-JP")}円(税抜)を計上`);
+          details.push(
+            referred
+              ? `ご紹介特典により初月日割り ${proration.amount.toLocaleString("ja-JP")}円(税抜)を無料`
+              : `初月日割り ${proration.amount.toLocaleString("ja-JP")}円(税抜)を計上`,
+          );
         }
       }
     } else {
@@ -358,12 +391,34 @@ export async function startContractBillingAction(id: string, params: { startedOn
       return { ok: false as const, error: "この契約の請求連携は既に開始されています" };
     }
 
+    // 紹介制度: 紹介した側へのお支払い(初期費用の25%)を記録する。
+    // 金額が確定するのはこのタイミング(初回請求に初期費用を計上した時)。
+    if (referred && initialFeeCharged > 0) {
+      try {
+        const referral = await repo.findReferralByCustomerId(contract.customerId);
+        if (referral) {
+          await repo.setReferralReward(referral.id, {
+            rewardBaseAmount: initialFeeCharged,
+            rewardAmount: referralReward(initialFeeCharged),
+            status: "payable",
+          });
+          details.push(
+            `ご紹介者へのお支払い ${referralReward(initialFeeCharged).toLocaleString("ja-JP")}円(初期費用の${Math.round(REFERRAL_REWARD_RATE * 100)}%)を計上`,
+          );
+        }
+      } catch {
+        // 謝礼の記録に失敗しても請求開始そのものは通す(紹介制度の画面から手当てできる)
+      }
+    }
+
     // 翌月以降の月額は口座振替(引き落とし)で請求する運用のため、支払方法を切り替える。
     // 定期請求の自動生成は顧客の支払方法を参照する(口座振替なら引き落とし予定で発行)。
-    const customer = await repo.getCustomer(contract.customerId);
     if (customer && customer.paymentMethod !== "direct_debit") {
       await repo.updateCustomer(customer.id, { paymentMethod: "direct_debit" });
       details.push("支払方法を口座振替に設定(翌月以降は引き落とし。振替依頼書の回収を進めてください)");
+    }
+    if (referred) {
+      details.push(referralFreePeriodLabel(params.startedOn));
     }
 
     revalidateContractViews(id);

@@ -47,6 +47,11 @@ import type {
   PaymentMethod,
   Payment,
   Plan,
+  Referral,
+  ReferralContactMethod,
+  ReferralLink,
+  ReferralStatus,
+  ReferralTimeSlot,
   Role,
   ServiceCredential,
   Subscription,
@@ -77,6 +82,8 @@ export interface CustomerInput {
   /** 獲得した営業代理店/営業マン(null で紐付け解除) */
   agencyId?: string | null;
   agencyMemberId?: string | null;
+  /** 紹介してくれた顧客(紹介制度から登録した場合) */
+  referredByCustomerId?: string | null;
 }
 
 /* ---- 営業代理店 ---- */
@@ -186,6 +193,11 @@ export interface SubscriptionInput {
   optionKeys?: string[];
   /** 基本料金の個別価格(税抜)。特別待遇・紹介割引など。 */
   priceOverride?: number | null;
+  /**
+   * 無料にする月数。次回請求日をこの月数ぶん先送りする(0 または未指定で通常どおり)。
+   * 紹介制度の「2ヶ月無料」に使う。
+   */
+  freeMonths?: number;
 }
 
 /** 既存の定期契約の変更(オプション・個別価格) */
@@ -432,6 +444,52 @@ export interface ApplicationCredentials {
   hotpepper: ServiceCredential | null;
   minimo: ServiceCredential | null;
   epark: ServiceCredential | null;
+}
+
+/* ---- 紹介制度 ---- */
+
+/** 紹介フォームURLの発行 */
+export interface ReferralLinkInput {
+  /** 宛先メモ(管理画面での識別用) */
+  name: string;
+  /** 紹介者(顧客)を指定する場合。指定するとフォームの紹介者欄が埋まる */
+  referrerCustomerId?: string | null;
+  /** 有効日数(0 または未指定で無期限) */
+  expiryDays?: number;
+  createdBy: string;
+}
+
+/** 紹介フォームの送信内容 */
+export interface ReferralInput {
+  /** 誰に紹介されたか */
+  referrerName: string;
+  companyName: string;
+  contactName: string;
+  phone: string;
+  email: string;
+  contactMethod: ReferralContactMethod;
+  preferredDate?: string | null;
+  preferredTimeSlot: ReferralTimeSlot;
+  note?: string;
+  /** 送信元IP(証跡用) */
+  submittedIp?: string;
+}
+
+/** 管理画面からの紹介の更新(undefined の項目は変更しない) */
+export interface ReferralUpdateInput {
+  status?: ReferralStatus;
+  /** 突き合わせた紹介者(顧客)。null で紐付けを外す */
+  referrerCustomerId?: string | null;
+  note?: string;
+}
+
+/** 紹介報酬の記録(初期費用が確定したタイミングで呼ぶ) */
+export interface ReferralRewardInput {
+  /** 対象の初期費用(税抜) */
+  rewardBaseAmount: number;
+  /** お支払い額。省略時は初期費用から算出する */
+  rewardAmount?: number;
+  status: import("@/lib/domain/types").ReferralRewardStatus;
 }
 
 /** 申込URLの受付可否(停止・期限切れの判定結果) */
@@ -757,6 +815,46 @@ export interface Repository {
    * 既に顧客登録済みの場合はエラーを投げる。
    */
   createCustomerFromApplication(id: string, actor: string): Promise<Customer>;
+
+  // --- 紹介制度 ---
+  /** 紹介フォームURLの一覧(発行済み)。 */
+  listReferralLinks(): Promise<ReferralLink[]>;
+  /** 紹介フォームURLを発行する(トークンは暗号乱数)。 */
+  createReferralLink(input: ReferralLinkInput): Promise<ReferralLink>;
+  /** 受付の停止・再開。 */
+  setReferralLinkActive(id: string, active: boolean): Promise<ReferralLink>;
+  /** 紹介フォームURLの削除(受付済みの紹介は残る)。 */
+  deleteReferralLink(id: string): Promise<void>;
+  /**
+   * 公開フォーム用。トークンから紹介フォームURLを取得する。
+   * 停止中・期限切れでもリンク自体は返し、受付可否は state で示す。
+   */
+  getReferralLinkByToken(
+    token: string,
+  ): Promise<{ link: ReferralLink | null; state: ApplicationLinkState }>;
+
+  /** 紹介の一覧(新しい順)。 */
+  listReferrals(filter?: { status?: ReferralStatus | "all" }): Promise<Referral[]>;
+  getReferral(id: string): Promise<Referral | null>;
+  /**
+   * 公開フォームからの紹介を受け付ける。
+   * token を渡すと発行済みURL経由として記録し、そのURLの件数を増やす。
+   * token を渡さない場合は常設フォーム(/refer)からの受付として扱う。
+   * 受付できないトークンの場合はエラーを投げる。
+   */
+  submitReferral(token: string | null, input: ReferralInput): Promise<Referral>;
+  /** 対応状況・紹介者の紐付けの更新。 */
+  updateReferral(id: string, input: ReferralUpdateInput): Promise<Referral>;
+  /**
+   * 紹介内容から顧客を作成して紐付ける(ステータスは customer_created になる)。
+   * 紹介者(顧客)が紐付いていれば、作成した顧客の referredByCustomerId にも設定し、
+   * 初回請求の特典判定に使えるようにする。既に顧客登録済みならエラーを投げる。
+   */
+  createCustomerFromReferral(id: string, actor: string): Promise<Customer>;
+  /** 紹介報酬(初期費用の25%)を記録する。 */
+  setReferralReward(id: string, input: ReferralRewardInput): Promise<Referral>;
+  /** 顧客IDから紹介を引く(初回請求の特典判定に使う)。無ければ null。 */
+  findReferralByCustomerId(customerId: string): Promise<Referral | null>;
 
   // --- アプリ内通知 ---
   listNotifications(

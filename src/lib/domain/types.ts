@@ -114,6 +114,11 @@ export interface Customer {
   /** 獲得した営業代理店/営業マン(売上・手数料の集計に使用) */
   agencyId?: string | null;
   agencyMemberId?: string | null;
+  /**
+   * 紹介してくれた顧客。紹介制度から登録された顧客に設定する。
+   * 初回請求の特典(初月日割り無料＋2ヶ月無料)と、紹介者へのお支払いの判定に使う。
+   */
+  referredByCustomerId?: string | null;
   /** 削除(ゴミ箱)に入れた日時。null/未設定 = 有効なデータ。 */
   deletedAt?: string | null;
 }
@@ -473,6 +478,7 @@ export type ActivityKind =
   | "contract_sent"
   | "contract_signed"
   | "application_submitted"
+  | "referral_submitted"
   | "reminder_sent";
 
 export interface Activity {
@@ -790,6 +796,98 @@ export interface Application {
   customerId: string | null;
   submittedAt: string;
   submittedIp: string;
+}
+
+/* ---- 紹介制度 ---- */
+
+/**
+ * 連絡してほしい方法。
+ * 紹介された方が「どう連絡してほしいか」を選ぶ。
+ */
+export type ReferralContactMethod = "phone" | "email" | "sms" | "line";
+
+/**
+ * 連絡希望の時間帯。
+ * 日付とあわせて「いつ連絡してほしいか」を受け取る。
+ */
+export type ReferralTimeSlot =
+  | "anytime"
+  | "morning"
+  | "early_afternoon"
+  | "late_afternoon"
+  | "evening";
+
+/**
+ * 紹介の対応状況。
+ * submitted(受付) → contacted(連絡済) → customer_created(顧客登録済) / archived(対応不要)
+ */
+export type ReferralStatus = "submitted" | "contacted" | "customer_created" | "archived";
+
+/**
+ * 紹介報酬(紹介した側へのお支払い)の状況。
+ * pending(初期費用が未確定) → payable(支払額が確定) → paid(支払済)
+ */
+export type ReferralRewardStatus = "pending" | "payable" | "paid";
+
+/**
+ * 紹介フォームのURL。
+ * 常設フォーム(/refer)とは別に、紹介者を指定したURLを発行できる。
+ * 指定すると、フォームの「誰に紹介されたか」が埋まった状態で開く。
+ */
+export interface ReferralLink {
+  id: string;
+  /** URL に使うトークン(crypto乱数) */
+  token: string;
+  /** 宛先メモ(例: ○○サロン様用)。管理画面での識別用 */
+  name: string;
+  /** 紹介者(顧客)。null = 紹介者をフォームで入力してもらう */
+  referrerCustomerId: string | null;
+  /** 紹介者名(顧客を削除しても残す) */
+  referrerName: string;
+  active: boolean;
+  /** 受付期限(null = 無期限) */
+  expiresAt: string | null;
+  /** これまでの紹介件数 */
+  submissionCount: number;
+  createdBy: string;
+  createdAt: string;
+}
+
+/** 紹介フォームの入力内容(1件の紹介) */
+export interface Referral {
+  id: string;
+  /** 発行したURLから届いた場合の紐付け(常設フォームからは null) */
+  linkId: string | null;
+  /** 誰に紹介されたか(フォームの入力そのまま) */
+  referrerName: string;
+  /** 突き合わせた紹介者(顧客)。管理画面で紐付ける */
+  referrerCustomerId: string | null;
+  /** 店舗名・法人名 */
+  companyName: string;
+  /** お名前・ご担当者名 */
+  contactName: string;
+  phone: string;
+  email: string;
+  /** 連絡してほしい方法 */
+  contactMethod: ReferralContactMethod;
+  /** 連絡希望日 (YYYY-MM-DD)。null = 希望なし */
+  preferredDate: string | null;
+  /** 連絡希望の時間帯 */
+  preferredTimeSlot: ReferralTimeSlot;
+  /** ご相談内容・メモ */
+  note: string;
+  status: ReferralStatus;
+  /** 顧客として登録した場合の紐付け(紹介された側) */
+  customerId: string | null;
+  /** 紹介報酬の対象となる初期費用(税抜) */
+  rewardBaseAmount: number;
+  /** 紹介報酬 = 初期費用 × 25%(円未満四捨五入) */
+  rewardAmount: number;
+  rewardStatus: ReferralRewardStatus;
+  rewardPaidAt: string | null;
+  submittedAt: string;
+  submittedIp: string;
+  updatedAt: string;
 }
 
 /* ---- 顧客ステータス管理 (オンボーディング・カンバン) ---- */

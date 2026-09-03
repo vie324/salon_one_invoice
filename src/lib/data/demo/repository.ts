@@ -25,6 +25,7 @@ import {
 } from "@/lib/domain/constants";
 import { toLinkedIssue } from "@/lib/domain/dev-schedule";
 import { computeDashboardMetrics } from "@/lib/domain/metrics";
+import { referralNotes, referralReward } from "@/lib/domain/referral";
 import {
   defaultChecklist,
   initialStageFor,
@@ -67,6 +68,9 @@ import type {
   Payment,
   PaymentMethod,
   Plan,
+  Referral,
+  ReferralLink,
+  ReferralStatus,
   Role,
   Subscription,
   UserProfile,
@@ -104,6 +108,10 @@ import type {
   OrganizationInput,
   PaymentInput,
   PlanInput,
+  ReferralInput,
+  ReferralLinkInput,
+  ReferralRewardInput,
+  ReferralUpdateInput,
   Repository,
   StripeInvoiceInput,
   StripeSubscriptionInput,
@@ -118,6 +126,19 @@ function decorate(inv: Invoice): Invoice {
 
 function ym(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * 無料月数のぶん、次回請求日を先送りする(0 ならそのまま)。
+ * 月末が短い月でも請求日が溢れないよう、その月の末日に丸める。
+ */
+function deferBilling(nextBillingDate: string, freeMonths: number, billingDay: number): string {
+  if (!freeMonths || freeMonths <= 0) return nextBillingDate;
+  const d = new Date(nextBillingDate);
+  const year = d.getFullYear();
+  const month = d.getMonth() + freeMonths;
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  return toISODate(new Date(year, month, Math.min(billingDay, lastDay)));
 }
 
 /** 優先度(★の数)を 1〜5 に収める */
@@ -191,6 +212,7 @@ export class DemoRepository implements Repository {
       createdAt: toISODate(new Date()),
       agencyId: input.agencyId ?? null,
       agencyMemberId: input.agencyMemberId ?? null,
+      referredByCustomerId: input.referredByCustomerId ?? null,
     };
     this.s.customers.push(customer);
     this.addActivity({
@@ -295,13 +317,19 @@ export class DemoRepository implements Repository {
   async createSubscription(input: SubscriptionInput): Promise<Subscription> {
     const plan = this.s.plans.find((p) => p.id === input.planId);
     const billingDay = input.billingDay ?? plan?.billingDay ?? 27;
+    // 紹介制度の無料月数ぶん、最初の請求を先送りする
+    const firstBilling = deferBilling(
+      computeNextBillingDate(input.startedOn, billingDay),
+      input.freeMonths ?? 0,
+      billingDay,
+    );
     const sub: Subscription = {
       id: genId("sub"),
       customerId: input.customerId,
       planId: input.planId,
       status: "active",
       startedOn: input.startedOn,
-      nextBillingDate: computeNextBillingDate(input.startedOn, billingDay),
+      nextBillingDate: firstBilling,
       billingDay,
       canceledOn: null,
       optionKeys: input.optionKeys ?? [],
@@ -2173,6 +2201,188 @@ export class DemoRepository implements Repository {
       minimo: maskCredential(app.minimo),
       epark: maskCredential(app.epark),
     };
+  }
+
+  // --- 紹介制度 ---
+
+  async listReferralLinks(): Promise<ReferralLink[]> {
+    return this.s.referralLinks.map((l) => ({
+      ...l,
+      submissionCount: this.countReferrals(l.id),
+    }));
+  }
+
+  async createReferralLink(input: ReferralLinkInput): Promise<ReferralLink> {
+    const days = input.expiryDays ?? 0;
+    const referrer = input.referrerCustomerId
+      ? this.s.customers.find((c) => c.id === input.referrerCustomerId)
+      : undefined;
+    const link: ReferralLink = {
+      id: genId("rlk"),
+      token: generateApplicationToken(),
+      name: input.name.trim(),
+      referrerCustomerId: referrer?.id ?? null,
+      referrerName: referrer?.name ?? "",
+      active: true,
+      expiresAt:
+        days > 0 ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString() : null,
+      submissionCount: 0,
+      createdBy: input.createdBy,
+      createdAt: new Date().toISOString(),
+    };
+    this.s.referralLinks.unshift(link);
+    return link;
+  }
+
+  async setReferralLinkActive(id: string, active: boolean): Promise<ReferralLink> {
+    const link = this.s.referralLinks.find((l) => l.id === id);
+    if (!link) throw new Error("紹介フォームURLが見つかりません");
+    link.active = active;
+    return { ...link, submissionCount: this.countReferrals(link.id) };
+  }
+
+  async deleteReferralLink(id: string): Promise<void> {
+    const idx = this.s.referralLinks.findIndex((l) => l.id === id);
+    if (idx < 0) throw new Error("紹介フォームURLが見つかりません");
+    this.s.referralLinks.splice(idx, 1);
+    // 受付済みの紹介は残す(紹介者名は紹介側に保持済み)
+    for (const r of this.s.referrals) {
+      if (r.linkId === id) r.linkId = null;
+    }
+  }
+
+  async getReferralLinkByToken(
+    token: string,
+  ): Promise<{ link: ReferralLink | null; state: ApplicationLinkState }> {
+    const link = this.s.referralLinks.find((l) => l.token === token);
+    if (!link) return { link: null, state: "not_found" };
+    return {
+      link: { ...link, submissionCount: this.countReferrals(link.id) },
+      state: applicationLinkAvailability(link),
+    };
+  }
+
+  async listReferrals(filter?: { status?: ReferralStatus | "all" }): Promise<Referral[]> {
+    let list = [...this.s.referrals];
+    if (filter?.status && filter.status !== "all") {
+      list = list.filter((r) => r.status === filter.status);
+    }
+    return list.sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+  }
+
+  async getReferral(id: string): Promise<Referral | null> {
+    return this.s.referrals.find((r) => r.id === id) ?? null;
+  }
+
+  async submitReferral(token: string | null, input: ReferralInput): Promise<Referral> {
+    // token 無し = 常設フォーム(/refer)からの受付
+    let link: ReferralLink | undefined;
+    if (token) {
+      link = this.s.referralLinks.find((l) => l.token === token);
+      if (!link) throw new Error("紹介フォームURLが見つかりません");
+      const state = applicationLinkAvailability(link);
+      if (state === "inactive") throw new Error("この紹介URLは現在受付を停止しています");
+      if (state === "expired") throw new Error("この紹介URLは有効期限が切れています");
+    }
+
+    const now = new Date().toISOString();
+    // 紹介者を指定したURLからの受付なら、その顧客を紹介者として引き継ぐ
+    const referrerName = (link?.referrerName || input.referrerName).trim();
+    const referral: Referral = {
+      id: genId("ref"),
+      linkId: link?.id ?? null,
+      referrerName,
+      referrerCustomerId: link?.referrerCustomerId ?? this.matchReferrer(referrerName),
+      companyName: input.companyName.trim(),
+      contactName: input.contactName.trim(),
+      phone: input.phone.trim(),
+      email: input.email.trim(),
+      contactMethod: input.contactMethod,
+      preferredDate: input.preferredDate || null,
+      preferredTimeSlot: input.preferredTimeSlot,
+      note: input.note?.trim() ?? "",
+      status: "submitted",
+      customerId: null,
+      rewardBaseAmount: 0,
+      rewardAmount: 0,
+      rewardStatus: "pending",
+      rewardPaidAt: null,
+      submittedAt: now,
+      submittedIp: input.submittedIp ?? "",
+      updatedAt: now,
+    };
+    this.s.referrals.unshift(referral);
+    this.addActivity({
+      kind: "referral_submitted",
+      message: `紹介フォームから「${referral.companyName || referral.contactName}」のご紹介がありました（紹介者: ${referral.referrerName}）`,
+      actor: referral.contactName,
+    });
+    return referral;
+  }
+
+  async updateReferral(id: string, input: ReferralUpdateInput): Promise<Referral> {
+    const referral = this.s.referrals.find((r) => r.id === id);
+    if (!referral) throw new Error("紹介が見つかりません");
+    if (input.status !== undefined) referral.status = input.status;
+    if (input.referrerCustomerId !== undefined) {
+      referral.referrerCustomerId = input.referrerCustomerId;
+      const c = input.referrerCustomerId
+        ? this.s.customers.find((x) => x.id === input.referrerCustomerId)
+        : undefined;
+      // 顧客に紐付けたら、表示名もその顧客名に合わせる
+      if (c) referral.referrerName = c.name;
+    }
+    if (input.note !== undefined) referral.note = input.note;
+    referral.updatedAt = new Date().toISOString();
+    return referral;
+  }
+
+  async createCustomerFromReferral(id: string, actor: string): Promise<Customer> {
+    const referral = this.s.referrals.find((r) => r.id === id);
+    if (!referral) throw new Error("紹介が見つかりません");
+    if (referral.customerId) throw new Error("この紹介は既に顧客として登録されています");
+    const customer = await this.createCustomer({
+      name: referral.companyName || referral.contactName,
+      contactName: referral.contactName,
+      email: referral.email,
+      phone: referral.phone,
+      paymentMethod: "direct_debit",
+      notes: referralNotes(referral),
+      assignee: actor,
+      referredByCustomerId: referral.referrerCustomerId,
+    });
+    referral.customerId = customer.id;
+    referral.status = "customer_created";
+    referral.updatedAt = new Date().toISOString();
+    return customer;
+  }
+
+  async setReferralReward(id: string, input: ReferralRewardInput): Promise<Referral> {
+    const referral = this.s.referrals.find((r) => r.id === id);
+    if (!referral) throw new Error("紹介が見つかりません");
+    referral.rewardBaseAmount = input.rewardBaseAmount;
+    referral.rewardAmount = input.rewardAmount ?? referralReward(input.rewardBaseAmount);
+    referral.rewardStatus = input.status;
+    referral.rewardPaidAt = input.status === "paid" ? new Date().toISOString() : null;
+    referral.updatedAt = new Date().toISOString();
+    return referral;
+  }
+
+  async findReferralByCustomerId(customerId: string): Promise<Referral | null> {
+    return this.s.referrals.find((r) => r.customerId === customerId) ?? null;
+  }
+
+  /** 紹介フォームURLごとの受付件数 */
+  private countReferrals(linkId: string): number {
+    return this.s.referrals.filter((r) => r.linkId === linkId).length;
+  }
+
+  /** 「誰に紹介されたか」の入力を、同じ名前の顧客に突き合わせる(1件に定まる場合だけ) */
+  private matchReferrer(name: string): string | null {
+    const q = name.trim();
+    if (!q) return null;
+    const hits = this.s.customers.filter((c) => !c.deletedAt && c.name.trim() === q);
+    return hits.length === 1 ? hits[0].id : null;
   }
 
   // --- アプリ内通知 ---

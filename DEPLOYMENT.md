@@ -30,7 +30,8 @@
 14. `0018_dev_issue_replies.sql` … **追加ヒアリングの返信**（やり取りスレッド）と通知種別の追加
 15. `0019_dev_schedule.sql` … **開発スケジュール（中長期ロードマップ）**、開発進捗との連動、**閲覧できるメンバー**（`profiles.schedule_visible`）
 16. `0021_restore_dev_issue_dates.sql` … 開発依頼の `desired_date` / `scheduled_date` を**残すための復旧**（無ければ追加・あれば何もしない）
-17. （任意）`seed.sql` … 初期データ（自社情報・料金プラン）
+17. `0022_referrals.sql` … **紹介制度**（`referral_links` / `referrals` / `customers.referred_by_customer_id`）
+18. （任意）`seed.sql` … 初期データ（自社情報・料金プラン）
 
 > 開発進捗の**完了希望日・対応完了予定日はアプリから廃止**しましたが、`dev_issues` の
 > `desired_date` / `scheduled_date` カラムは**残してあります**（機能を復活させる可能性があるため）。
@@ -48,6 +49,10 @@
 > `0018` 未適用でも開発進捗の一覧・詳細はそのまま表示されます（やり取りが空として扱われます）。**追加ヒアリングへの返信は `0018` の適用後に使えるようになります**。
 
 > `0019` は開発スケジュール（`/dev/schedule`）用です。適用時に、氏名に「酒井」「若林」を含むアカウントへ**閲覧のチェックを自動で付けます**（以降はアプリの **設定 → 開発スケジュールを見られるメンバー** で増減できます）。未適用のあいだは管理者だけが閲覧でき、他のメンバーには表示されません。
+
+> `0022` は紹介制度（`/referrals`）用です。**常設の紹介フォーム `/refer` は認証不要で開ける公開ページ**のため、
+> `SUPABASE_SERVICE_ROLE_KEY` と、URLのご案内用に `NEXT_PUBLIC_APP_URL` を設定してください
+> （未設定の場合はリクエストヘッダからURLを組み立てます）。
 
 > 電子契約の公開署名ページ（`/sign/<token>`）はサービスロールでデータへアクセスします。
 > `SUPABASE_SERVICE_ROLE_KEY` と、署名リンクの絶対URL用に `NEXT_PUBLIC_APP_URL` を必ず設定してください。
@@ -162,6 +167,7 @@
 | 開発依頼を並び替えできない | `0015_dev_issue_desired_date_order.sql` が未適用。SQL Editor で実行してください。 |
 | 追加ヒアリングに返信を追記できない / やり取りが表示されない | `0018_dev_issue_replies.sql` が未適用。SQL Editor で実行してください。 |
 | 開発スケジュールが開けない / 酒井・若林にチェックが付いていない | `0019_dev_schedule.sql` が未適用。SQL Editor で実行してください。 |
+| 紹介フォーム（`/refer`）が開けない / 紹介制度の画面でエラーになる | `0022_referrals.sql` が未適用。SQL Editor で実行してください。 |
 | 保存・作成後に「ページが見つかりません」になる / 保存時に `SUPABASE_SERVICE_ROLE_KEY が未設定…` と表示される | `SUPABASE_SERVICE_ROLE_KEY` が未設定。Vercel の環境変数に service_role キーを設定し、再デプロイ。 |
 | 「デモモード」と表示される | `NEXT_PUBLIC_SUPABASE_URL` / `ANON_KEY` が未設定。 |
 | Cron が動かない | `CRON_SECRET` 未設定、または Vercel の Cron 権限を確認。 |
