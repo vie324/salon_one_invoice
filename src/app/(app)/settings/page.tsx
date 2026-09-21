@@ -187,10 +187,7 @@ export default async function SettingsPage() {
                   label="SMTPサーバー"
                   value={`${email.smtp.host || "未設定"}:${email.smtp.port}（${email.smtp.encryption.toUpperCase()}）`}
                 />
-                <Row
-                  label="SMTP認証"
-                  value={email.smtp.hasAuth ? `あり（${email.smtp.user}）` : "なし（送信元IPで許可）"}
-                />
+                <Row label="SMTP認証" value={email.smtp.authLabel} />
               </>
             ) : (
               <Row label="Resend APIキー" value={email.hasApiKey ? "設定済み" : "未設定"} />
@@ -233,8 +230,12 @@ export default async function SettingsPage() {
               <p className="mt-2 text-muted-foreground">
                 Google Workspace の SMTP リレーを使う場合は、Vercel の Environment Variables に
                 <code>MAIL_HOST</code>（smtp-relay.gmail.com）・<code>MAIL_PORT</code>（587）・
-                <code>MAIL_USERNAME</code> / <code>MAIL_PASSWORD</code>・<code>MAIL_FROM_ADDRESS</code>・
-                <code>NEXT_PUBLIC_APP_URL</code> を設定して再デプロイしてください。詳細は DEPLOYMENT.md を参照してください。
+                <code>MAIL_ENCRYPTION</code>（tls）・<code>MAIL_FROM_ADDRESS</code>・
+                <code>NEXT_PUBLIC_APP_URL</code> を設定して再デプロイしてください。
+                認証方法は2通りで、Vercel のように送信元IPが固定できない環境では
+                <code>MAIL_USERNAME</code> / <code>MAIL_PASSWORD</code>（アプリ パスワード16桁）が必要です。
+                固定IPのサーバーから送る場合は <code>MAIL_AUTH=none</code> にして送信元IPの許可だけで送れます。
+                詳細は DEPLOYMENT.md を参照してください。
               </p>
             </div>
           )}

@@ -34,6 +34,18 @@ export const smtpPort = Number(process.env.MAIL_PORT ?? 587) || 587;
 export const smtpUser = process.env.MAIL_USERNAME ?? "";
 export const smtpPassword = process.env.MAIL_PASSWORD ?? "";
 /**
+ * SMTP 認証の方式。
+ * auto = MAIL_USERNAME と MAIL_PASSWORD が両方あれば SMTP 認証する(既定)
+ * none = SMTP 認証しない。Google Workspace の SMTP リレーを
+ *        「送信元IPアドレスの制限」だけで運用している場合はこちら。
+ *        (認証を試みると 535 で失敗するため、値が残っていても認証しない)
+ */
+export const smtpAuthMode = (process.env.MAIL_AUTH ?? "auto").trim().toLowerCase() as
+  | "auto"
+  | "none";
+/** 実際に SMTP AUTH を行うか */
+export const smtpUseAuth = smtpAuthMode !== "none" && !!smtpUser && !!smtpPassword;
+/**
  * tls  = 587 で STARTTLS(平文接続 → TLSへ昇格。Google のリレーはこれ)
  * ssl  = 465 で最初からTLS
  * none = 暗号化なし(社内リレー等。非推奨)
@@ -52,6 +64,15 @@ const mailFromName = process.env.MAIL_FROM_NAME ?? "";
 export const emailFrom =
   process.env.EMAIL_FROM ??
   (mailFromAddress ? (mailFromName ? `${mailFromName} <${mailFromAddress}>` : mailFromAddress) : "");
+
+/** 表示名を除いた送信元アドレス(`名前 <a@b.jp>` → `a@b.jp`)。エンベロープ送信者の確認用。 */
+export const emailFromAddress = (emailFrom.match(/<([^>]+)>/)?.[1] ?? emailFrom).trim();
+
+/**
+ * サーバーレス実行環境か(Vercel は送信元IPが固定できない)。
+ * Google の SMTP リレーを「送信元IPの制限」だけで使えるのは固定IPの環境のみ。
+ */
+export const isServerlessRuntime = !!process.env.VERCEL;
 
 /**
  * メールプロバイダ: console(未送信のプレビュー) | smtp(実送信) | resend(実送信)
