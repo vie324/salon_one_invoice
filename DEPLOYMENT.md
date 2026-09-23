@@ -102,32 +102,79 @@
 
 ### A. Google Workspace の SMTP リレーで送る（推奨）
 
-> ⚠️ **重要**: Google Workspace の SMTP リレー設定で「**SMTP 認証が必要**」を有効にしてください。
-> 「送信元IPアドレスの制限」だけの運用では、**Vercel からは送信できません**（サーバーレスのため送信元IPが固定できず、許可リストに登録できないため）。
-> 自社サーバーなど固定IPの環境から送る場合はIP制限のみでも動作します（その場合 `MAIL_USERNAME` は空のままで構いません）。
+自社ドメインのアドレス（例: `noreply@salonone.net`）から、Google のメールサーバー経由でシステムメールを送ります。
+MX を Google Workspace に向けているドメインなら、DNS の追加変更はほぼ不要です（→ [届きやすさ](#届きやすさspf--dkim--dmarc)）。
 
-1. **Google 管理コンソール** → アプリ → Google Workspace → Gmail → **ルーティング** → 「SMTP リレー サービス」を追加
-   - 送信者: 「ドメイン内のユーザーのみ」または「ドメイン外のアドレスも許可」
+#### まず認証方法を決める
+
+**Google 管理コンソール** → アプリ → Google Workspace → Gmail → **ルーティング** → 「SMTP リレー サービス」の *認証* で、「誰からの送信を許可するか」が決まります。アプリ側の設定はこれに合わせます。
+
+| リレー側の認証設定 | 送信できる環境 | このアプリ側の設定 |
+| --- | --- | --- |
+| **SMTP 認証が必要** | どこからでも（**Vercel はこちら**） | `MAIL_USERNAME` + `MAIL_PASSWORD`（アプリ パスワード16桁） |
+| **送信元IPアドレスの制限のみ** | 固定グローバルIPのサーバーのみ | `MAIL_AUTH=none`（ユーザー名・パスワードは使わない） |
+
+> ⚠️ **Vercel では「IP制限のみ」は使えません。** サーバーレスのため送信元IPが実行ごとに変わり、許可リストに登録できないからです（`5.7.1` で拒否されます）。
+> 認証設定は**両方にチェックできます**。いま「IP制限のみ」で運用している場合、既存のIP制限はそのままに「SMTP 認証が必要」を追加で有効にすれば、固定IPの自社サーバーからも Vercel からも送れる状態にできます（変更後は必ずテスト送信で確認してください）。
+
+#### A-1. SMTP 認証で送る（Vercel から送る場合はこちら）
+
+1. 「SMTP リレー サービス」を次のように設定する。
+   - 送信者: **ドメイン内のアドレスのみ**（`salonone.net` のアドレスから送る場合）
    - 認証: **「SMTP 認証が必要」にチェック**（IP制限と併用可）
-   - 暗号化: 「TLS 暗号化が必要」にチェック
-2. 送信に使うアカウント（例: `noreply@salonone.net`）で **2段階認証を有効にし、「アプリ パスワード」（16桁）を発行**します。
+   - 暗号化: **「TLS 暗号化が必要」にチェック**
+2. 送信に使う Google Workspace アカウント（例: `noreply@salonone.net`）で **2段階認証を有効にし、「アプリ パスワード」（16桁）を発行**する。
    通常のログインパスワードでは SMTP 認証は通りません。
-3. Vercel の **Settings → Environment Variables** に設定する。
+   ※ `noreply@…` がエイリアスの場合は、実在するユーザーアカウントで認証し、`MAIL_FROM_ADDRESS` にエイリアスを指定します。
+3. Vercel の **Settings → Environment Variables** に下表を設定する（`MAIL_AUTH` は未設定＝`auto` のままでよい）。
+4. **再デプロイ** → アプリの **設定 → メール送信** で「接続確認」→「テスト送信」。
 
-   | 変数 | 例 | 説明 |
-   | --- | --- | --- |
-   | `MAIL_HOST` | `smtp-relay.gmail.com` | 設定するだけで SMTP 送信モードになる |
-   | `MAIL_PORT` | `587` | STARTTLS |
-   | `MAIL_ENCRYPTION` | `tls` | `tls`(587) / `ssl`(465) / `none` |
-   | `MAIL_USERNAME` | `noreply@salonone.net` | 空にすると SMTP 認証なし（IP許可のリレー向け） |
-   | `MAIL_PASSWORD` | （アプリ パスワード16桁） | 通常のパスワードは不可 |
-   | `MAIL_FROM_ADDRESS` | `noreply@salonone.net` | 送信元アドレス |
-   | `MAIL_FROM_NAME` | `SalonOne` | 送信者の表示名（任意） |
-   | `NEXT_PUBLIC_APP_URL` | `https://example.vercel.app` | メール内リンク（署名URL等）の基準 |
+#### A-2. 送信元IPの許可だけで送る（固定IPのサーバーから送る場合）
 
-4. **再デプロイ** → アプリの **設定 → メール送信** で「送信モード: 実送信」を確認し、**テスト送信**で到達を確認します。
+1. 送信元サーバーで `npm run mail:test` を実行し、表示される **「このサーバーのグローバルIP」** を控える。
+2. 「SMTP リレー サービス」の認証で **「送信元IPアドレスの制限」にそのIPを登録**する（`/32` で可）。
+3. 環境変数に **`MAIL_AUTH=none`** を設定する。`MAIL_USERNAME` / `MAIL_PASSWORD` は空のままで構いません
+   （値が残っていても `MAIL_AUTH=none` なら認証を行いません。IP許可のリレーに認証情報を送ると `535` で拒否されるため）。
+4. `npm run mail:test you@example.jp` で接続と到達を確認する。
 
-**届きやすさ（SPF / DKIM）**: 送信ドメインの SPF に `include:_spf.google.com` が含まれ、Google Workspace の DKIM（`google._domainkey`）が有効なら追加設定は不要です。
+> サーバーのグローバルIPが変わると送信できなくなります。IPが固定でない環境（Vercel・多くのクラウド関数）では A-1 を使ってください。
+
+#### 環境変数
+
+| 変数 | 例 | 説明 |
+| --- | --- | --- |
+| `MAIL_HOST` | `smtp-relay.gmail.com` | 設定するだけで SMTP 送信モードになる |
+| `MAIL_PORT` | `587` | STARTTLS（465 を使う場合は `MAIL_ENCRYPTION=ssl`） |
+| `MAIL_ENCRYPTION` | `tls` | `tls`(587) / `ssl`(465) / `none` |
+| `MAIL_USERNAME` | `noreply@salonone.net` | SMTP 認証に使う Google Workspace アカウント |
+| `MAIL_PASSWORD` | （アプリ パスワード16桁） | 通常のログインパスワードは不可 |
+| `MAIL_AUTH` | `auto` | `auto`=ユーザーとパスワードが揃っていれば認証（既定） / `none`=認証しない（IP許可のリレー用） |
+| `MAIL_FROM_ADDRESS` | `noreply@salonone.net` | 送信元アドレス |
+| `MAIL_FROM_NAME` | `SalonOne` | 送信者の表示名（任意） |
+| `NEXT_PUBLIC_APP_URL` | `https://example.vercel.app` | メール内リンク（署名URL等）の基準 |
+
+> `MAIL_MAILER=smtp` を設定しても構いません（`EMAIL_PROVIDER` と同じ扱いになります）。`MAIL_HOST` があれば未設定でも SMTP 送信になります。
+
+#### 動作確認
+
+| 方法 | 何が分かるか |
+| --- | --- |
+| `npm run mail:test` | 送信せずに SMTP へ接続・認証できるかだけを確認（送信元のグローバルIPも表示） |
+| `npm run mail:test you@example.jp` | 実際に1通送って到達を確認 |
+| アプリの 設定 → メール送信 → **接続確認** | 本番環境（Vercel）からリレーへ接続できるかを確認 |
+| アプリの 設定 → メール送信 → **テスト送信** | 本番環境から実際に1通送る |
+
+#### 届きやすさ（SPF / DKIM / DMARC）
+
+MX を Google Workspace に向けている場合、ドメインのDNS（Xserver のドメイン設定など）に以下が入っていれば追加作業は不要です。
+
+- **SPF**: `v=spf1 include:_spf.google.com ~all`（TXT。1ドメインに1レコードだけ。他サービスの `include:` がある場合は1行にまとめる）
+- **DKIM**: 管理コンソール → アプリ → Gmail → **メールの認証** で生成した `google._domainkey` の TXT を登録し、「認証を開始」
+- **DMARC**（推奨）: `_dmarc` の TXT に `v=DMARC1; p=none; rua=mailto:postmaster@salonone.net`
+
+#### 送信量の上限
+
+SMTP リレーは **1ユーザーあたり24時間で10,000通**（宛先数も10,000件）、1回の SMTP トランザクションあたりの宛先は100件までです。請求書の一斉送付などで上限に近づく場合は送信を分割してください。
 
 ### B. Resend（API）で送る
 
@@ -172,7 +219,9 @@
 | 「デモモード」と表示される | `NEXT_PUBLIC_SUPABASE_URL` / `ANON_KEY` が未設定。 |
 | Cron が動かない | `CRON_SECRET` 未設定、または Vercel の Cron 権限を確認。 |
 | メールが届かない | 「設定 → メール送信」で状態を確認。既定は未送信（プレビュー）です（→ [5. メールを実際に送る設定](#5-メールを実際に送る設定)）。 |
-| テスト送信で「送信が拒否されました（5.7.1）」と出る | Google の SMTP リレーが送信元IPで弾いています。リレー設定で「**SMTP 認証が必要**」を有効にし、`MAIL_USERNAME` / `MAIL_PASSWORD` を設定してください。 |
-| テスト送信で「認証に失敗しました（5.7.8）」と出る | `MAIL_PASSWORD` に通常のパスワードを入れていませんか。Google の**アプリ パスワード（16桁）**が必要です。 |
+| テスト送信で「送信が拒否されました（5.7.1）」と出る | Google の SMTP リレーが送信元IPで弾いています。Vercel から送る場合はリレー設定で「**SMTP 認証が必要**」を有効にし、`MAIL_USERNAME` / `MAIL_PASSWORD`（アプリ パスワード）を設定してください。固定IPのサーバーから送る場合は、`npm run mail:test` で表示されるグローバルIPを許可リストに登録してください。 |
+| テスト送信で「認証に失敗しました（5.7.8 / 535）」と出る | `MAIL_PASSWORD` に通常のログインパスワードを入れていませんか。Google の**アプリ パスワード（16桁）**が必要です。リレーを**IP制限だけ**で運用している場合は `MAIL_AUTH=none` を設定して認証を行わないようにしてください。 |
+| 「接続確認」が `ETIMEDOUT` になる | 送信元サーバーから 587 番ポートへ出られていません。ファイアウォール（レンタルサーバーの OP25B など）を確認し、必要なら 465（`MAIL_PORT=465` / `MAIL_ENCRYPTION=ssl`）を試してください。 |
+| 設定画面に「MAIL_AUTH=none のため…」と表示される | 意図どおりなら問題ありません（送信元IPの許可で送信中）。Vercel から送る場合は `MAIL_AUTH` を外して SMTP 認証に切り替えてください。 |
 | テスト送信で「ドメインが認証済みか確認してください」と出る | （Resend 利用時）`EMAIL_FROM` のドメインが未認証。Resend の Domains で DNS 認証を完了させる。 |
 | メール内のリンクが `localhost` などになる | `NEXT_PUBLIC_APP_URL` に公開URLを設定して再デプロイ。 |

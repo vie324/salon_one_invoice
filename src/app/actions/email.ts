@@ -52,3 +52,36 @@ export async function sendTestEmailAction(to: string) {
     return { ok: false as const, error: (e as Error).message };
   }
 }
+
+/**
+ * メールを送らずに SMTP サーバーへの接続・認証だけを確認する。
+ * 「送信元IPが許可されていない」「アプリ パスワードが違う」を、
+ * 宛先を用意せずに切り分けるための診断。
+ */
+export async function checkEmailConnectionAction() {
+  try {
+    const user = await requireActionUser();
+    if (!isProductAdmin(user.roles)) {
+      return { ok: false as const, error: "接続確認は全体管理者のみ実行できます" };
+    }
+
+    const provider = getEmailProvider();
+    if (!provider.verify) {
+      return {
+        ok: false as const,
+        error:
+          provider.name === "console"
+            ? "メール送信が未設定です（プレビューのみ）。MAIL_HOST などを設定してください"
+            : "この送信方法では接続確認に対応していません（SMTP のみ）",
+      };
+    }
+
+    const res = await provider.verify();
+    if (!res.ok) {
+      return { ok: false as const, error: res.message ?? "接続できませんでした" };
+    }
+    return { ok: true as const, message: res.message ?? "接続できました" };
+  } catch (e) {
+    return { ok: false as const, error: (e as Error).message };
+  }
+}
