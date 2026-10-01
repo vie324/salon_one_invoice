@@ -145,7 +145,7 @@ export function ContractActions({
       {isSigned && !billingLinked && (hasPlan || hasInitialFee) && (
         <Button className="w-full" disabled={pending} onClick={() => setBillingOpen(true)}>
           <Rocket className="h-4 w-4" />
-          請求を開始（定期契約・初期費用）
+          受注を確定（請求を開始）
         </Button>
       )}
 
@@ -559,18 +559,19 @@ function BillingDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="請求の開始"
-      description="締結済みの契約内容に基づいて請求を自動作成します。"
+      title="受注の確定（請求の開始）"
+      description="締結済みの契約内容に基づいて請求を自動作成します。受注管理の案件ページの「受注を確定する」と同じ処理です。"
     >
       <div className="space-y-4">
         <ul className="list-inside list-disc rounded-md bg-muted/60 p-3 text-sm text-muted-foreground">
-          {hasPlan && <li>定期契約を作成し、翌月分から毎月の請求書を自動生成します</li>}
-          {(hasPlan || hasInitialFee) && (
-            <li>
-              初期費用＋初月日割り(利用開始日〜月末)の請求書(銀行振込)を作成・送付済にします
-            </li>
+          {hasPlan && (
+            <li>定期契約を作成し、翌月分から毎月の請求書を自動生成します（店舗数・個別価格も契約書どおり）</li>
           )}
-          <li>支払方法を口座振替に設定します(翌月以降は引き落とし)</li>
+          {(hasPlan || hasInitialFee) && (
+            <li>初期費用＋初月日割り(利用開始日〜月末)の請求書(銀行振込)を作成します</li>
+          )}
+          <li>支払方法を口座振替(NSS)に設定します(翌月以降は引き落とし)</li>
+          <li>代理店経由・紹介の顧客は、代理店報酬・紹介特典をここで確定します</li>
         </ul>
         <Field label="利用開始日">
           <Input type="date" value={startedOn} onChange={(e) => setStartedOn(e.target.value)} />
@@ -581,7 +582,7 @@ function BillingDialog({
           </Button>
           <Button onClick={() => onSubmit(startedOn)} disabled={pending || !startedOn}>
             <Rocket className="h-4 w-4" />
-            請求を開始する
+            受注を確定する
           </Button>
         </div>
       </div>

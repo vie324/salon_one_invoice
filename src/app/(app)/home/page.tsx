@@ -26,6 +26,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProgressBar, SegmentedBar } from "@/components/ui/progress";
 import { StatCard } from "@/components/ui/stat-card";
 import { requireUser, type CurrentUser } from "@/lib/auth";
+import { loadOrderBook } from "@/lib/orders/load";
+import { contactDue, isOpenReferral } from "@/lib/domain/referral";
 import { getServiceRepository } from "@/lib/data";
 import type { Repository } from "@/lib/data/repository";
 import { canAccessBilling, canAccessDev, isEngineer, isProductAdmin } from "@/lib/domain/constants";
@@ -184,16 +186,72 @@ function TodoCard({ todos }: { todos: TodoItem[] }) {
 /* ---------------------------------------------------------------- 売上 */
 
 async function loadBilling(repo: Repository, month: string) {
-  const [metrics, invoices, bankTxns] = await Promise.all([
+  const [metrics, invoices, bankTxns, book, referrals] = await Promise.all([
     repo.getDashboardMetrics(month),
     repo.listInvoices(),
     repo.listBankTransactions(),
+    loadOrderBook(repo),
+    repo.listReferrals(),
   ]);
 
   const drafts = invoices.filter((i) => i.status === "draft").length;
   const unmatched = bankTxns.filter((t) => !t.matchedInvoiceId).length;
 
+  // 受注管理: 受注確認待ち(請求管理者の手番)と、導入準備で当社側の対応が要る案件
+  const reviewWaiting = book.rows.filter((r) => r.progress.stage === "review").length;
+  const setupActions = book.rows.filter(
+    (r) =>
+      r.progress.stage === "setup" &&
+      r.progress.open.some((i) => !i.waiting),
+  );
+  const setupLate = setupActions.filter((r) => r.progress.open.some((i) => i.late)).length;
+  const overdueLeads = referrals.filter((r) => isOpenReferral(r) && contactDue(r).overdue).length;
+  const pendingApps = book.pendingApplications.length;
+
   const todos: TodoItem[] = [];
+  if (pendingApps > 0) {
+    todos.push({
+      href: "/orders",
+      icon: UserCheck,
+      label: "未対応の申込（申込のみURL）",
+      detail: "顧客として登録し、契約書を送付",
+      count: pendingApps,
+      tone: "warning",
+    });
+  }
+  if (reviewWaiting > 0) {
+    todos.push({
+      href: "/orders?stage=review",
+      icon: UserCheck,
+      label: "受注確認待ちの申込",
+      detail: "内容を確認して「受注を確定」",
+      count: reviewWaiting,
+      tone: "warning",
+    });
+  }
+  if (overdueLeads > 0) {
+    todos.push({
+      href: "/referrals",
+      icon: Users,
+      label: "連絡希望日を過ぎた紹介・問い合わせ",
+      detail: "希望の方法でご連絡を",
+      count: overdueLeads,
+      tone: "danger",
+    });
+  }
+  if (setupActions.length > 0) {
+    todos.push({
+      href: "/orders?stage=setup",
+      icon: ClipboardList,
+      label: "導入準備で対応が必要な案件",
+      detail:
+        setupLate > 0
+          ? `うち遅れ ${setupLate}件（初回入金の期限超過・依頼書の返送待ちなど）`
+          : "初回請求書の送付・NSS の手続き・初期設定",
+      count: setupActions.length,
+      tone: setupLate > 0 ? "danger" : "info",
+    });
+  }
   if (metrics.overdueCount > 0) {
     todos.push({
       href: "/invoices?status=overdue",

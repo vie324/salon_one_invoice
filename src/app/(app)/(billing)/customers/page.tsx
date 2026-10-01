@@ -5,23 +5,42 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { getServiceRepository } from "@/lib/data";
 import { paymentMethodLabels } from "@/lib/domain/constants";
+import { nssStage, type NssStage } from "@/lib/domain/nss";
 import { NewCustomerButton } from "./new-customer-button";
 
 export const metadata = { title: "顧客" };
+
+const NSS_SHORT: Record<NssStage, string> = {
+  not_started: "未着手",
+  form_sent: "依頼書 郵送済",
+  form_received: "依頼書 回収済",
+  submitted: "NSS登録待ち",
+  active: "登録完了",
+  failed: "不備・再提出",
+  revoked: "停止",
+};
+
+const NSS_TONE: Record<NssStage, "neutral" | "info" | "warning" | "success" | "danger"> = {
+  not_started: "neutral",
+  form_sent: "info",
+  form_received: "warning",
+  submitted: "info",
+  active: "success",
+  failed: "danger",
+  revoked: "neutral",
+};
 
 // 一覧はデータ依存のため常にサーバーで描画する(静的化するとビルド時データが焼き込まれる)
 export const dynamic = "force-dynamic";
 
 export default async function CustomersPage() {
   const repo = await getServiceRepository();
-  const [customers, invoices] = await Promise.all([
+  const [customers, invoices, mandates] = await Promise.all([
     repo.listCustomers(),
     repo.listInvoices(),
+    repo.listMandates(),
   ]);
-  const mandates = await Promise.all(
-    customers.map(async (c) => ({ id: c.id, mandate: await repo.getMandateByCustomer(c.id) })),
-  );
-  const mandateMap = new Map(mandates.map((m) => [m.id, m.mandate]));
+  const mandateMap = new Map(mandates.map((m) => [m.customerId, m]));
 
   const outstandingByCustomer = new Map<string, number>();
   for (const inv of invoices) {
@@ -36,7 +55,7 @@ export default async function CustomersPage() {
     <div>
       <PageHeader
         title="顧客"
-        description="会員・取引先の管理と、口座振替の登録状況を確認できます。"
+        description="会員・取引先の管理と、口座振替（NSS）の登録状況を確認できます。申込から運用開始までの進み具合は「受注管理」で追います。"
         actions={<NewCustomerButton />}
       />
       <Card>
@@ -46,7 +65,7 @@ export default async function CustomersPage() {
               <TH>コード</TH>
               <TH>顧客名</TH>
               <TH>支払方法</TH>
-              <TH>口座振替</TH>
+              <TH>口座振替（NSS）</TH>
               <TH>担当</TH>
               <TH>メモ</TH>
               <TH className="text-right">未収</TH>
@@ -69,25 +88,9 @@ export default async function CustomersPage() {
                   <TD className="text-muted-foreground">{paymentMethodLabels[c.paymentMethod]}</TD>
                   <TD>
                     {c.paymentMethod === "direct_debit" ? (
-                      mandate ? (
-                        <Badge
-                          tone={
-                            mandate.status === "active"
-                              ? "success"
-                              : mandate.status === "pending"
-                                ? "warning"
-                                : "danger"
-                          }
-                        >
-                          {mandate.status === "active"
-                            ? "登録済"
-                            : mandate.status === "pending"
-                              ? "手続き中"
-                              : "要確認"}
-                        </Badge>
-                      ) : (
-                        <Badge tone="neutral">未登録</Badge>
-                      )
+                      <Badge tone={NSS_TONE[nssStage(mandate ?? null)]}>
+                        {NSS_SHORT[nssStage(mandate ?? null)]}
+                      </Badge>
                     ) : (
                       <span className="text-xs text-muted-foreground">—</span>
                     )}

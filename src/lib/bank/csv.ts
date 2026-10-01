@@ -152,41 +152,44 @@ export function suggestMatches(
 }
 
 /**
- * 口座振替バッチを収納代行向けの汎用CSVに出力する。
- * (全銀フォーマットに近い列。実際の収納代行の仕様に合わせて調整可能)
+ * NSS 引き落としの一覧を、NSS の収納サイトへ金額を登録するときの確認用 CSV にする。
+ * 口座番号などの口座情報は NSS で管理しているため含めない
+ * (NSS の取込用ファイルの形式が決まったら、列をここで合わせる)。
  */
 export function batchToCsv(
   batch: DirectDebitBatch,
   customers: Customer[],
   mandates: DirectDebitMandate[],
+  invoices: Pick<InvoiceWithCustomer, "id" | "invoiceNumber" | "billingPeriod" | "dueDate">[] = [],
 ): string {
   const header = [
+    "引き落とし日",
     "顧客コード",
-    "顧客名",
-    "銀行名",
-    "支店コード",
-    "預金種目",
-    "口座番号",
-    "口座名義",
-    "引落金額",
-    "引落予定日",
+    "NSS顧客番号",
+    "お客様名",
+    "請求書番号",
+    "対象月",
+    "引き落とし金額",
+    "結果",
   ];
+  const resultLabel = { pending: "", success: "引き落とし済", failed: "引き落とし不可" } as const;
   const lines = batch.items.map((item) => {
     const cus = customers.find((c) => c.id === item.customerId);
-    const man = mandates.find((m) => m.id === item.mandateId);
+    const man = mandates.find((m) => m.customerId === item.customerId);
+    const inv = invoices.find((i) => i.id === item.invoiceId);
     return [
+      batch.scheduledDate.replace(/-/g, "/"),
       cus?.code ?? "",
+      man?.nssCustomerNumber ?? "",
       cus?.name ?? "",
-      man?.bankName ?? "",
-      man?.branchCode ?? "",
-      man?.accountType ?? "",
-      man?.accountNumber ?? "",
-      man?.accountHolderKana ?? "",
+      inv?.invoiceNumber ?? "",
+      inv ? (inv.billingPeriod ?? inv.dueDate.slice(0, 7)) : "",
       String(item.amount),
-      batch.scheduledDate.replace(/-/g, ""),
+      resultLabel[item.result],
     ];
   });
-  return toCsv([header, ...lines]);
+  const total = batch.items.reduce((s, i) => s + i.amount, 0);
+  return toCsv([header, ...lines, ["合計", "", "", `${batch.items.length}件`, "", "", String(total), ""]]);
 }
 
 /** 2次元配列を CSV 文字列に(BOM付きで Excel の文字化け回避) */

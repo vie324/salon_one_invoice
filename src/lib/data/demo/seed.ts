@@ -1,6 +1,7 @@
 import type {
   Activity,
   Agency,
+  AgencyCommission,
   AgencyMember,
   AppNotification,
   Application,
@@ -46,6 +47,8 @@ export interface DataStore {
   contractEvents: ContractEvent[];
   agencies: Agency[];
   agencyMembers: AgencyMember[];
+  /** 代理店報酬(受注確定時に1件ずつ記録) */
+  agencyCommissions: AgencyCommission[];
   profiles: UserProfile[];
   devIssues: DevIssue[];
   devIssueAttachments: DevIssueAttachment[];
@@ -243,6 +246,7 @@ export function buildSeed(): DataStore {
     contractEvents: [],
     agencies: [],
     agencyMembers: [],
+    agencyCommissions: [],
     // デモアカウントはマスタ扱いで投入(開発依頼・通知は空から開始)
     profiles: DEMO_PROFILES.map((p) => ({ ...p })),
     devIssues: [],

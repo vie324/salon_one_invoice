@@ -7,9 +7,15 @@ import { updateCustomerAction } from "@/app/actions/customers";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
-import { paymentMethodLabels } from "@/lib/domain/constants";
+import { agencyRateLabel } from "@/lib/domain/agency";
+import {
+  AGENCY_DEAL_TYPE_KEYS,
+  AGENCY_DEAL_TYPES,
+  paymentMethodLabels,
+} from "@/lib/domain/constants";
 import type {
   Agency,
+  AgencyDealType,
   AgencyMember,
   Customer,
   CustomerStatus,
@@ -44,6 +50,7 @@ export function EditCustomerButton({
     notes: customer.notes,
     agencyId: customer.agencyId ?? "",
     agencyMemberId: customer.agencyMemberId ?? "",
+    agencyDealType: (customer.agencyDealType ?? "") as AgencyDealType | "",
   });
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
 
@@ -67,6 +74,7 @@ export function EditCustomerButton({
         notes: form.notes,
         agencyId: form.agencyId || null,
         agencyMemberId: form.agencyId ? form.agencyMemberId || null : null,
+        agencyDealType: form.agencyId ? form.agencyDealType || null : null,
       });
       if (res.ok) {
         setOpen(false);
@@ -147,10 +155,12 @@ export function EditCustomerButton({
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <Field label="獲得代理店" hint="代理店の売上・支払集計に反映されます">
+            <Field label="獲得代理店" hint="受注確定のときに代理店報酬を計上します">
               <Select
                 value={form.agencyId}
-                onChange={(e) => set({ agencyId: e.target.value, agencyMemberId: "" })}
+                onChange={(e) =>
+                  set({ agencyId: e.target.value, agencyMemberId: "", agencyDealType: "" })
+                }
               >
                 <option value="">（直販 / なし）</option>
                 {agencies.map((a) => (
@@ -175,6 +185,28 @@ export function EditCustomerButton({
               </Select>
             </Field>
           </div>
+          {form.agencyId && (
+            <Field
+              label="代理店区分（この顧客）"
+              hint="報酬率と、初期設定を誰が行うかが決まります。受注確定の後に変えても、計上済みの報酬は変わりません。"
+            >
+              <Select
+                value={form.agencyDealType}
+                onChange={(e) => set({ agencyDealType: e.target.value as AgencyDealType | "" })}
+              >
+                <option value="">
+                  代理店の既定に従う（
+                  {AGENCY_DEAL_TYPES[agencies.find((a) => a.id === form.agencyId)?.defaultDealType ?? "referral"].label}
+                  ）
+                </option>
+                {AGENCY_DEAL_TYPE_KEYS.map((t) => (
+                  <option key={t} value={t}>
+                    {AGENCY_DEAL_TYPES[t].label}（{agencyRateLabel(t)}）
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
           <Field
             label="メモ"
             hint="特別待遇にした理由・紹介経緯・注意事項などを記録できます（顧客一覧にも表示）"

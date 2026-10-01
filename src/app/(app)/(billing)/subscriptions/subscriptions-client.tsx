@@ -104,6 +104,7 @@ export function SubscriptionsClient({
               </TD>
               <TD className="text-muted-foreground">
                 {r.planName}
+                {(r.storeCount ?? 1) > 1 && <span className="ml-1 text-xs">×{r.storeCount}店舗</span>}
                 {r.optionKeys.length > 0 && (
                   <span className="ml-1 text-xs">＋オプション{r.optionKeys.length}</span>
                 )}
@@ -206,6 +207,7 @@ function EditSubscriptionButton({ row, pending }: { row: Row; pending: boolean }
     row.priceOverride != null ? String(row.priceOverride) : "",
   );
   const [optKeys, setOptKeys] = React.useState<string[]>(row.optionKeys);
+  const [stores, setStores] = React.useState<number>(row.storeCount ?? 1);
 
   const toggle = (k: string) =>
     setOptKeys((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]));
@@ -216,6 +218,7 @@ function EditSubscriptionButton({ row, pending }: { row: Row; pending: boolean }
       const res = await updateSubscriptionAction(row.id, {
         priceOverride: override === "" ? null : Number(override),
         optionKeys: optKeys,
+        storeCount: Math.max(1, Math.round(stores) || 1),
       });
       if (res.ok) {
         setOpen(false);
@@ -246,9 +249,18 @@ function EditSubscriptionButton({ row, pending }: { row: Row; pending: boolean }
               placeholder={String(row.planAmount)}
             />
           </Field>
+          <Field label="契約店舗数" hint="基本料金・オプションは1店舗あたり。店舗数を掛けて請求します。">
+            <Input
+              type="number"
+              min={1}
+              value={stores}
+              onChange={(e) => setStores(Number(e.target.value))}
+              className="w-28"
+            />
+          </Field>
           {row.planOptions.length > 0 && (
             <div>
-              <Label>オプション</Label>
+              <Label>オプション（1店舗あたり）</Label>
               <div className="space-y-1.5">
                 {row.planOptions.map((o) => (
                   <label
@@ -274,10 +286,11 @@ function EditSubscriptionButton({ row, pending }: { row: Row; pending: boolean }
             変更後の月額（税抜）:{" "}
             <strong className="tabular">
               {formatJPY(
-                (override === "" ? row.planAmount : Number(override) || 0) +
+                ((override === "" ? row.planAmount : Number(override) || 0) +
                   row.planOptions
                     .filter((o) => optKeys.includes(o.key))
-                    .reduce((s, o) => s + o.monthly, 0),
+                    .reduce((s, o) => s + o.monthly, 0)) *
+                  Math.max(1, Math.round(stores) || 1),
               )}
             </strong>
           </div>

@@ -12,6 +12,8 @@ import {
   computeNextBillingDate,
   effectiveStatus,
   nextInvoiceNumber,
+  normalizeStoreCount,
+  recurringBillingCutoff,
   subscriptionItems,
 } from "@/lib/domain/calculations";
 import {
@@ -30,10 +32,12 @@ import {
   defaultChecklist,
   initialStageFor,
   mergeChecklist,
+  normalizeStage,
 } from "@/lib/domain/onboarding";
 import type {
   Activity,
   Agency,
+  AgencyCommission,
   AgencyMember,
   AppNotification,
   Application,
@@ -78,6 +82,7 @@ import type {
 import { formatJPY, genId, toISODate } from "@/lib/utils";
 import type {
   ActorRef,
+  AgencyCommissionInput,
   AgencyInput,
   AgencyMemberInput,
   ApplicationCredentials,
@@ -85,6 +90,7 @@ import type {
   ApplicationLinkInput,
   ApplicationLinkState,
   BankRowInput,
+  BatchResultInput,
   ContractActionResult,
   ContractEventInput,
   ContractFilter,
@@ -118,6 +124,8 @@ import type {
   SubscriptionInput,
   SubscriptionUpdateInput,
 } from "../repository";
+import { applicationLinkSettings } from "../application-link";
+import { mergeMandate } from "../mandate";
 import { getStore } from "./store";
 
 function decorate(inv: Invoice): Invoice {
@@ -151,6 +159,16 @@ function clampSchedulePriority(priority: number | undefined): number {
 }
 
 /** インメモリのデモ実装。Repository を完全に満たす。 */
+
+/** 旧デモストア(HMRで保持)の紹介に新しい項目が無い場合の後方互換 */
+function presentReferral(r: Referral): Referral {
+  return {
+    ...r,
+    agencyId: r.agencyId ?? null,
+    agencyMemberId: r.agencyMemberId ?? null,
+    applicationLinkId: r.applicationLinkId ?? null,
+  };
+}
 
 /** 削除(ゴミ箱)に入っていないレコードだけを通す */
 function alive<T extends { deletedAt?: string | null }>(row: T): boolean {
@@ -212,6 +230,7 @@ export class DemoRepository implements Repository {
       createdAt: toISODate(new Date()),
       agencyId: input.agencyId ?? null,
       agencyMemberId: input.agencyMemberId ?? null,
+      agencyDealType: input.agencyId ? (input.agencyDealType ?? null) : null,
       referredByCustomerId: input.referredByCustomerId ?? null,
     };
     this.s.customers.push(customer);
@@ -231,40 +250,23 @@ export class DemoRepository implements Repository {
   }
 
   async getMandateByCustomer(customerId: string): Promise<DirectDebitMandate | null> {
-    return this.s.mandates.find((m) => m.customerId === customerId) ?? null;
+    const m = this.s.mandates.find((x) => x.customerId === customerId);
+    // 旧デモストア(HMRで保持)の行は新しい項目を既定値で補う
+    return m ? { id: m.id, ...mergeMandate(m, customerId, {}) } : null;
+  }
+
+  async listMandates(): Promise<DirectDebitMandate[]> {
+    return this.s.mandates.map((m) => ({ id: m.id, ...mergeMandate(m, m.customerId, {}) }));
   }
 
   async upsertMandate(customerId: string, input: MandateInput): Promise<DirectDebitMandate> {
-    const existing = this.s.mandates.find((m) => m.customerId === customerId);
-    const registeredAt =
-      input.registeredAt !== undefined
-        ? input.registeredAt
-        : input.status === "active"
-          ? toISODate(new Date())
-          : (existing?.registeredAt ?? null);
+    const existing = this.s.mandates.find((m) => m.customerId === customerId) ?? null;
+    const merged = mergeMandate(existing, customerId, input);
     if (existing) {
-      if (input.bankName !== undefined) existing.bankName = input.bankName;
-      if (input.branchName !== undefined) existing.branchName = input.branchName;
-      if (input.branchCode !== undefined) existing.branchCode = input.branchCode;
-      if (input.accountType !== undefined) existing.accountType = input.accountType;
-      if (input.accountNumber !== undefined) existing.accountNumber = input.accountNumber;
-      if (input.accountHolderKana !== undefined) existing.accountHolderKana = input.accountHolderKana;
-      existing.status = input.status;
-      existing.registeredAt = registeredAt;
+      Object.assign(existing, merged);
       return existing;
     }
-    const mandate: DirectDebitMandate = {
-      id: genId("man"),
-      customerId,
-      bankName: input.bankName ?? "",
-      branchName: input.branchName ?? "",
-      branchCode: input.branchCode ?? "",
-      accountType: input.accountType ?? "普通",
-      accountNumber: input.accountNumber ?? "",
-      accountHolderKana: input.accountHolderKana ?? "",
-      status: input.status,
-      registeredAt,
-    };
+    const mandate: DirectDebitMandate = { id: genId("man"), ...merged };
     this.s.mandates.push(mandate);
     return mandate;
   }
@@ -334,6 +336,7 @@ export class DemoRepository implements Repository {
       canceledOn: null,
       optionKeys: input.optionKeys ?? [],
       priceOverride: input.priceOverride ?? null,
+      storeCount: normalizeStoreCount(input.storeCount),
     };
     this.s.subscriptions.push(sub);
     const cus = this.s.customers.find((c) => c.id === input.customerId);
@@ -362,17 +365,21 @@ export class DemoRepository implements Repository {
     if (input.optionKeys !== undefined) sub.optionKeys = input.optionKeys;
     if (input.priceOverride !== undefined) sub.priceOverride = input.priceOverride;
     if (input.billingDay !== undefined) sub.billingDay = input.billingDay;
+    if (input.storeCount !== undefined) sub.storeCount = normalizeStoreCount(input.storeCount);
     return sub;
   }
 
   // ---- 営業代理店 ----
 
   async listAgencies(): Promise<Agency[]> {
-    return [...this.s.agencies].sort((a, b) => a.code.localeCompare(b.code));
+    return this.s.agencies
+      .map((a) => ({ ...a, defaultDealType: a.defaultDealType ?? "referral" }))
+      .sort((a, b) => a.code.localeCompare(b.code));
   }
 
   async getAgency(id: string): Promise<Agency | null> {
-    return this.s.agencies.find((a) => a.id === id) ?? null;
+    const a = this.s.agencies.find((x) => x.id === id);
+    return a ? { ...a, defaultDealType: a.defaultDealType ?? "referral" } : null;
   }
 
   async createAgency(input: AgencyInput): Promise<Agency> {
@@ -386,7 +393,8 @@ export class DemoRepository implements Repository {
       email: input.email ?? "",
       phone: input.phone ?? "",
       address: input.address ?? "",
-      commissionRate: input.commissionRate,
+      defaultDealType: input.defaultDealType ?? "referral",
+      commissionRate: input.commissionRate ?? 0,
       notes: input.notes ?? "",
       active: input.active ?? true,
       createdAt: toISODate(new Date()),
@@ -403,6 +411,7 @@ export class DemoRepository implements Repository {
     if (input.email !== undefined) a.email = input.email;
     if (input.phone !== undefined) a.phone = input.phone;
     if (input.address !== undefined) a.address = input.address;
+    if (input.defaultDealType !== undefined) a.defaultDealType = input.defaultDealType;
     if (input.commissionRate !== undefined) a.commissionRate = input.commissionRate;
     if (input.notes !== undefined) a.notes = input.notes;
     if (input.active !== undefined) a.active = input.active;
@@ -438,6 +447,62 @@ export class DemoRepository implements Repository {
     if (input.email !== undefined) m.email = input.email;
     if (input.active !== undefined) m.active = input.active;
     return m;
+  }
+
+  // ---- 代理店報酬 ----
+
+  /** 旧デモストア(HMRで保持)に agencyCommissions が無い場合の後方互換 */
+  private get commissions(): AgencyCommission[] {
+    if (!this.s.agencyCommissions) this.s.agencyCommissions = [];
+    return this.s.agencyCommissions;
+  }
+
+  async listAgencyCommissions(filter?: {
+    agencyId?: string;
+    customerId?: string;
+  }): Promise<AgencyCommission[]> {
+    let list = [...this.commissions];
+    if (filter?.agencyId) list = list.filter((c) => c.agencyId === filter.agencyId);
+    if (filter?.customerId) list = list.filter((c) => c.customerId === filter.customerId);
+    return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async createAgencyCommission(input: AgencyCommissionInput): Promise<AgencyCommission> {
+    // 同じ初回請求に対する報酬は1件だけ(受注確定のやり直しで二重に作らない)
+    const dup = input.invoiceId
+      ? this.commissions.find((c) => c.invoiceId === input.invoiceId)
+      : undefined;
+    if (dup) return dup;
+    const commission: AgencyCommission = {
+      id: genId("acm"),
+      agencyId: input.agencyId,
+      agencyMemberId: input.agencyMemberId ?? null,
+      customerId: input.customerId,
+      invoiceId: input.invoiceId ?? null,
+      dealType: input.dealType,
+      baseAmount: input.baseAmount,
+      rate: input.rate,
+      amount: input.amount,
+      paidAt: null,
+      note: input.note ?? "",
+      createdAt: new Date().toISOString(),
+    };
+    this.commissions.push(commission);
+    return commission;
+  }
+
+  async setAgencyCommissionsPaid(ids: string[], paidAt: string | null, actor: string): Promise<void> {
+    const targets = this.commissions.filter((c) => ids.includes(c.id));
+    for (const c of targets) c.paidAt = paidAt;
+    if (paidAt && targets.length > 0) {
+      const agency = this.s.agencies.find((a) => a.id === targets[0].agencyId);
+      this.addActivity({
+        kind: "commission_paid",
+        message: `${agency?.name ?? "代理店"} へ報酬 ${targets.length}件 をお支払い済みにしました`,
+        actor,
+        amount: targets.reduce((s, c) => s + c.amount, 0),
+      });
+    }
   }
 
   // ---- 顧客ステータス管理(カンバン) ----
@@ -481,7 +546,13 @@ export class DemoRepository implements Repository {
     const aliveIds = new Set(customers.map((c) => c.id));
     return cards
       .filter((o) => aliveIds.has(o.customerId))
-      .map((o) => ({ ...o, checklist: mergeChecklist(o.checklist) }))
+      .map((o) => ({
+        ...o,
+        // 旧ステージ(移行前の値)は新しいステージへ読み替える
+        stage: normalizeStage(o.stage),
+        history: o.history.map((h) => ({ ...h, stage: normalizeStage(h.stage) })),
+        checklist: mergeChecklist(o.checklist),
+      }))
       .sort((a, b) => a.sortOrder - b.sortOrder);
   }
 
@@ -717,20 +788,28 @@ export class DemoRepository implements Repository {
     return this.s.batches.filter(alive).find((b) => b.id === id) ?? null;
   }
 
-  async createBatchFromAwaiting(scheduledDate: string): Promise<DirectDebitBatch> {
+  async createBatchFromAwaiting(
+    scheduledDate: string,
+    invoiceIds?: string[],
+  ): Promise<DirectDebitBatch> {
+    // 削除済みの一覧に入っていた請求は、もう一度一覧に載せられる
     const batched = new Set(
-      this.s.batches.flatMap((b) => b.items.map((i) => i.invoiceId)),
+      this.s.batches.filter(alive).flatMap((b) => b.items.map((i) => i.invoiceId)),
     );
-    const targets = this.s.invoices.filter(
+    const targets = this.s.invoices.filter(alive).filter(
       (inv) =>
         inv.paymentMethod === "direct_debit" &&
-        (inv.status === "awaiting_payment" || inv.status === "sent") &&
+        ["awaiting_payment", "sent", "partially_paid", "overdue"].includes(inv.status) &&
         inv.amountPaid < inv.total &&
-        !batched.has(inv.id),
+        !batched.has(inv.id) &&
+        (!invoiceIds || invoiceIds.includes(inv.id)),
     );
+    if (targets.length === 0) {
+      throw new Error("引き落としの対象になる請求がありません（入金待ちの口座振替の請求が対象です）");
+    }
     const batch: DirectDebitBatch = {
       id: genId("batch"),
-      name: `${ym(new Date(scheduledDate))} 口座振替`,
+      name: `${ym(new Date(scheduledDate))} NSS引き落とし`,
       scheduledDate,
       status: "draft",
       createdAt: toISODate(new Date()),
@@ -740,7 +819,7 @@ export class DemoRepository implements Repository {
         invoiceId: inv.id,
         customerId: inv.customerId,
         mandateId: this.s.mandates.find((m) => m.customerId === inv.customerId)?.id ?? null,
-        amount: inv.total,
+        amount: inv.total - inv.amountPaid,
         result: "pending" as const,
         resultReason: "",
       })),
@@ -750,42 +829,66 @@ export class DemoRepository implements Repository {
     return batch;
   }
 
-  async processBatch(id: string): Promise<DirectDebitBatch> {
-    const batch = this.s.batches.find((b) => b.id === id);
-    if (!batch) throw new Error("バッチが見つかりません");
+  async markBatchSubmitted(id: string, actor: string): Promise<DirectDebitBatch> {
+    const batch = this.s.batches.filter(alive).find((b) => b.id === id);
+    if (!batch) throw new Error("引き落としの一覧が見つかりません");
+    if (batch.status === "completed") throw new Error("結果を反映済みの一覧です");
+    batch.status = "submitted";
+    this.addActivity({
+      kind: "debit_registered",
+      message: `${batch.name}（${batch.items.length}件）を NSS へ登録`,
+      actor,
+      amount: batch.items.reduce((s, i) => s + i.amount, 0),
+    });
+    return batch;
+  }
+
+  async processBatch(
+    id: string,
+    results: BatchResultInput[],
+    actor: string,
+  ): Promise<DirectDebitBatch> {
+    const batch = this.s.batches.filter(alive).find((b) => b.id === id);
+    if (!batch) throw new Error("引き落としの一覧が見つかりません");
     let success = 0;
     let failed = 0;
-    for (const item of batch.items) {
-      if (item.result !== "pending") continue;
-      const mandate = this.s.mandates.find((m) => m.id === item.mandateId);
-      const ok = mandate?.status === "active";
-      if (ok) {
+    for (const r of results) {
+      const item = batch.items.find((i) => i.id === r.itemId);
+      // 反映済みの明細は二重に入金記録しない
+      if (!item || item.result !== "pending") continue;
+      if (r.result === "success") {
         item.result = "success";
+        item.resultReason = "";
         await this.recordPayment({
           invoiceId: item.invoiceId,
           customerId: item.customerId,
           amount: item.amount,
           method: "direct_debit",
           paidAt: batch.scheduledDate,
-          reference: "口座振替",
+          reference: "NSS 口座振替",
           matchedBy: "auto",
+          memo: `${batch.name} の引き落とし結果を反映（${actor}）`,
         });
         success++;
       } else {
         item.result = "failed";
-        item.resultReason = mandate ? "口座振替の登録が有効ではありません" : "残高不足";
+        item.resultReason = r.reason?.trim() || "引き落とし不可";
         const inv = this.s.invoices.find((i) => i.id === item.invoiceId);
-        if (inv) inv.status = "failed";
+        if (inv && inv.status !== "paid") inv.status = "failed";
         failed++;
       }
     }
-    batch.status = "completed";
-    this.addActivity({
-      kind: "batch_processed",
-      message: `${batch.name} を処理（成功 ${success}件 / 失敗 ${failed}件）`,
-      actor: "システム",
-      amount: batch.items.filter((i) => i.result === "success").reduce((s, i) => s + i.amount, 0),
-    });
+    batch.status = batch.items.every((i) => i.result !== "pending") ? "completed" : "processing";
+    if (success + failed > 0) {
+      this.addActivity({
+        kind: "batch_processed",
+        message: `${batch.name} の結果を反映（引き落とし済 ${success}件 / 不可 ${failed}件）`,
+        actor,
+        amount: batch.items
+          .filter((i) => i.result === "success")
+          .reduce((s, i) => s + i.amount, 0),
+      });
+    }
     return batch;
   }
 
@@ -989,12 +1092,14 @@ export class DemoRepository implements Repository {
 
   async runRecurringBilling(asOf?: string): Promise<{ created: Invoice[] }> {
     const asOfDate = asOf ?? toISODate(new Date());
+    // 引き落とし日がこの月のうちの契約は、月初(発行日 = 1日)に請求書を作る
+    const cutoff = recurringBillingCutoff(asOfDate);
     const created: Invoice[] = [];
     for (const sub of this.s.subscriptions.filter(alive)) {
       if (sub.status !== "active") continue;
       // Stripe 管理の契約は Stripe 側が課金するため自前生成しない
       if (sub.stripeSubscriptionId) continue;
-      if (sub.nextBillingDate > asOfDate) continue;
+      if (sub.nextBillingDate > cutoff) continue;
       const plan = this.s.plans.find((p) => p.id === sub.planId);
       if (!plan) continue;
       const period = ym(new Date(sub.nextBillingDate));
@@ -1015,7 +1120,13 @@ export class DemoRepository implements Repository {
         paymentMethod: customer?.paymentMethod ?? "direct_debit",
         billingPeriod: period,
         subscriptionId: sub.id,
-        items: subscriptionItems(plan, sub.optionKeys ?? [], period, sub.priceOverride),
+        items: subscriptionItems(
+          plan,
+          sub.optionKeys ?? [],
+          period,
+          sub.priceOverride,
+          sub.storeCount ?? 1,
+        ),
         status: customer?.paymentMethod === "direct_debit" ? "awaiting_payment" : "sent",
       });
       created.push(inv);
@@ -1254,14 +1365,17 @@ export class DemoRepository implements Repository {
       contentHash: params.contentHash,
     });
     const cus = this.s.customers.find((x) => x.id === c.customerId);
-    this.addActivity({
-      kind: "contract_sent",
-      message:
-        params.deliveryMethod === "link"
-          ? `${cus?.name ?? ""} 様の契約書 ${c.contractNumber} の署名リンクを発行`
-          : `${cus?.name ?? ""} 様へ契約書 ${c.contractNumber} の署名依頼を送付`,
-      actor: params.actor,
-    });
+    // 申込・契約URL(お客様がその場で署名)は、申込受付・締結の記録で足りるので残さない
+    if (params.deliveryMethod !== "form") {
+      this.addActivity({
+        kind: "contract_sent",
+        message:
+          params.deliveryMethod === "link"
+            ? `${cus?.name ?? ""} 様の契約書 ${c.contractNumber} の署名リンクを発行`
+            : `${cus?.name ?? ""} 様へ契約書 ${c.contractNumber} の署名依頼を送付`,
+        actor: params.actor,
+      });
+    }
     return c;
   }
 
@@ -2050,7 +2164,7 @@ export class DemoRepository implements Repository {
 
   async listApplicationLinks(): Promise<ApplicationLink[]> {
     return this.s.applicationLinks
-      .map((l) => ({ ...l, submissionCount: this.countApplications(l.id) }))
+      .map((l) => this.presentLink(l))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
@@ -2064,6 +2178,7 @@ export class DemoRepository implements Repository {
       expiresAt:
         days > 0 ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString() : null,
       submissionCount: 0,
+      ...applicationLinkSettings(input),
       createdBy: input.createdBy,
       createdAt: new Date().toISOString(),
     };
@@ -2075,7 +2190,7 @@ export class DemoRepository implements Repository {
     const link = this.s.applicationLinks.find((l) => l.id === id);
     if (!link) throw new Error("申込URLが見つかりません");
     link.active = active;
-    return { ...link, submissionCount: this.countApplications(link.id) };
+    return this.presentLink(link);
   }
 
   async deleteApplicationLink(id: string): Promise<void> {
@@ -2094,7 +2209,7 @@ export class DemoRepository implements Repository {
     const link = this.s.applicationLinks.find((l) => l.token === token);
     if (!link) return { link: null, state: "not_found" };
     return {
-      link: { ...link, submissionCount: this.countApplications(link.id) },
+      link: this.presentLink(link),
       state: applicationLinkAvailability(link),
     };
   }
@@ -2127,6 +2242,11 @@ export class DemoRepository implements Repository {
       id: genId("app"),
       linkId: link.id,
       linkName: link.name,
+      // 代理店・紹介の紐付けはURL(サーバー側の設定)から引き継ぐ
+      agencyId: link.agencyId ?? null,
+      agencyMemberId: link.agencyMemberId ?? null,
+      referralId: link.referralId ?? null,
+      contractId: null,
       companyName: input.companyName.trim(),
       address: input.address.trim(),
       representativeTitle: input.representativeTitle.trim(),
@@ -2173,6 +2293,10 @@ export class DemoRepository implements Repository {
     const app = this.s.applications.find((a) => a.id === id);
     if (!app) throw new Error("申込が見つかりません");
     if (app.customerId) throw new Error("この申込は既に顧客として登録されています");
+    const link = app.linkId ? this.s.applicationLinks.find((l) => l.id === app.linkId) : undefined;
+    const referral = app.referralId
+      ? this.s.referrals.find((r) => r.id === app.referralId)
+      : undefined;
     const customer = await this.createCustomer({
       name: app.companyName,
       contactName: app.contactName || app.representativeName,
@@ -2182,10 +2306,50 @@ export class DemoRepository implements Repository {
       paymentMethod: "direct_debit",
       notes: applicationNotes(app),
       assignee: actor,
+      agencyId: app.agencyId ?? referral?.agencyId ?? null,
+      agencyMemberId: app.agencyMemberId ?? referral?.agencyMemberId ?? null,
+      agencyDealType: link?.agencyDealType ?? null,
+      referredByCustomerId: referral?.referrerCustomerId ?? null,
     });
     app.customerId = customer.id;
     app.status = "customer_created";
+    if (referral && !referral.customerId) {
+      referral.customerId = customer.id;
+      referral.status = "customer_created";
+      referral.updatedAt = new Date().toISOString();
+    }
     return customer;
+  }
+
+  async linkApplicationRecords(
+    id: string,
+    params: { customerId?: string | null; contractId?: string | null; status?: ApplicationStatus },
+  ): Promise<Application> {
+    const app = this.s.applications.find((a) => a.id === id);
+    if (!app) throw new Error("申込が見つかりません");
+    if (params.customerId !== undefined) app.customerId = params.customerId;
+    if (params.contractId !== undefined) app.contractId = params.contractId;
+    if (params.status !== undefined) app.status = params.status;
+    return this.presentApplication(app);
+  }
+
+  /** 申込・契約URLを画面用に整える(旧データの未設定項目は既定値で埋める) */
+  private presentLink(link: ApplicationLink): ApplicationLink {
+    return {
+      ...link,
+      withContract: link.withContract ?? false,
+      planId: link.planId ?? null,
+      optionKeys: link.optionKeys ?? [],
+      storeCount: link.storeCount ?? null,
+      initialFeeOverride: link.initialFeeOverride ?? null,
+      monthlyPriceOverride: link.monthlyPriceOverride ?? null,
+      agencyId: link.agencyId ?? null,
+      agencyMemberId: link.agencyMemberId ?? null,
+      agencyDealType: link.agencyDealType ?? null,
+      referralId: link.referralId ?? null,
+      allowInquiry: link.allowInquiry ?? false,
+      submissionCount: this.countApplications(link.id),
+    };
   }
 
   /** 申込URLごとの受付件数 */
@@ -2197,6 +2361,10 @@ export class DemoRepository implements Repository {
   private presentApplication(app: Application): Application {
     return {
       ...app,
+      contractId: app.contractId ?? null,
+      agencyId: app.agencyId ?? null,
+      agencyMemberId: app.agencyMemberId ?? null,
+      referralId: app.referralId ?? null,
       hotpepper: maskCredential(app.hotpepper),
       minimo: maskCredential(app.minimo),
       epark: maskCredential(app.epark),
@@ -2263,7 +2431,7 @@ export class DemoRepository implements Repository {
   }
 
   async listReferrals(filter?: { status?: ReferralStatus | "all" }): Promise<Referral[]> {
-    let list = [...this.s.referrals];
+    let list = this.s.referrals.map(presentReferral);
     if (filter?.status && filter.status !== "all") {
       list = list.filter((r) => r.status === filter.status);
     }
@@ -2271,7 +2439,8 @@ export class DemoRepository implements Repository {
   }
 
   async getReferral(id: string): Promise<Referral | null> {
-    return this.s.referrals.find((r) => r.id === id) ?? null;
+    const r = this.s.referrals.find((x) => x.id === id);
+    return r ? presentReferral(r) : null;
   }
 
   async submitReferral(token: string | null, input: ReferralInput): Promise<Referral> {
@@ -2292,7 +2461,13 @@ export class DemoRepository implements Repository {
       id: genId("ref"),
       linkId: link?.id ?? null,
       referrerName,
-      referrerCustomerId: link?.referrerCustomerId ?? this.matchReferrer(referrerName),
+      // 代理店経由の問い合わせは顧客の紹介ではない(紹介報酬25%の対象外)
+      referrerCustomerId: input.agencyId
+        ? null
+        : (link?.referrerCustomerId ?? this.matchReferrer(referrerName)),
+      agencyId: input.agencyId ?? null,
+      agencyMemberId: input.agencyId ? (input.agencyMemberId ?? null) : null,
+      applicationLinkId: input.applicationLinkId ?? null,
       companyName: input.companyName.trim(),
       contactName: input.contactName.trim(),
       phone: input.phone.trim(),
@@ -2314,7 +2489,9 @@ export class DemoRepository implements Repository {
     this.s.referrals.unshift(referral);
     this.addActivity({
       kind: "referral_submitted",
-      message: `紹介フォームから「${referral.companyName || referral.contactName}」のご紹介がありました（紹介者: ${referral.referrerName}）`,
+      message: referral.agencyId
+        ? `代理店URLから「${referral.companyName || referral.contactName}」のご相談がありました（代理店: ${referral.referrerName}）`
+        : `紹介フォームから「${referral.companyName || referral.contactName}」のご紹介がありました（紹介者: ${referral.referrerName}）`,
       actor: referral.contactName,
     });
     return referral;
@@ -2332,9 +2509,10 @@ export class DemoRepository implements Repository {
       // 顧客に紐付けたら、表示名もその顧客名に合わせる
       if (c) referral.referrerName = c.name;
     }
+    if (input.customerId !== undefined) referral.customerId = input.customerId;
     if (input.note !== undefined) referral.note = input.note;
     referral.updatedAt = new Date().toISOString();
-    return referral;
+    return presentReferral(referral);
   }
 
   async createCustomerFromReferral(id: string, actor: string): Promise<Customer> {
@@ -2349,7 +2527,9 @@ export class DemoRepository implements Repository {
       paymentMethod: "direct_debit",
       notes: referralNotes(referral),
       assignee: actor,
-      referredByCustomerId: referral.referrerCustomerId,
+      referredByCustomerId: referral.agencyId ? null : referral.referrerCustomerId,
+      agencyId: referral.agencyId ?? null,
+      agencyMemberId: referral.agencyMemberId ?? null,
     });
     referral.customerId = customer.id;
     referral.status = "customer_created";
@@ -2369,7 +2549,8 @@ export class DemoRepository implements Repository {
   }
 
   async findReferralByCustomerId(customerId: string): Promise<Referral | null> {
-    return this.s.referrals.find((r) => r.customerId === customerId) ?? null;
+    const r = this.s.referrals.find((x) => x.customerId === customerId);
+    return r ? presentReferral(r) : null;
   }
 
   /** 紹介フォームURLごとの受付件数 */

@@ -1,6 +1,8 @@
 import type {
   Activity,
   Agency,
+  AgencyCommission,
+  AgencyDealType,
   AgencyMember,
   AppNotification,
   Application,
@@ -82,6 +84,8 @@ export interface CustomerInput {
   /** 獲得した営業代理店/営業マン(null で紐付け解除) */
   agencyId?: string | null;
   agencyMemberId?: string | null;
+  /** 代理店区分(取次型 / 営業・初期設定型)。null = 代理店の既定区分 */
+  agencyDealType?: AgencyDealType | null;
   /** 紹介してくれた顧客(紹介制度から登録した場合) */
   referredByCustomerId?: string | null;
 }
@@ -95,10 +99,27 @@ export interface AgencyInput {
   email?: string;
   phone?: string;
   address?: string;
-  /** 手数料率 (0.20 = 20%) */
-  commissionRate: number;
+  /** 既定の区分(取次型 / 営業・初期設定型)。未指定は取次型 */
+  defaultDealType?: AgencyDealType;
+  /** @deprecated 旧方式の手数料率。現在の報酬計算には使わない */
+  commissionRate?: number;
   notes?: string;
   active?: boolean;
+}
+
+/** 代理店報酬の記録(受注確定時に1件作る) */
+export interface AgencyCommissionInput {
+  agencyId: string;
+  agencyMemberId?: string | null;
+  customerId: string;
+  /** 報酬の対象になった初回請求書 */
+  invoiceId?: string | null;
+  dealType: AgencyDealType;
+  /** 対象の初期費用(税抜) */
+  baseAmount: number;
+  rate: number;
+  amount: number;
+  note?: string;
 }
 
 export interface AgencyMemberInput {
@@ -108,16 +129,29 @@ export interface AgencyMemberInput {
   active?: boolean;
 }
 
-/** 口座振替(マンデート)の登録・更新。NSS等の収納代行への登録状況をツール上で管理する。 */
+/**
+ * 口座振替(NSS)の手続き状況の登録・更新。undefined の項目は変更しない。
+ * 口座番号などの口座情報は NSS 側で管理するため入力しない
+ * (旧運用で保存した口座情報を消去するときだけ、空文字を渡す)。
+ */
 export interface MandateInput {
+  status?: import("@/lib/domain/types").MandateStatus;
+  /** NSS の登録完了日 */
+  registeredAt?: string | null;
+  formSentOn?: string | null;
+  formReceivedOn?: string | null;
+  nssSubmittedOn?: string | null;
+  /** 引き落としが始まる月 (YYYY-MM) */
+  debitStartMonth?: string | null;
+  nssCustomerNumber?: string;
+  note?: string;
+  /** @deprecated 旧運用の口座情報。消去用(空文字)にだけ使う */
   bankName?: string;
   branchName?: string;
   branchCode?: string;
   accountType?: import("@/lib/domain/types").AccountType;
   accountNumber?: string;
   accountHolderKana?: string;
-  status: import("@/lib/domain/types").MandateStatus;
-  registeredAt?: string | null;
 }
 
 /**
@@ -191,8 +225,10 @@ export interface SubscriptionInput {
   startedOn: string;
   billingDay?: number;
   optionKeys?: string[];
-  /** 基本料金の個別価格(税抜)。特別待遇・紹介割引など。 */
+  /** 基本料金の個別価格(税抜・1店舗あたり)。特別待遇・紹介割引など。 */
   priceOverride?: number | null;
+  /** 契約店舗数(未指定は1店舗) */
+  storeCount?: number;
   /**
    * 無料にする月数。次回請求日をこの月数ぶん先送りする(0 または未指定で通常どおり)。
    * 紹介制度の「2ヶ月無料」に使う。
@@ -200,11 +236,12 @@ export interface SubscriptionInput {
   freeMonths?: number;
 }
 
-/** 既存の定期契約の変更(オプション・個別価格) */
+/** 既存の定期契約の変更(オプション・個別価格・店舗数) */
 export interface SubscriptionUpdateInput {
   optionKeys?: string[];
   priceOverride?: number | null;
   billingDay?: number;
+  storeCount?: number;
 }
 
 /* ---- 顧客ステータス管理(カンバン) ---- */
@@ -223,6 +260,14 @@ export interface OnboardingUpdateInput {
   checklist?: OnboardingChecklistToggle[];
   /** 操作者名(ステージ履歴・チェック完了者の記録用) */
   actor?: string;
+}
+
+/** 引き落とし結果の反映(NSS から返ってきた結果を1件ずつ渡す) */
+export interface BatchResultInput {
+  itemId: string;
+  result: "success" | "failed";
+  /** 引き落とせなかった理由(残高不足など) */
+  reason?: string;
 }
 
 export interface BankRowInput {
@@ -410,13 +455,26 @@ export interface CreateAccountInput {
 
 /* ---- 申込用URL / 申込 ---- */
 
-/** 申込URLの発行 */
+/** 申込・契約URLの発行 */
 export interface ApplicationLinkInput {
   /** 宛先メモ(管理画面での識別用) */
   name: string;
   /** 有効日数(0 または未指定で無期限) */
   expiryDays?: number;
   createdBy: string;
+  /** true = 申込＋契約(電子署名まで)。未指定は申込のみ(旧来) */
+  withContract?: boolean;
+  planId?: string | null;
+  optionKeys?: string[];
+  /** null = お客様が入力 */
+  storeCount?: number | null;
+  initialFeeOverride?: number | null;
+  monthlyPriceOverride?: number | null;
+  agencyId?: string | null;
+  agencyMemberId?: string | null;
+  agencyDealType?: AgencyDealType | null;
+  referralId?: string | null;
+  allowInquiry?: boolean;
 }
 
 /**
@@ -461,8 +519,12 @@ export interface ReferralLinkInput {
 
 /** 紹介フォームの送信内容 */
 export interface ReferralInput {
-  /** 誰に紹介されたか */
+  /** 誰に紹介されたか(代理店経由の問い合わせは代理店名) */
   referrerName: string;
+  /** 代理店URLの「まずは相談したい」から届いた問い合わせの紐付け(サーバー側で設定) */
+  agencyId?: string | null;
+  agencyMemberId?: string | null;
+  applicationLinkId?: string | null;
   companyName: string;
   contactName: string;
   phone: string;
@@ -480,6 +542,8 @@ export interface ReferralUpdateInput {
   status?: ReferralStatus;
   /** 突き合わせた紹介者(顧客)。null で紐付けを外す */
   referrerCustomerId?: string | null;
+  /** 紹介された方として登録した顧客(申込・契約URLから申し込まれたとき) */
+  customerId?: string | null;
   note?: string;
 }
 
@@ -520,6 +584,8 @@ export interface Repository {
   createCustomer(input: CustomerInput): Promise<Customer>;
   updateCustomer(id: string, input: Partial<CustomerInput>): Promise<Customer>;
   getMandateByCustomer(customerId: string): Promise<DirectDebitMandate | null>;
+  /** 口座振替(NSS)の手続き状況を全件(受注管理・NSS引き落としの一覧用) */
+  listMandates(): Promise<DirectDebitMandate[]>;
   /** 口座振替の登録・更新(顧客ごとに1件)。 */
   upsertMandate(customerId: string, input: MandateInput): Promise<DirectDebitMandate>;
 
@@ -549,6 +615,17 @@ export interface Repository {
     id: string,
     input: Partial<Omit<AgencyMemberInput, "agencyId">>,
   ): Promise<AgencyMember>;
+
+  // --- 代理店報酬 ---
+  /** 報酬の一覧(新しい順)。agencyId / customerId で絞り込める。 */
+  listAgencyCommissions(filter?: { agencyId?: string; customerId?: string }): Promise<AgencyCommission[]>;
+  /**
+   * 報酬を記録する(受注確定時)。同じ初回請求書に対する報酬が既にあれば、
+   * 二重に作らずそれを返す。
+   */
+  createAgencyCommission(input: AgencyCommissionInput): Promise<AgencyCommission>;
+  /** 支払済みにする(paidAt=null で未払いに戻す)。 */
+  setAgencyCommissionsPaid(ids: string[], paidAt: string | null, actor: string): Promise<void>;
 
   // --- 顧客ステータス管理(カンバン) ---
   /**
@@ -581,11 +658,22 @@ export interface Repository {
   listPayments(filter?: { customerId?: string }): Promise<Payment[]>;
   recordPayment(input: PaymentInput): Promise<Payment>;
 
-  // --- 引き落としバッチ ---
+  // --- 毎月の引き落とし(NSS へ登録する一覧) ---
   listBatches(): Promise<DirectDebitBatch[]>;
   getBatch(id: string): Promise<DirectDebitBatch | null>;
-  createBatchFromAwaiting(scheduledDate: string): Promise<DirectDebitBatch>;
-  processBatch(id: string, failRate?: number): Promise<DirectDebitBatch>;
+  /**
+   * 引き落としの一覧を作る。invoiceIds を渡すとその請求だけ、
+   * 省略すると入金待ちの口座振替の請求(他の一覧に入っていないもの)をまとめる。
+   */
+  createBatchFromAwaiting(scheduledDate: string, invoiceIds?: string[]): Promise<DirectDebitBatch>;
+  /** NSS へ金額を登録したことを記録する(作成中 → NSS登録済)。 */
+  markBatchSubmitted(id: string, actor: string): Promise<DirectDebitBatch>;
+  /**
+   * NSS から返ってきた引き落とし結果を反映する。
+   * 成功 = 入金を記録(引き落とし日付)、失敗 = 請求を「引落失敗」にして要フォローへ。
+   * 結果を渡していない明細は「結果待ち」のまま残る。
+   */
+  processBatch(id: string, results: BatchResultInput[], actor: string): Promise<DirectDebitBatch>;
 
   // --- 銀行明細(入金消込) ---
   listBankTransactions(): Promise<BankTransaction[]>;
@@ -812,9 +900,14 @@ export interface Repository {
   updateApplicationStatus(id: string, status: ApplicationStatus): Promise<Application>;
   /**
    * 申込内容から顧客を作成して紐付ける(ステータスは customer_created になる)。
-   * 既に顧客登録済みの場合はエラーを投げる。
+   * 代理店・紹介の紐付けも申込URLから引き継ぐ。既に顧客登録済みの場合はエラーを投げる。
    */
   createCustomerFromApplication(id: string, actor: string): Promise<Customer>;
+  /** 申込に、作成した顧客・契約書を紐付ける(申込＋契約URLの受付処理で使う)。 */
+  linkApplicationRecords(
+    id: string,
+    params: { customerId?: string | null; contractId?: string | null; status?: ApplicationStatus },
+  ): Promise<Application>;
 
   // --- 紹介制度 ---
   /** 紹介フォームURLの一覧(発行済み)。 */

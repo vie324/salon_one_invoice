@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, UserPlus } from "lucide-react";
+import { AlertTriangle, Handshake, UserPlus } from "lucide-react";
 import Link from "next/link";
 import * as React from "react";
 import {
@@ -9,6 +9,7 @@ import {
   setReferralRewardStatusAction,
   updateReferralStatusAction,
 } from "@/app/actions/referrals";
+import { IssueLinkDialog } from "@/components/orders/issue-link-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
@@ -22,10 +23,24 @@ import {
   referralTimeSlotLabels,
 } from "@/lib/domain/constants";
 import { contactValue, type ContactDue } from "@/lib/domain/referral";
-import type { Referral, ReferralStatus } from "@/lib/domain/types";
+import type { Agency, AgencyMember, Plan, Referral, ReferralStatus } from "@/lib/domain/types";
 import { cn, formatDate, formatJPY } from "@/lib/utils";
 
-export type ReferralRow = Referral & { due: ContactDue };
+export type ReferralRow = Referral & {
+  due: ContactDue;
+  /** この紹介から発行した申込・契約URLの数 */
+  issuedLinks: number;
+  /** 代理店経由の問い合わせなら代理店名 */
+  agencyName: string | null;
+};
+
+/** 申込・契約URLの発行ダイアログに渡す選択肢 */
+export interface IssueContext {
+  plans: Plan[];
+  agencies: Agency[];
+  members: AgencyMember[];
+  orgName: string;
+}
 
 const STATUSES: ReferralStatus[] = ["submitted", "contacted", "customer_created", "archived"];
 
@@ -37,9 +52,11 @@ const STATUSES: ReferralStatus[] = ["submitted", "contacted", "customer_created"
 export function ReferralList({
   rows,
   customers,
+  issue,
 }: {
   rows: ReferralRow[];
   customers: { id: string; name: string }[];
+  issue: IssueContext;
 }) {
   return (
     <Table mobile="cards">
@@ -47,22 +64,30 @@ export function ReferralList({
         <TR>
           <TH className="whitespace-nowrap">対応</TH>
           <TH className="min-w-[180px]">ご紹介を受けた方</TH>
-          <TH className="min-w-[160px]">ご紹介者</TH>
+          <TH className="min-w-[160px]">ご紹介者 / 代理店</TH>
           <TH className="min-w-[190px]">連絡のご希望</TH>
-          <TH className="min-w-[170px]">謝礼（初期費用の25%）</TH>
+          <TH className="min-w-[170px]">謝礼・報酬</TH>
           <TH className="whitespace-nowrap">受付日</TH>
         </TR>
       </THead>
       <TBody>
         {rows.map((row) => (
-          <Row key={row.id} row={row} customers={customers} />
+          <Row key={row.id} row={row} customers={customers} issue={issue} />
         ))}
       </TBody>
     </Table>
   );
 }
 
-function Row({ row, customers }: { row: ReferralRow; customers: { id: string; name: string }[] }) {
+function Row({
+  row,
+  customers,
+  issue,
+}: {
+  row: ReferralRow;
+  customers: { id: string; name: string }[];
+  issue: IssueContext;
+}) {
   const [pending, start] = React.useTransition();
   const [error, setError] = React.useState("");
 
@@ -104,26 +129,57 @@ function Row({ row, customers }: { row: ReferralRow; customers: { id: string; na
         {row.note && <div className="mt-1 text-xs text-muted-foreground">{row.note}</div>}
         {row.customerId ? (
           <Link
-            href={`/customers/${row.customerId}`}
+            href={`/orders/${row.customerId}`}
             className="mt-1 inline-block text-xs font-medium text-primary hover:underline"
           >
-            顧客ページを開く
+            受注管理の案件ページを開く
           </Link>
         ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-1.5"
-            disabled={pending}
-            onClick={() => run(() => createCustomerFromReferralAction(row.id))}
-          >
-            <UserPlus className="h-3.5 w-3.5" />
-            顧客として登録
-          </Button>
+          <div className="mt-1.5 flex flex-col items-start gap-1">
+            {/* 連絡して申込の意向が固まったら、申込・契約URLを送る(紹介者・代理店の紐付けは自動) */}
+            <IssueLinkDialog
+              plans={issue.plans}
+              agencies={issue.agencies}
+              members={issue.members}
+              orgName={issue.orgName}
+              mode="referral"
+              defaults={{
+                name: `${row.companyName || row.contactName} 様`,
+                referralId: row.id,
+                agencyId: row.agencyId,
+                agencyMemberId: row.agencyMemberId,
+              }}
+              triggerLabel={row.issuedLinks > 0 ? "申込・契約URLを再発行" : "申込・契約URLを発行"}
+              triggerSize="sm"
+            />
+            {row.issuedLinks > 0 && (
+              <span className="text-[11px] text-muted-foreground">URL発行済み（お客様の申込待ち）</span>
+            )}
+            <button
+              type="button"
+              className="text-[11px] text-muted-foreground underline-offset-2 hover:underline disabled:opacity-50"
+              disabled={pending}
+              onClick={() => run(() => createCustomerFromReferralAction(row.id))}
+            >
+              <UserPlus className="mr-0.5 inline h-3 w-3" />
+              URLを使わずに顧客として登録
+            </button>
+          </div>
         )}
       </TD>
 
       <TD>
+        {row.agencyId ? (
+          <div>
+            <Badge tone="warning">
+              <Handshake className="h-3 w-3" />
+              代理店経由
+            </Badge>
+            <div className="mt-1 font-medium">{row.agencyName ?? row.referrerName}</div>
+            <div className="text-xs text-muted-foreground">代理店URLの「まずは相談したい」から</div>
+          </div>
+        ) : (
+          <>
         <div className="font-medium">{row.referrerName || "（未記入）"}</div>
         {/* 顧客に紐付けると、謝礼のお支払い先と特典の判定がつながる */}
         <Select
@@ -140,6 +196,8 @@ function Row({ row, customers }: { row: ReferralRow; customers: { id: string; na
             </option>
           ))}
         </Select>
+          </>
+        )}
       </TD>
 
       <TD>
@@ -162,6 +220,12 @@ function Row({ row, customers }: { row: ReferralRow; customers: { id: string; na
       </TD>
 
       <TD>
+        {row.agencyId ? (
+          <div className="text-xs text-muted-foreground">
+            代理店報酬の対象（受注確定で計上・代理店の画面で管理）
+          </div>
+        ) : (
+          <>
         <div className="tabular font-medium">
           {row.rewardAmount > 0 ? formatJPY(row.rewardAmount) : "—"}
         </div>
@@ -188,8 +252,10 @@ function Row({ row, customers }: { row: ReferralRow; customers: { id: string; na
         )}
         {row.rewardStatus === "pending" && (
           <div className="mt-0.5 text-xs text-muted-foreground">
-            初回請求の作成時に自動で入ります
+            受注確定（初回請求の作成）のときに自動で入ります
           </div>
+        )}
+          </>
         )}
       </TD>
 

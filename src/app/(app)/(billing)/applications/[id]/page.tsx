@@ -31,7 +31,7 @@ export default async function ApplicationDetailPage({
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
-          申込一覧へ
+          申込・契約URLへ
         </Link>
       </div>
 
@@ -115,16 +115,28 @@ export default async function ApplicationDetailPage({
               <Meta label="申込URL" value={app.linkName || "—"} />
               <Meta label="送信元IP" value={app.submittedIp || "—"} />
               <Meta label="LINE連携申込" value={app.lineRequested ? "あり" : "なし"} />
+              <Meta
+                label="契約"
+                value={app.contractId ? "申込と同時に電子署名済み" : "申込のみ（契約書は別途送付）"}
+              />
               <div>
                 <div className="text-xs text-muted-foreground">顧客</div>
                 <div className="mt-0.5">
                   {customer ? (
-                    <Link
-                      href={`/customers/${customer.id}`}
-                      className="font-medium text-primary hover:underline"
-                    >
-                      {customer.code} {customer.name}
-                    </Link>
+                    <div className="space-y-1">
+                      <Link
+                        href={`/customers/${customer.id}`}
+                        className="block font-medium text-primary hover:underline"
+                      >
+                        {customer.code} {customer.name}
+                      </Link>
+                      <Link
+                        href={`/orders/${customer.id}`}
+                        className="block text-xs text-primary hover:underline"
+                      >
+                        受注管理の案件ページを開く →
+                      </Link>
+                    </div>
                   ) : (
                     <span className="text-muted-foreground">未登録</span>
                   )}

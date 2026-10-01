@@ -7,6 +7,8 @@ import { createAgencyAction } from "@/app/actions/agencies";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Textarea } from "@/components/ui/input";
+import { DealTypePicker } from "./deal-type-picker";
+import type { AgencyDealType } from "@/lib/domain/types";
 
 export function NewAgencyButton() {
   const router = useRouter();
@@ -19,7 +21,7 @@ export function NewAgencyButton() {
     email: "",
     phone: "",
     address: "",
-    commissionPercent: 20,
+    defaultDealType: "referral" as AgencyDealType,
     notes: "",
   });
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
@@ -34,7 +36,7 @@ export function NewAgencyButton() {
         email: form.email,
         phone: form.phone,
         address: form.address,
-        commissionRate: Math.max(0, form.commissionPercent) / 100,
+        defaultDealType: form.defaultDealType,
         notes: form.notes,
       });
       if (res.ok) {
@@ -72,14 +74,13 @@ export function NewAgencyButton() {
           <Field label="住所">
             <Input value={form.address} onChange={(e) => set({ address: e.target.value })} />
           </Field>
-          <Field label="手数料率（%）" hint="入金済み売上(税抜)に乗じて支払額を算出します">
-            <Input
-              type="number"
-              min={0}
-              max={100}
-              value={form.commissionPercent}
-              onChange={(e) => set({ commissionPercent: Number(e.target.value) })}
-              className="w-32"
+          <Field
+            label="区分（報酬）"
+            hint="代理店URLから申し込んだお客様の既定の区分です。案件ごとに変えることもできます。"
+          >
+            <DealTypePicker
+              value={form.defaultDealType}
+              onChange={(t) => set({ defaultDealType: t })}
             />
           </Field>
           <Field label="メモ">

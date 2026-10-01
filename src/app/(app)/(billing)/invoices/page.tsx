@@ -72,7 +72,7 @@ export default async function InvoicesPage({
             className={buttonClasses({ variant: "outline", size: "sm" })}
           >
             <Download className="h-4 w-4" />
-            口座振替へ
+            NSS引き落としへ
           </Link>
         </div>
       </div>

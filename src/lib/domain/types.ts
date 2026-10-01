@@ -111,9 +111,14 @@ export interface Customer {
   createdAt: string;
   /** Stripe 顧客ID（決済連携時） */
   stripeCustomerId?: string | null;
-  /** 獲得した営業代理店/営業マン(売上・手数料の集計に使用) */
+  /** 獲得した営業代理店/営業マン(代理店報酬の計算に使用) */
   agencyId?: string | null;
   agencyMemberId?: string | null;
+  /**
+   * この顧客を獲得したときの代理店区分(取次型 / 営業・初期設定型)。
+   * 報酬率と、初期設定を誰が行うかが決まる。null = 代理店の既定区分。
+   */
+  agencyDealType?: AgencyDealType | null;
   /**
    * 紹介してくれた顧客。紹介制度から登録された顧客に設定する。
    * 初回請求の特典(初月日割り無料＋2ヶ月無料)と、紹介者へのお支払いの判定に使う。
@@ -123,18 +128,43 @@ export interface Customer {
   deletedAt?: string | null;
 }
 
+/**
+ * 口座振替(NSS 日本システム収納)の手続き状況。顧客ごとに1件。
+ *
+ * 口座番号などの口座情報は NSS 側で管理するため、このツールでは新たに保持しない
+ * (bankName〜accountHolderKana は旧運用で入力されたデータの表示・消去用に残している)。
+ * ここで管理するのは「依頼書の郵送 → 回収 → NSSへ登録 → 振替開始」の進み具合だけ。
+ */
 export interface DirectDebitMandate {
   id: string;
   customerId: string;
+  /** @deprecated 旧運用の口座情報。NSS運用では入力しない */
   bankName: string;
+  /** @deprecated */
   branchName: string;
+  /** @deprecated */
   branchCode: string;
+  /** @deprecated */
   accountType: AccountType;
-  /** 口座番号(表示時はマスキング) */
+  /** @deprecated 口座番号(表示時はマスキング) */
   accountNumber: string;
+  /** @deprecated */
   accountHolderKana: string;
   status: MandateStatus;
+  /** NSS の登録が完了した日 */
   registeredAt: string | null;
+  /** 口座振替依頼書をお客様へ郵送した日 */
+  formSentOn: string | null;
+  /** 記入済みの依頼書をお客様から回収した日 */
+  formReceivedOn: string | null;
+  /** 依頼書を NSS へ送付し、収納サイトで登録した日 */
+  nssSubmittedOn: string | null;
+  /** 引き落としが始まる月 (YYYY-MM)。NSS の登録完了時に確認する */
+  debitStartMonth: string | null;
+  /** NSS 側の顧客番号など(照合用・任意) */
+  nssCustomerNumber: string;
+  /** メモ(不備の内容・再提出の経緯など) */
+  note: string;
 }
 
 export interface Plan {
@@ -169,10 +199,15 @@ export interface Subscription {
   /** 選択中のオプション(plan.options の key) */
   optionKeys: string[];
   /**
-   * 基本料金の個別価格(税抜)。特別待遇・紹介割引などプラン定価と異なる場合に設定。
+   * 基本料金の個別価格(税抜・1店舗あたり)。特別待遇・紹介割引などプラン定価と異なる場合に設定。
    * null/undefined ならプランの定価(plan.amount)を請求する。
    */
   priceOverride?: number | null;
+  /**
+   * 契約店舗数。月額(基本料金＋オプション)は1店舗あたりの金額なので、
+   * 毎月の請求はこの店舗数を掛けて計算する。未設定は1店舗。
+   */
+  storeCount?: number;
   /** Stripe サブスクリプションID（決済連携時） */
   stripeSubscriptionId?: string | null;
   /** 削除(ゴミ箱)に入れた日時。null/未設定 = 有効なデータ。 */
@@ -272,7 +307,17 @@ export interface BankTransaction {
 
 /* ---- 営業代理店 ---- */
 
-/** 営業代理店。手数料率に基づき毎月の支払額(コミッション)を算出する。 */
+/**
+ * 代理店の区分(どこまで代理店が担当するか)。報酬率が決まる。
+ * - referral     取次型:          お客様のご紹介(取次)まで。商談〜初期設定は当社。初期費用の50%
+ * - sales_setup  営業・初期設定型: 営業(商談〜申込)と初期設定まで代理店が担当。初期費用の100%
+ *
+ * 伴走型(導入後の運用支援まで担当)は今後追加予定。constants.ts の AGENCY_DEAL_TYPES に
+ * 1件足せば、画面・計算の選択肢に出るようにしてある。
+ */
+export type AgencyDealType = "referral" | "sales_setup";
+
+/** 営業代理店。獲得したお客様の初期費用に区分ごとの率を掛けて報酬を支払う。 */
 export interface Agency {
   id: string;
   code: string; // 代理店コード
@@ -281,12 +326,47 @@ export interface Agency {
   email: string;
   phone: string;
   address: string;
-  /** 手数料率 (0.20 = 20%)。対象売上(税抜・入金済み)に乗じて支払額を算出 */
+  /** 既定の区分。代理店URLから申し込んだお客様にはこの区分が付く(案件ごとに変更可) */
+  defaultDealType: AgencyDealType;
+  /**
+   * @deprecated 旧方式(毎月の入金済売上 × 率)の手数料率。現在の報酬計算には使わない
+   * (伴走型を作るときに月額連動の報酬として使う可能性があるため列は残している)。
+   */
   commissionRate: number;
   notes: string;
   active: boolean;
   createdAt: string;
 }
+
+/**
+ * 代理店報酬(1件 = 獲得したお客様1件ぶん)。受注確定(初回請求の作成)時に金額を確定して記録する。
+ * 支払対象になるのは、お客様の初期費用の入金を確認してから。
+ */
+export interface AgencyCommission {
+  id: string;
+  agencyId: string;
+  agencyMemberId: string | null;
+  customerId: string;
+  /** 報酬の対象になった初回請求書(初期費用) */
+  invoiceId: string | null;
+  dealType: AgencyDealType;
+  /** 対象の初期費用(税抜) */
+  baseAmount: number;
+  /** 率 (0.5 = 50%) */
+  rate: number;
+  /** 報酬額 = 初期費用(税抜) × 率(円未満四捨五入) */
+  amount: number;
+  /** 代理店へ支払った日 (null = 未払い) */
+  paidAt: string | null;
+  note: string;
+  createdAt: string;
+}
+
+/**
+ * 代理報酬の状況(保存値ではなく、初回請求の入金状況から導出する)。
+ * pending(初期費用の入金待ち) → payable(支払対象) → paid(支払済) / void(初回請求の取消)
+ */
+export type AgencyCommissionStatus = "pending" | "payable" | "paid" | "void";
 
 /** 代理店に所属する営業マン。顧客獲得の実績を個人単位で集計する。 */
 export interface AgencyMember {
@@ -354,8 +434,13 @@ export interface ContractTerms {
   storeCount: number;
   /** 初期費用(税抜)。null = 契約書上の記載に従う */
   initialFee: number | null;
-  /** 月額合計(税抜・オプション込み) */
+  /** 月額合計(税抜・オプション込み・全店舗分) */
   monthlyFee: number | null;
+  /**
+   * 月額基本料金の個別価格(税抜・1店舗あたり)。null/未設定 = プラン定価。
+   * 受注確定で作る定期契約の priceOverride にそのまま引き継ぐ。
+   */
+  priceOverride?: number | null;
   /** 契約開始日(予定) */
   startDate: string | null;
   notes: string;
@@ -387,8 +472,9 @@ export interface ContractTemplate {
  * 署名依頼の渡し方。
  * - email: 契約者へメールで署名リンクを送付する
  * - link: メールを送らずに署名リンクを発行し、担当者が別経路(LINE・SMS・対面・QR)で渡す
+ * - form: 申込・契約URLのフォーム上で、お客様ご自身が入力した内容の契約書を提示する
  */
-export type ContractDeliveryMethod = "email" | "link";
+export type ContractDeliveryMethod = "email" | "link" | "form";
 
 export interface Contract {
   id: string;
@@ -479,7 +565,9 @@ export type ActivityKind =
   | "contract_signed"
   | "application_submitted"
   | "referral_submitted"
-  | "reminder_sent";
+  | "reminder_sent"
+  | "commission_paid"
+  | "debit_registered";
 
 export interface Activity {
   id: string;
@@ -730,10 +818,16 @@ export interface AppNotification {
   createdAt: string;
 }
 
-/* ---- 申込(お客様に渡す申込URLからの入力) ---- */
+/* ---- 申込(お客様に渡す申込・契約URLからの入力) ---- */
 
 /**
- * 申込URL。トークン付きのURLを発行してお客様に渡し、そこから申込を受け付ける。
+ * 申込・契約URL。トークン付きのURLを発行してお客様(または代理店)に渡す。
+ *
+ * withContract=true(標準)は「申込＋契約」を1本のURLで完結させる:
+ *   お客様情報の入力 → プラン・料金の確認 → 契約内容の確認と電子署名 まで進み、
+ *   送信と同時に顧客・契約(締結済)・受注管理の案件が作られる。
+ * withContract=false は「申込のみ」(旧来の動き)。契約書は担当者が後から送る。
+ *
  * 無効化・有効期限で受付を止められる。
  */
 export interface ApplicationLink {
@@ -747,6 +841,27 @@ export interface ApplicationLink {
   expiresAt: string | null;
   /** これまでの申込件数 */
   submissionCount: number;
+  /** true = 申込＋契約(電子署名まで) / false = 申込のみ(契約書は後から送付) */
+  withContract: boolean;
+  /** 申込むプラン(withContract では必須) */
+  planId: string | null;
+  /** オプションの初期選択(お客様がフォームで変更できる) */
+  optionKeys: string[];
+  /** 契約店舗数。null = お客様がフォームで入力する */
+  storeCount: number | null;
+  /** 初期費用の個別価格(税抜)。null = プラン通り */
+  initialFeeOverride: number | null;
+  /** 月額基本料金の個別価格(税抜・1店舗あたり)。null = プラン通り */
+  monthlyPriceOverride: number | null;
+  /** 代理店URL・代理店経由の案件なら、獲得代理店/営業マン */
+  agencyId: string | null;
+  agencyMemberId: string | null;
+  /** 代理店区分(null = 代理店の既定区分) */
+  agencyDealType: AgencyDealType | null;
+  /** 紹介・問い合わせから発行したURLなら、その紹介 */
+  referralId: string | null;
+  /** 「まずは相談したい」(問い合わせ)の入口を出すか。代理店URL向け */
+  allowInquiry: boolean;
   createdBy: string;
   createdAt: string;
 }
@@ -794,6 +909,13 @@ export interface Application {
   status: ApplicationStatus;
   /** 顧客として取り込んだ場合の紐付け */
   customerId: string | null;
+  /** 申込＋契約URLから届いた場合、同時に締結した契約書 */
+  contractId: string | null;
+  /** 代理店経由の申込なら、獲得代理店/営業マン(URLから引き継ぐ) */
+  agencyId: string | null;
+  agencyMemberId: string | null;
+  /** 紹介・問い合わせから発行したURL経由なら、その紹介 */
+  referralId: string | null;
   submittedAt: string;
   submittedIp: string;
 }
@@ -885,34 +1007,38 @@ export interface Referral {
   rewardAmount: number;
   rewardStatus: ReferralRewardStatus;
   rewardPaidAt: string | null;
+  /**
+   * 代理店経由の問い合わせなら、その代理店/営業マン。
+   * 代理店URLの「まずは相談したい」から届いたもの。紹介報酬(25%)ではなく代理店報酬の対象になる。
+   */
+  agencyId: string | null;
+  agencyMemberId: string | null;
+  /** 代理店URL(申込・契約URL)から届いた問い合わせなら、そのURL */
+  applicationLinkId: string | null;
   submittedAt: string;
   submittedIp: string;
   updatedAt: string;
 }
 
-/* ---- 顧客ステータス管理 (オンボーディング・カンバン) ---- */
+/* ---- 受注管理 (申込・契約 → 受注確認 → 導入準備 → 運用中) ---- */
 
 /**
- * 顧客のオンボーディング(獲得〜運用開始)ステージ。カンバンの列に対応する。
- * 運用フロー: 初期費用＋初月日割りは請求書(銀行振込)、以降は口座振替(引き落とし)。
- * - application     申込(受付・プラン確定)
- * - contract        契約(契約書の送付〜締結)
- * - initial_billing 初回請求(初期費用＋初月日割りの請求書発行・振込)
- * - debit_setup     振替手続き(口座振替依頼書の送付→受領→収納代行へ登録)
- * - initial_payment 入金チェック(初回振込の入金確認・消込)
- * - operating       運用中(毎月の引き落とし・入金チェック)
- * - closed          休止・解約
+ * 案件(顧客1件)の進み具合。受注管理の列に対応する。
+ * ステージは契約・請求・入金・NSS・チェックリストの実データから自動で決まる
+ * (手で動かすのは「休止・解約・見送り」だけ)。
+ *
+ * - application 申込・契約: お客様の申込・電子署名を待っている
+ * - review      受注確認:   締結済み。請求管理者が内容を確認して「受注確定」する
+ * - setup       導入準備:   初回請求・入金 / 口座振替(NSS) / 初期設定 を並行で進める
+ * - operating   運用中:     導入準備がすべて完了。毎月の請求・引き落としの運用
+ * - closed      休止・解約・見送り
+ *
+ * 旧ステージ(contract / initial_billing / debit_setup / initial_payment)は
+ * 移行 0023 で新ステージへ読み替える。
  */
-export type OnboardingStage =
-  | "application"
-  | "contract"
-  | "initial_billing"
-  | "debit_setup"
-  | "initial_payment"
-  | "operating"
-  | "closed";
+export type OnboardingStage = "application" | "review" | "setup" | "operating" | "closed";
 
-/** カンバンカードのチェックリスト1項目(手動のToDo。実データ連動のシグナルとは別) */
+/** 案件のチェックリスト1項目(手で付けるもの。実データから自動で判定する項目は保存しない) */
 export interface OnboardingChecklistItem {
   key: string;
   label: string;

@@ -88,14 +88,23 @@ export function selectedOptions(plan: Pick<Plan, "options">, optionKeys: string[
 /**
  * 基本料金 + 選択オプションの月額合計(税抜)。
  * priceOverride(個別価格)が設定されていれば基本料金をそちらで置き換える。
+ * 料金は1店舗あたりなので、storeCount(契約店舗数)を掛けた額を返す。
  */
 export function subscriptionMonthly(
   plan: Pick<Plan, "amount" | "options">,
   optionKeys: string[] = [],
   priceOverride?: number | null,
+  storeCount = 1,
 ): number {
   const base = priceOverride ?? plan.amount;
-  return base + selectedOptions(plan, optionKeys).reduce((s, o) => s + o.monthly, 0);
+  const perStore = base + selectedOptions(plan, optionKeys).reduce((s, o) => s + o.monthly, 0);
+  return perStore * normalizeStoreCount(storeCount);
+}
+
+/** 店舗数を1以上の整数にそろえる(未設定・不正値は1店舗) */
+export function normalizeStoreCount(storeCount: number | null | undefined): number {
+  const n = Math.round(Number(storeCount ?? 1));
+  return Number.isFinite(n) && n >= 1 ? n : 1;
 }
 
 /** 消費税額 (税抜 × 税率、四捨五入) */
@@ -108,33 +117,51 @@ export function withTax(exclusive: number, rate: number): number {
   return exclusive + taxAmount(exclusive, rate);
 }
 
-/** 定期プラン(基本料金＋オプション)から請求明細を生成。個別価格があれば適用。 */
+/**
+ * 定期プラン(基本料金＋オプション)から請求明細を生成。個別価格があれば適用。
+ * 複数店舗の契約は、数量に店舗数を入れて「1店舗あたりの単価 × 店舗数」で明細化する。
+ */
 export function subscriptionItems(
   plan: Plan,
   optionKeys: string[],
   billingPeriod: string,
   priceOverride?: number | null,
+  storeCount = 1,
 ): Omit<InvoiceItem, "id">[] {
   const base = priceOverride ?? plan.amount;
+  const qty = normalizeStoreCount(storeCount);
+  const perStore = qty > 1 ? `・${qty}店舗` : "";
   const items: Omit<InvoiceItem, "id">[] = [
     {
-      description: `${plan.name}（${billingPeriod}）${priceOverride != null ? "※個別価格" : ""}`,
-      quantity: 1,
+      description: `${plan.name}（${billingPeriod}${perStore}）${priceOverride != null ? "※個別価格" : ""}`,
+      quantity: qty,
       unitPrice: base,
       taxRate: plan.taxRate,
-      amount: base,
+      amount: base * qty,
     },
   ];
   for (const opt of selectedOptions(plan, optionKeys)) {
     items.push({
-      description: `オプション: ${opt.name}`,
-      quantity: 1,
+      description: `オプション: ${opt.name}${perStore ? `（${qty}店舗）` : ""}`,
+      quantity: qty,
       unitPrice: opt.monthly,
       taxRate: plan.taxRate,
-      amount: opt.monthly,
+      amount: opt.monthly * qty,
     });
   }
   return items;
+}
+
+/**
+ * 定期請求を作成する対象の締め日(asOf の月末)。
+ * 次回請求日(= 引き落とし日・支払期限)がこの日までの契約は、その月の1日を発行日として
+ * 請求書を作る。引き落とし日(27日)の当日ではなく月初に作ることで、お客様の確認期間と
+ * NSS への金額登録の時間を確保する。
+ */
+export function recurringBillingCutoff(asOfDate: string): string {
+  const [y, m] = asOfDate.slice(0, 7).split("-").map(Number);
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${asOfDate.slice(0, 7)}-${String(lastDay).padStart(2, "0")}`;
 }
 
 /**

@@ -1,11 +1,12 @@
 "use client";
 
-import { Mail, Pencil, Plus, UserRound } from "lucide-react";
+import { CheckCircle2, Mail, Pencil, Plus, Undo2, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import {
   createAgencyMemberAction,
   sendAgencyStatementAction,
+  setAgencyCommissionsPaidAction,
   updateAgencyAction,
   updateAgencyMemberAction,
 } from "@/app/actions/agencies";
@@ -14,6 +15,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Textarea } from "@/components/ui/input";
 import type { Agency, AgencyMember } from "@/lib/domain/types";
+import { toISODate } from "@/lib/utils";
+import { DealTypePicker } from "../deal-type-picker";
 
 /** 代理店情報の編集ダイアログ */
 export function AgencyEditButton({ agency }: { agency: Agency }) {
@@ -27,7 +30,7 @@ export function AgencyEditButton({ agency }: { agency: Agency }) {
     email: agency.email,
     phone: agency.phone,
     address: agency.address,
-    commissionPercent: Math.round(agency.commissionRate * 100),
+    defaultDealType: agency.defaultDealType,
     notes: agency.notes,
     active: agency.active,
   });
@@ -42,7 +45,7 @@ export function AgencyEditButton({ agency }: { agency: Agency }) {
         email: form.email,
         phone: form.phone,
         address: form.address,
-        commissionRate: Math.max(0, form.commissionPercent) / 100,
+        defaultDealType: form.defaultDealType,
         notes: form.notes,
         active: form.active,
       });
@@ -79,17 +82,17 @@ export function AgencyEditButton({ agency }: { agency: Agency }) {
           <Field label="住所">
             <Input value={form.address} onChange={(e) => set({ address: e.target.value })} />
           </Field>
-          <div className="grid grid-cols-2 items-end gap-4">
-            <Field label="手数料率（%）">
-              <Input
-                type="number"
-                min={0}
-                max={100}
-                value={form.commissionPercent}
-                onChange={(e) => set({ commissionPercent: Number(e.target.value) })}
-              />
-            </Field>
-            <label className="flex cursor-pointer items-center gap-2 pb-2.5 text-sm">
+          <Field
+            label="区分（報酬）"
+            hint="代理店URLから申し込んだお客様の既定の区分。計上済みの報酬は変わりません。"
+          >
+            <DealTypePicker
+              value={form.defaultDealType}
+              onChange={(t) => set({ defaultDealType: t })}
+            />
+          </Field>
+          <div className="flex items-end gap-4">
+            <label className="flex cursor-pointer items-center gap-2 pb-1 text-sm">
               <input
                 type="checkbox"
                 className="h-4 w-4 accent-[var(--color-primary)]"
@@ -270,5 +273,50 @@ export function SendStatementButton({
         <span className="rounded-md bg-secondary px-3 py-1.5 text-xs text-secondary-foreground">{flash}</span>
       )}
     </div>
+  );
+}
+
+/** 代理店報酬を支払済みにする / 未払いに戻す(まとめて) */
+export function CommissionPaidButton({
+  agencyId,
+  ids,
+  paid,
+  label,
+  size = "sm",
+}: {
+  agencyId: string;
+  ids: string[];
+  /** true = 支払済みにする / false = 未払いに戻す */
+  paid: boolean;
+  label?: string;
+  size?: "sm" | "md";
+}) {
+  const router = useRouter();
+  const [pending, start] = React.useTransition();
+  const [error, setError] = React.useState<string | null>(null);
+  const run = () => {
+    let paidOn: string | undefined;
+    if (paid) {
+      const input = window.prompt("支払った日（YYYY-MM-DD）", toISODate(new Date()));
+      if (input === null) return;
+      paidOn = input.trim();
+    } else if (!window.confirm("支払済みの記録を取り消して、未払いに戻します。よろしいですか？")) {
+      return;
+    }
+    start(async () => {
+      setError(null);
+      const res = await setAgencyCommissionsPaidAction(agencyId, ids, paid, paidOn);
+      if (!res.ok) setError(res.error);
+      router.refresh();
+    });
+  };
+  return (
+    <span className="inline-flex flex-col items-end gap-1">
+      <Button size={size} variant={paid ? "primary" : "ghost"} onClick={run} disabled={pending || ids.length === 0}>
+        {paid ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Undo2 className="h-3.5 w-3.5" />}
+        {label ?? (paid ? "支払済みにする" : "未払いに戻す")}
+      </Button>
+      {error && <span className="text-xs text-destructive">{error}</span>}
+    </span>
   );
 }
