@@ -41,7 +41,7 @@ export default async function LtvPage() {
           return (
             sum +
             withTax(
-              subscriptionMonthly(plan, sub.optionKeys ?? [], sub.priceOverride),
+              subscriptionMonthly(plan, sub.optionKeys ?? [], sub.priceOverride, sub.storeCount ?? 1),
               plan.taxRate,
             )
           );

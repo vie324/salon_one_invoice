@@ -1,8 +1,8 @@
 -- =========================================================================
 -- テストデータの全削除(業務データを空にする)
 --
--- 対象: 顧客・口座振替・定期契約・請求書・入金・引き落としバッチ・
---       銀行明細・活動ログ・契約書・契約書の監査証跡
+-- 対象: 顧客・口座振替(NSSの手続き)・定期契約・請求書・入金・NSS引き落としの一覧・
+--       銀行明細・活動ログ・契約書・契約書の監査証跡・代理店報酬
 -- 残す: 自社情報(organizations)・料金プラン(plans)・
 --       契約書テンプレート(contract_templates)・ユーザー(profiles)
 --
@@ -18,6 +18,14 @@ begin;
 alter table contract_events disable trigger contract_events_immutable;
 alter table contracts       disable trigger contracts_prevent_delete;
 alter table contracts       disable trigger contracts_freeze_content;
+
+-- 代理店報酬(0023 適用後のみ存在する)
+do $$
+begin
+  if to_regclass('public.agency_commissions') is not null then
+    delete from agency_commissions;
+  end if;
+end $$;
 
 delete from contract_events;
 delete from contracts;

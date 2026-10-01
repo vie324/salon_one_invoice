@@ -13,6 +13,8 @@ import {
   computeNextBillingDate,
   effectiveStatus,
   nextInvoiceNumber,
+  normalizeStoreCount,
+  recurringBillingCutoff,
   subscriptionItems,
 } from "@/lib/domain/calculations";
 import {
@@ -31,10 +33,12 @@ import {
   defaultChecklist,
   initialStageFor,
   mergeChecklist,
+  normalizeStage,
 } from "@/lib/domain/onboarding";
 import type {
   Activity,
   Agency,
+  AgencyCommission,
   AgencyMember,
   AppNotification,
   Application,
@@ -83,6 +87,7 @@ import type {
 import { formatJPY, genId, toISODate } from "@/lib/utils";
 import type {
   ActorRef,
+  AgencyCommissionInput,
   AgencyInput,
   AgencyMemberInput,
   ApplicationCredentials,
@@ -90,6 +95,7 @@ import type {
   ApplicationLinkInput,
   ApplicationLinkState,
   BankRowInput,
+  BatchResultInput,
   ContractActionResult,
   ContractEventInput,
   ContractFilter,
@@ -123,6 +129,8 @@ import type {
   SubscriptionInput,
   SubscriptionUpdateInput,
 } from "../repository";
+import { applicationLinkSettings, type ApplicationLinkSettings } from "../application-link";
+import { mergeMandate } from "../mandate";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -170,6 +178,8 @@ function mapCustomer(r: any): Customer {
     stripeCustomerId: r.stripe_customer_id ?? null,
     agencyId: r.agency_id ?? null,
     agencyMemberId: r.agency_member_id ?? null,
+    // agency_deal_type 列は移行(0023)で追加される。未適用でも読み込みは落とさない。
+    agencyDealType: r.agency_deal_type ?? null,
     // referred_by_customer_id 列は移行(0022)で追加される。未適用でも読み書きは落とさない。
     referredByCustomerId: r.referred_by_customer_id ?? null,
   };
@@ -184,9 +194,27 @@ function mapAgency(r: any): Agency {
     email: r.email ?? "",
     phone: r.phone ?? "",
     address: r.address ?? "",
+    defaultDealType: r.default_deal_type ?? "referral",
     commissionRate: Number(r.commission_rate ?? 0),
     notes: r.notes ?? "",
     active: r.active ?? true,
+    createdAt: r.created_at,
+  };
+}
+
+function mapAgencyCommission(r: any): AgencyCommission {
+  return {
+    id: r.id,
+    agencyId: r.agency_id,
+    agencyMemberId: r.agency_member_id ?? null,
+    customerId: r.customer_id,
+    invoiceId: r.invoice_id ?? null,
+    dealType: r.deal_type,
+    baseAmount: Number(r.base_amount ?? 0),
+    rate: Number(r.rate ?? 0),
+    amount: Number(r.amount ?? 0),
+    paidAt: r.paid_at ?? null,
+    note: r.note ?? "",
     createdAt: r.created_at,
   };
 }
@@ -213,7 +241,13 @@ function mapMandate(r: any): DirectDebitMandate {
     accountNumber: r.account_number ?? "",
     accountHolderKana: r.account_holder_kana ?? "",
     status: r.status,
-    registeredAt: r.registered_at,
+    registeredAt: r.registered_at ?? null,
+    formSentOn: r.form_sent_on ?? null,
+    formReceivedOn: r.form_received_on ?? null,
+    nssSubmittedOn: r.nss_submitted_on ?? null,
+    debitStartMonth: r.debit_start_month ?? null,
+    nssCustomerNumber: r.nss_customer_number ?? "",
+    note: r.note ?? "",
   };
 }
 
@@ -245,6 +279,7 @@ function mapSubscription(r: any): Subscription {
     canceledOn: r.canceled_on,
     optionKeys: Array.isArray(r.option_keys) ? r.option_keys : [],
     priceOverride: r.price_override == null ? null : Number(r.price_override),
+    storeCount: Number(r.store_count ?? 1) || 1,
     stripeSubscriptionId: r.stripe_subscription_id ?? null,
   };
 }
@@ -295,14 +330,15 @@ function mapOnboarding(r: any): CustomerOnboarding {
   return {
     id: r.id,
     customerId: r.customer_id,
-    stage: r.stage,
+    // 旧ステージ(移行 0023 の前の値)は新しいステージへ読み替える
+    stage: normalizeStage(r.stage),
     sortOrder: Number(r.sort_order ?? 0),
     dueDate: r.due_date ?? null,
     nextAction: r.next_action ?? "",
     checklist: mergeChecklist((r.checklist as any[]) ?? []),
     stageChangedAt: r.stage_changed_at ?? r.created_at,
     history: ((r.history as any[]) ?? []).map((h: any) => ({
-      stage: h.stage,
+      stage: normalizeStage(h.stage),
       at: h.at,
       by: h.by ?? "",
     })),
@@ -633,6 +669,9 @@ function mapReferral(r: any): Referral {
     rewardAmount: Number(r.reward_amount ?? 0),
     rewardStatus: r.reward_status ?? "pending",
     rewardPaidAt: r.reward_paid_at ?? null,
+    agencyId: r.agency_id ?? null,
+    agencyMemberId: r.agency_member_id ?? null,
+    applicationLinkId: r.application_link_id ?? null,
     submittedAt: r.submitted_at,
     submittedIp: r.submitted_ip ?? "",
     updatedAt: r.updated_at ?? r.submitted_at,
@@ -649,8 +688,37 @@ function mapApplicationLink(r: any): ApplicationLink {
     active: Boolean(r.active),
     expiresAt: r.expires_at ?? null,
     submissionCount: Number(counts[0]?.count ?? 0),
+    // 以下は移行(0023)で追加される列。未適用のDBでは「申込のみ」のURLとして扱う。
+    withContract: Boolean(r.with_contract),
+    planId: r.plan_id ?? null,
+    optionKeys: Array.isArray(r.option_keys) ? r.option_keys : [],
+    storeCount: r.store_count == null ? null : Number(r.store_count),
+    initialFeeOverride: r.initial_fee_override == null ? null : Number(r.initial_fee_override),
+    monthlyPriceOverride: r.monthly_price_override == null ? null : Number(r.monthly_price_override),
+    agencyId: r.agency_id ?? null,
+    agencyMemberId: r.agency_member_id ?? null,
+    agencyDealType: r.agency_deal_type ?? null,
+    referralId: r.referral_id ?? null,
+    allowInquiry: Boolean(r.allow_inquiry),
     createdBy: r.created_by ?? "",
     createdAt: r.created_at,
+  };
+}
+
+/** 申込・契約URLの設定を DB 行の形にする */
+function applicationLinkRow(settings: ApplicationLinkSettings) {
+  return {
+    with_contract: settings.withContract,
+    plan_id: settings.planId,
+    option_keys: settings.optionKeys,
+    store_count: settings.storeCount,
+    initial_fee_override: settings.initialFeeOverride,
+    monthly_price_override: settings.monthlyPriceOverride,
+    agency_id: settings.agencyId,
+    agency_member_id: settings.agencyMemberId,
+    agency_deal_type: settings.agencyDealType,
+    referral_id: settings.referralId,
+    allow_inquiry: settings.allowInquiry,
   };
 }
 
@@ -684,6 +752,10 @@ function mapApplicationMasked(r: any): Application {
     lineRequested: Boolean(r.line_requested),
     status: r.status,
     customerId: r.customer_id ?? null,
+    contractId: r.contract_id ?? null,
+    agencyId: r.agency_id ?? null,
+    agencyMemberId: r.agency_member_id ?? null,
+    referralId: r.referral_id ?? null,
     submittedAt: r.submitted_at,
     submittedIp: r.submitted_ip ?? "",
   };
@@ -764,36 +836,41 @@ export class SupabaseRepository implements Repository {
   }
 
   async createCustomer(input: CustomerInput): Promise<Customer> {
-    let code = input.code;
-    if (!code) {
-      const { count, error } = await this.db
-        .from("customers")
-        .select("*", { count: "exact", head: true });
-      if (error) throw error;
-      code = `M-${String((count ?? 0) + 1).padStart(4, "0")}`;
+    let count = 0;
+    if (!input.code) {
+      const res = await this.db.from("customers").select("*", { count: "exact", head: true });
+      if (res.error) throw res.error;
+      count = res.count ?? 0;
     }
-    const { data, error } = await this.db
-      .from("customers")
-      .insert({
-        code,
-        name: input.name,
-        kana: input.kana ?? "",
-        contact_name: input.contactName ?? input.name,
-        email: input.email ?? "",
-        phone: input.phone ?? "",
-        postal_code: input.postalCode ?? "",
-        address: input.address ?? "",
-        payment_method: input.paymentMethod,
-        status: input.status ?? "active",
-        assignee: input.assignee ?? "",
-        notes: input.notes ?? "",
-        agency_id: input.agencyId ?? null,
-        agency_member_id: input.agencyMemberId ?? null,
-        referred_by_customer_id: input.referredByCustomerId ?? null,
-      })
-      .select("*")
-      .single();
-    if (error) throw error;
+    const row = {
+      name: input.name,
+      kana: input.kana ?? "",
+      contact_name: input.contactName ?? input.name,
+      email: input.email ?? "",
+      phone: input.phone ?? "",
+      postal_code: input.postalCode ?? "",
+      address: input.address ?? "",
+      payment_method: input.paymentMethod,
+      status: input.status ?? "active",
+      assignee: input.assignee ?? "",
+      notes: input.notes ?? "",
+      agency_id: input.agencyId ?? null,
+      agency_member_id: input.agencyMemberId ?? null,
+      ...(input.agencyId && input.agencyDealType ? { agency_deal_type: input.agencyDealType } : {}),
+      referred_by_customer_id: input.referredByCustomerId ?? null,
+    };
+    // 申込・契約URLからの同時受付で顧客コードがぶつかった場合は、番号を進めて取り直す
+    let data: any = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = input.code || `M-${String(count + 1 + attempt).padStart(4, "0")}`;
+      const res = await this.db.from("customers").insert({ code, ...row }).select("*").single();
+      if (!res.error) {
+        data = res.data;
+        break;
+      }
+      if (input.code || res.error.code !== "23505") throw res.error;
+    }
+    if (!data) throw new Error("顧客コードの採番に失敗しました。時間をおいて再度お試しください。");
     await this.logActivity({
       kind: "customer_created",
       message: `新規顧客 ${input.name} 様を登録`,
@@ -819,6 +896,10 @@ export class SupabaseRepository implements Repository {
     if (input.notes !== undefined) patch.notes = input.notes;
     if (input.agencyId !== undefined) patch.agency_id = input.agencyId;
     if (input.agencyMemberId !== undefined) patch.agency_member_id = input.agencyMemberId;
+    if (input.agencyDealType !== undefined) patch.agency_deal_type = input.agencyDealType;
+    if (input.referredByCustomerId !== undefined) {
+      patch.referred_by_customer_id = input.referredByCustomerId;
+    }
     const { data, error } = await this.db
       .from("customers")
       .update(patch)
@@ -839,24 +920,31 @@ export class SupabaseRepository implements Repository {
     return data ? mapMandate(data) : null;
   }
 
+  async listMandates(): Promise<DirectDebitMandate[]> {
+    const { data, error } = await this.db.from("direct_debit_mandates").select("*");
+    if (error) throw error;
+    return (data ?? []).map(mapMandate);
+  }
+
   async upsertMandate(customerId: string, input: MandateInput): Promise<DirectDebitMandate> {
     const existing = await this.getMandateByCustomer(customerId);
-    const registeredAt =
-      input.registeredAt !== undefined
-        ? input.registeredAt
-        : input.status === "active"
-          ? toISODate(new Date())
-          : (existing?.registeredAt ?? null);
+    const m = mergeMandate(existing, customerId, input);
     const row = {
       customer_id: customerId,
-      bank_name: input.bankName ?? existing?.bankName ?? "",
-      branch_name: input.branchName ?? existing?.branchName ?? "",
-      branch_code: input.branchCode ?? existing?.branchCode ?? "",
-      account_type: input.accountType ?? existing?.accountType ?? "普通",
-      account_number: input.accountNumber ?? existing?.accountNumber ?? "",
-      account_holder_kana: input.accountHolderKana ?? existing?.accountHolderKana ?? "",
-      status: input.status,
-      registered_at: registeredAt,
+      bank_name: m.bankName,
+      branch_name: m.branchName,
+      branch_code: m.branchCode,
+      account_type: m.accountType,
+      account_number: m.accountNumber,
+      account_holder_kana: m.accountHolderKana,
+      status: m.status,
+      registered_at: m.registeredAt,
+      form_sent_on: m.formSentOn,
+      form_received_on: m.formReceivedOn,
+      nss_submitted_on: m.nssSubmittedOn,
+      debit_start_month: m.debitStartMonth,
+      nss_customer_number: m.nssCustomerNumber,
+      note: m.note,
     };
     const { data, error } = await this.db
       .from("direct_debit_mandates")
@@ -945,6 +1033,10 @@ export class SupabaseRepository implements Repository {
         billing_day: billingDay,
         option_keys: input.optionKeys ?? [],
         price_override: input.priceOverride ?? null,
+        // 1店舗の契約は列を書かない(移行 0023 の前のDBでも定期契約を作れるように)
+        ...(normalizeStoreCount(input.storeCount) > 1
+          ? { store_count: normalizeStoreCount(input.storeCount) }
+          : {}),
       })
       .select("*")
       .single();
@@ -957,6 +1049,7 @@ export class SupabaseRepository implements Repository {
     if (input.optionKeys !== undefined) patch.option_keys = input.optionKeys;
     if (input.priceOverride !== undefined) patch.price_override = input.priceOverride;
     if (input.billingDay !== undefined) patch.billing_day = input.billingDay;
+    if (input.storeCount !== undefined) patch.store_count = normalizeStoreCount(input.storeCount);
     const { data, error } = await this.db
       .from("subscriptions")
       .update(patch)
@@ -1003,7 +1096,8 @@ export class SupabaseRepository implements Repository {
         email: input.email ?? "",
         phone: input.phone ?? "",
         address: input.address ?? "",
-        commission_rate: input.commissionRate,
+        default_deal_type: input.defaultDealType ?? "referral",
+        commission_rate: input.commissionRate ?? 0,
         notes: input.notes ?? "",
         active: input.active ?? true,
       })
@@ -1020,6 +1114,7 @@ export class SupabaseRepository implements Repository {
     if (input.email !== undefined) patch.email = input.email;
     if (input.phone !== undefined) patch.phone = input.phone;
     if (input.address !== undefined) patch.address = input.address;
+    if (input.defaultDealType !== undefined) patch.default_deal_type = input.defaultDealType;
     if (input.commissionRate !== undefined) patch.commission_rate = input.commissionRate;
     if (input.notes !== undefined) patch.notes = input.notes;
     if (input.active !== undefined) patch.active = input.active;
@@ -1074,6 +1169,86 @@ export class SupabaseRepository implements Repository {
     return mapAgencyMember(data);
   }
 
+  // ---- 代理店報酬 ----
+
+  async listAgencyCommissions(filter?: {
+    agencyId?: string;
+    customerId?: string;
+  }): Promise<AgencyCommission[]> {
+    let q = this.db
+      .from("agency_commissions")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (filter?.agencyId) q = q.eq("agency_id", filter.agencyId);
+    if (filter?.customerId) q = q.eq("customer_id", filter.customerId);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data ?? []).map(mapAgencyCommission);
+  }
+
+  async createAgencyCommission(input: AgencyCommissionInput): Promise<AgencyCommission> {
+    // 同じ初回請求に対する報酬は1件だけ(受注確定のやり直しで二重に作らない)
+    if (input.invoiceId) {
+      const { data: dup, error: dupError } = await this.db
+        .from("agency_commissions")
+        .select("*")
+        .eq("invoice_id", input.invoiceId)
+        .maybeSingle();
+      if (dupError) throw dupError;
+      if (dup) return mapAgencyCommission(dup);
+    }
+    const { data, error } = await this.db
+      .from("agency_commissions")
+      .insert({
+        agency_id: input.agencyId,
+        agency_member_id: input.agencyMemberId ?? null,
+        customer_id: input.customerId,
+        invoice_id: input.invoiceId ?? null,
+        deal_type: input.dealType,
+        base_amount: input.baseAmount,
+        rate: input.rate,
+        amount: input.amount,
+        note: input.note ?? "",
+      })
+      .select("*")
+      .single();
+    if (error) {
+      // 同時に確定された場合は一意制約(同じ初回請求に1件)に当たる → 先に作られた方を返す
+      if (error.code === "23505" && input.invoiceId) {
+        const { data: existing, error: existingError } = await this.db
+          .from("agency_commissions")
+          .select("*")
+          .eq("invoice_id", input.invoiceId)
+          .maybeSingle();
+        if (existingError) throw existingError;
+        if (existing) return mapAgencyCommission(existing);
+      }
+      throw error;
+    }
+    return mapAgencyCommission(data);
+  }
+
+  async setAgencyCommissionsPaid(ids: string[], paidAt: string | null, actor: string): Promise<void> {
+    if (ids.length === 0) return;
+    const { data, error } = await this.db
+      .from("agency_commissions")
+      .update({ paid_at: paidAt })
+      .in("id", ids)
+      .select("*");
+    if (error) throw error;
+    const rows = (data ?? []).map(mapAgencyCommission);
+    if (paidAt && rows.length > 0) {
+      const agency = await this.getAgency(rows[0].agencyId);
+      await this.logActivity({
+        kind: "commission_paid",
+        message: `${agency?.name ?? "代理店"} へ報酬 ${rows.length}件 をお支払い済みにしました`,
+        actor,
+        amount: rows.reduce((s, c) => s + c.amount, 0),
+        linkInvoiceId: null,
+      });
+    }
+  }
+
   async updateSubscriptionStatus(
     id: string,
     status: Subscription["status"],
@@ -1094,7 +1269,7 @@ export class SupabaseRepository implements Repository {
 
   async listOnboardings(): Promise<CustomerOnboarding[]> {
     const [{ data: customers, error: cusError }, { data: rows, error }] = await Promise.all([
-      this.db.from("customers").select("id, status, payment_method").is("deleted_at", null),
+      this.db.from("customers").select("*").is("deleted_at", null),
       this.db.from("customer_onboardings").select("*").order("sort_order"),
     ]);
     if (cusError) throw cusError;
@@ -1108,56 +1283,31 @@ export class SupabaseRepository implements Repository {
     if (missing.length > 0) {
       const ids = missing.map((c: any) => c.id);
       const [contractsRes, invoicesRes, subsRes, mandatesRes, plansRes] = await Promise.all([
-        this.db.from("contracts").select("customer_id, status").in("customer_id", ids),
-        this.db
-          .from("invoices")
-          .select("id, customer_id, type, status, issue_date, due_date, total, amount_paid")
-          .in("customer_id", ids)
-          .is("deleted_at", null),
-        this.db
-          .from("subscriptions")
-          .select("customer_id, status, plan_id, option_keys, price_override")
-          .in("customer_id", ids)
-          .is("deleted_at", null),
-        this.db.from("direct_debit_mandates").select("customer_id, status").in("customer_id", ids),
+        this.db.from("contracts").select("*").in("customer_id", ids),
+        this.db.from("invoices").select("*").in("customer_id", ids).is("deleted_at", null),
+        this.db.from("subscriptions").select("*").in("customer_id", ids).is("deleted_at", null),
+        this.db.from("direct_debit_mandates").select("*").in("customer_id", ids),
         this.db.from("plans").select("*"),
       ]);
       for (const res of [contractsRes, invoicesRes, subsRes, mandatesRes, plansRes]) {
         if (res.error) throw res.error;
       }
       const plans = (plansRes.data ?? []).map(mapPlan);
+      const contracts = (contractsRes.data ?? []).map(mapContract);
+      const invoices = (invoicesRes.data ?? []).map(mapInvoice);
+      const subscriptions = (subsRes.data ?? []).map(mapSubscription);
+      const mandates = (mandatesRes.data ?? []).map(mapMandate);
       let maxOrder = cards.reduce((m: number, r: any) => Math.max(m, Number(r.sort_order ?? 0)), 0);
       const nowIso = new Date().toISOString();
-      const inserts = missing.map((c: any) => {
+      const inserts = missing.map((row: any) => {
+        const c = mapCustomer(row);
         const stage = initialStageFor({
-          customer: { id: c.id, status: c.status, paymentMethod: c.payment_method },
-          contracts: (contractsRes.data ?? [])
-            .filter((r: any) => r.customer_id === c.id)
-            .map((r: any) => ({ status: r.status })),
-          invoices: (invoicesRes.data ?? [])
-            .filter((r: any) => r.customer_id === c.id)
-            .map((r: any) => ({
-              id: r.id,
-              type: r.type,
-              status: r.status,
-              issueDate: r.issue_date,
-              dueDate: r.due_date,
-              total: Number(r.total),
-              amountPaid: Number(r.amount_paid ?? 0),
-            })),
-          subscriptions: (subsRes.data ?? [])
-            .filter((r: any) => r.customer_id === c.id)
-            .map((r: any) => ({
-              status: r.status,
-              planId: r.plan_id,
-              optionKeys: r.option_keys ?? [],
-              priceOverride: r.price_override != null ? Number(r.price_override) : null,
-            })),
+          customer: c,
+          contracts: contracts.filter((x) => x.customerId === c.id),
+          invoices: invoices.filter((x) => x.customerId === c.id),
+          subscriptions: subscriptions.filter((x) => x.customerId === c.id),
           plans,
-          mandate: (() => {
-            const m = (mandatesRes.data ?? []).find((r: any) => r.customer_id === c.id);
-            return m ? { status: m.status } : null;
-          })(),
+          mandate: mandates.find((m) => m.customerId === c.id) ?? null,
         });
         return {
           customer_id: c.id,
@@ -1546,27 +1696,43 @@ export class SupabaseRepository implements Repository {
     return data ? mapBatch(data) : null;
   }
 
-  async createBatchFromAwaiting(scheduledDate: string): Promise<DirectDebitBatch> {
-    // 既にバッチ済みの請求書IDを除外
-    const { data: existingItems, error: itemsError } = await this.db
-      .from("direct_debit_batch_items")
-      .select("invoice_id");
-    if (itemsError) throw itemsError;
-    const batched = new Set((existingItems ?? []).map((r: any) => r.invoice_id));
-    const { data: invoices, error: invoicesError } = await this.db
+  async createBatchFromAwaiting(
+    scheduledDate: string,
+    invoiceIds?: string[],
+  ): Promise<DirectDebitBatch> {
+    let q = this.db
       .from("invoices")
       .select("*, invoice_items(*)")
       .eq("payment_method", "direct_debit")
-      .in("status", ["awaiting_payment", "sent"]);
+      .in("status", ["awaiting_payment", "sent", "partially_paid", "overdue"])
+      .is("deleted_at", null);
+    if (invoiceIds) q = q.in("id", invoiceIds.length > 0 ? invoiceIds : ["00000000-0000-0000-0000-000000000000"]);
+    const { data: invoices, error: invoicesError } = await q;
     if (invoicesError) throw invoicesError;
-    const targets = (invoices ?? [])
-      .map(mapInvoice)
-      .filter((inv) => inv.amountPaid < inv.total && !batched.has(inv.id));
+    const candidates = (invoices ?? []).map(mapInvoice).filter((inv) => inv.amountPaid < inv.total);
+
+    // 既に(削除されていない)一覧に入っている請求書を除外する(NSS への二重登録を防ぐ)。
+    // 全明細を読むと件数の上限で切り捨てられるため、候補の請求書に絞って少しずつ調べる
+    const batched = new Set<string>();
+    const candidateIds = candidates.map((inv) => inv.id);
+    for (let i = 0; i < candidateIds.length; i += 200) {
+      const { data: existingItems, error: itemsError } = await this.db
+        .from("direct_debit_batch_items")
+        .select("invoice_id, direct_debit_batches!inner(deleted_at)")
+        .in("invoice_id", candidateIds.slice(i, i + 200))
+        .is("direct_debit_batches.deleted_at", null);
+      if (itemsError) throw itemsError;
+      for (const r of existingItems ?? []) batched.add((r as { invoice_id: string }).invoice_id);
+    }
+    const targets = candidates.filter((inv) => !batched.has(inv.id));
+    if (targets.length === 0) {
+      throw new Error("引き落としの対象になる請求がありません（入金待ちの口座振替の請求が対象です）");
+    }
 
     const { data: batchRow, error } = await this.db
       .from("direct_debit_batches")
       .insert({
-        name: `${ym(new Date(scheduledDate))} 口座振替`,
+        name: `${ym(new Date(scheduledDate))} NSS引き落とし`,
         scheduled_date: scheduledDate,
         status: "draft",
       })
@@ -1574,91 +1740,118 @@ export class SupabaseRepository implements Repository {
       .single();
     if (error) throw error;
 
-    if (targets.length > 0) {
-      const mandates = await Promise.all(
-        targets.map((inv) => this.getMandateByCustomer(inv.customerId)),
-      );
-      // 明細の書き込み失敗を握りつぶすと「空のバッチ」が静かに出来上がる
-      const { error: insertError } = await this.db.from("direct_debit_batch_items").insert(
-        targets.map((inv, i) => ({
-          batch_id: batchRow.id,
-          invoice_id: inv.id,
-          customer_id: inv.customerId,
-          mandate_id: mandates[i]?.id ?? null,
-          amount: inv.total,
-          result: "pending",
-          result_reason: "",
-        })),
-      );
-      if (insertError) throw insertError;
+    const mandates = await Promise.all(
+      targets.map((inv) => this.getMandateByCustomer(inv.customerId)),
+    );
+    // 明細の書き込み失敗を握りつぶすと「空の一覧」が静かに出来上がる
+    const { error: insertError } = await this.db.from("direct_debit_batch_items").insert(
+      targets.map((inv, i) => ({
+        batch_id: batchRow.id,
+        invoice_id: inv.id,
+        customer_id: inv.customerId,
+        mandate_id: mandates[i]?.id ?? null,
+        amount: inv.total - inv.amountPaid,
+        result: "pending",
+        result_reason: "",
+      })),
+    );
+    if (insertError) {
+      // 明細が入らなかった一覧は残さない
+      await this.db.from("direct_debit_batches").delete().eq("id", batchRow.id);
+      throw insertError;
     }
     return (await this.getBatch(batchRow.id))!;
   }
 
-  async processBatch(id: string): Promise<DirectDebitBatch> {
+  async markBatchSubmitted(id: string, actor: string): Promise<DirectDebitBatch> {
     const batch = await this.getBatch(id);
-    if (!batch) throw new Error("バッチが見つかりません");
+    if (!batch) throw new Error("引き落としの一覧が見つかりません");
+    if (batch.status === "completed") throw new Error("結果を反映済みの一覧です");
+    const { error } = await this.db
+      .from("direct_debit_batches")
+      .update({ status: "submitted" })
+      .eq("id", id);
+    if (error) throw error;
+    await this.logActivity({
+      kind: "debit_registered",
+      message: `${batch.name}（${batch.items.length}件）を NSS へ登録`,
+      actor,
+      amount: batch.items.reduce((s, i) => s + i.amount, 0),
+      linkInvoiceId: null,
+    });
+    return (await this.getBatch(id))!;
+  }
+
+  async processBatch(
+    id: string,
+    results: BatchResultInput[],
+    actor: string,
+  ): Promise<DirectDebitBatch> {
+    const batch = await this.getBatch(id);
+    if (!batch) throw new Error("引き落としの一覧が見つかりません");
     let success = 0;
     let failed = 0;
-    for (const item of batch.items) {
-      if (item.result !== "pending") continue;
-      let mandate = null;
-      if (item.mandateId) {
-        const { data, error } = await this.db
-          .from("direct_debit_mandates")
-          .select("*")
-          .eq("id", item.mandateId)
-          .maybeSingle();
-        // DB エラーを「口座無効=引落失敗」と誤判定しないよう伝播させる
-        if (error) throw error;
-        mandate = data;
-      }
-      const ok = mandate?.status === "active";
-      if (ok) {
-        const { error: okError } = await this.db
+    for (const r of results) {
+      const item = batch.items.find((i) => i.id === r.itemId);
+      // 反映済みの明細は二重に入金記録しない
+      if (!item || item.result !== "pending") continue;
+      if (r.result === "success") {
+        // 結果待ちの明細だけを更新できたときに入金を記録する(同時操作での二重記録を防ぐ)
+        const { data: updated, error: okError } = await this.db
           .from("direct_debit_batch_items")
-          .update({ result: "success" })
-          .eq("id", item.id);
+          .update({ result: "success", result_reason: "" })
+          .eq("id", item.id)
+          .eq("result", "pending")
+          .select("id");
         if (okError) throw okError;
+        if (!updated?.length) continue;
         await this.recordPayment({
           invoiceId: item.invoiceId,
           customerId: item.customerId,
           amount: item.amount,
           method: "direct_debit",
           paidAt: batch.scheduledDate,
-          reference: "口座振替",
+          reference: "NSS 口座振替",
           matchedBy: "auto",
+          memo: `${batch.name} の引き落とし結果を反映（${actor}）`,
         });
         success++;
       } else {
-        const { error: ngError } = await this.db
+        const { data: updated, error: ngError } = await this.db
           .from("direct_debit_batch_items")
-          .update({
-            result: "failed",
-            result_reason: mandate ? "口座振替の登録が有効ではありません" : "残高不足",
-          })
-          .eq("id", item.id);
+          .update({ result: "failed", result_reason: r.reason?.trim() || "引き落とし不可" })
+          .eq("id", item.id)
+          .eq("result", "pending")
+          .select("id");
         if (ngError) throw ngError;
+        if (!updated?.length) continue;
         const { error: invError } = await this.db
           .from("invoices")
           .update({ status: "failed" })
-          .eq("id", item.invoiceId);
+          .eq("id", item.invoiceId)
+          .neq("status", "paid");
         if (invError) throw invError;
         failed++;
       }
     }
+    const after = (await this.getBatch(id))!;
+    const status = after.items.every((i) => i.result !== "pending") ? "completed" : "processing";
     const { error: doneError } = await this.db
       .from("direct_debit_batches")
-      .update({ status: "completed" })
+      .update({ status })
       .eq("id", id);
     if (doneError) throw doneError;
-    await this.logActivity({
-      kind: "batch_processed",
-      message: `${batch.name} を処理（成功 ${success}件 / 失敗 ${failed}件）`,
-      actor: "システム",
-      amount: null,
-      linkInvoiceId: null,
-    });
+    if (success + failed > 0) {
+      await this.logActivity({
+        kind: "batch_processed",
+        message: `${batch.name} の結果を反映（引き落とし済 ${success}件 / 不可 ${failed}件）`,
+        actor,
+        amount: after.items
+          .filter((i) => i.result === "success")
+          .reduce((s, i) => s + i.amount, 0),
+        linkInvoiceId: null,
+      });
+    }
     return (await this.getBatch(id))!;
   }
 
@@ -1934,13 +2127,15 @@ export class SupabaseRepository implements Repository {
 
   async runRecurringBilling(asOf?: string): Promise<{ created: Invoice[] }> {
     const asOfDate = asOf ?? toISODate(new Date());
+    // 引き落とし日がこの月のうちの契約は、月初(発行日 = 1日)に請求書を作る
+    const cutoff = recurringBillingCutoff(asOfDate);
     const { data: subs, error: subsError } = await this.db
       .from("subscriptions")
       .select("*")
       .eq("status", "active")
       .is("deleted_at", null) // 削除(ゴミ箱)済みの契約は生成しない
       .is("stripe_subscription_id", null) // Stripe 管理の契約は除外(Stripe が課金)
-      .lte("next_billing_date", asOfDate);
+      .lte("next_billing_date", cutoff);
     if (subsError) throw subsError;
     const created: Invoice[] = [];
     for (const subRow of subs ?? []) {
@@ -1966,7 +2161,13 @@ export class SupabaseRepository implements Repository {
           paymentMethod: customer?.paymentMethod ?? "direct_debit",
           billingPeriod: period,
           subscriptionId: sub.id,
-          items: subscriptionItems(plan, sub.optionKeys ?? [], period, sub.priceOverride),
+          items: subscriptionItems(
+            plan,
+            sub.optionKeys ?? [],
+            period,
+            sub.priceOverride,
+            sub.storeCount ?? 1,
+          ),
           status: customer?.paymentMethod === "direct_debit" ? "awaiting_payment" : "sent",
         });
         created.push(inv);
@@ -2294,16 +2495,19 @@ export class SupabaseRepository implements Repository {
       }),
       contentHash: params.contentHash,
     });
-    await this.logActivity({
-      kind: "contract_sent",
-      message:
-        params.deliveryMethod === "link"
-          ? `契約書 ${current.contractNumber} の署名リンクを発行`
-          : `契約書 ${current.contractNumber} の署名依頼を送付`,
-      actor: params.actor,
-      amount: null,
-      linkInvoiceId: null,
-    });
+    // 申込・契約URL(お客様がその場で署名)は、申込受付・締結の記録で足りるので残さない
+    if (params.deliveryMethod !== "form") {
+      await this.logActivity({
+        kind: "contract_sent",
+        message:
+          params.deliveryMethod === "link"
+            ? `契約書 ${current.contractNumber} の署名リンクを発行`
+            : `契約書 ${current.contractNumber} の署名依頼を送付`,
+        actor: params.actor,
+        amount: null,
+        linkInvoiceId: null,
+      });
+    }
     return mapContract(data);
   }
 
@@ -3565,6 +3769,7 @@ export class SupabaseRepository implements Repository {
             ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
             : null,
         created_by: input.createdBy,
+        ...applicationLinkRow(applicationLinkSettings(input)),
       })
       .select("*")
       .single();
@@ -3655,6 +3860,12 @@ export class SupabaseRepository implements Repository {
         line_requested: input.lineRequested,
         status: "submitted",
         submitted_ip: input.submittedIp ?? "",
+        // 代理店・紹介の紐付けはURL(サーバー側の設定)から引き継ぐ。
+        // 移行(0023)前のDBでも申込を受け付けられるよう、値があるときだけ書く
+        ...(link.agencyId
+          ? { agency_id: link.agencyId, agency_member_id: link.agencyMemberId }
+          : {}),
+        ...(link.referralId ? { referral_id: link.referralId } : {}),
       })
       .select("*")
       .single();
@@ -3700,6 +3911,14 @@ export class SupabaseRepository implements Repository {
     const app = await this.getApplication(id);
     if (!app) throw new Error("申込が見つかりません");
     if (app.customerId) throw new Error("この申込は既に顧客として登録されています");
+    const [linkRes, referral] = await Promise.all([
+      app.linkId
+        ? this.db.from("application_links").select("*").eq("id", app.linkId).maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      app.referralId ? this.getReferral(app.referralId) : Promise.resolve(null),
+    ]);
+    if (linkRes.error) throw linkRes.error;
+    const link = linkRes.data ? mapApplicationLink(linkRes.data) : null;
     const customer = await this.createCustomer({
       name: app.companyName,
       contactName: app.contactName || app.representativeName,
@@ -3709,13 +3928,43 @@ export class SupabaseRepository implements Repository {
       paymentMethod: "direct_debit",
       notes: applicationNotes(app),
       assignee: actor,
+      agencyId: app.agencyId ?? referral?.agencyId ?? null,
+      agencyMemberId: app.agencyMemberId ?? referral?.agencyMemberId ?? null,
+      agencyDealType: link?.agencyDealType ?? null,
+      referredByCustomerId: referral?.referrerCustomerId ?? null,
     });
     const { error } = await this.db
       .from("applications")
       .update({ customer_id: customer.id, status: "customer_created" })
       .eq("id", id);
     if (error) throw error;
+    if (referral && !referral.customerId) {
+      const { error: refError } = await this.db
+        .from("referrals")
+        .update({ customer_id: customer.id, status: "customer_created" })
+        .eq("id", referral.id)
+        .is("customer_id", null);
+      if (refError) throw refError;
+    }
     return customer;
+  }
+
+  async linkApplicationRecords(
+    id: string,
+    params: { customerId?: string | null; contractId?: string | null; status?: ApplicationStatus },
+  ): Promise<Application> {
+    const patch: Record<string, unknown> = {};
+    if (params.customerId !== undefined) patch.customer_id = params.customerId;
+    if (params.contractId !== undefined) patch.contract_id = params.contractId;
+    if (params.status !== undefined) patch.status = params.status;
+    const { data, error } = await this.db
+      .from("applications")
+      .update(patch)
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapApplicationMasked(data);
   }
 
   // --- 紹介制度 ---
@@ -3820,8 +4069,10 @@ export class SupabaseRepository implements Repository {
 
     // 紹介者を指定したURLからの受付なら、その顧客を紹介者として引き継ぐ
     const referrerName = (link?.referrerName || input.referrerName).trim();
-    const referrerCustomerId =
-      link?.referrerCustomerId ?? (await this.matchReferrerCustomer(referrerName));
+    // 代理店経由の問い合わせは顧客の紹介ではない(紹介報酬25%の対象外)
+    const referrerCustomerId = input.agencyId
+      ? null
+      : (link?.referrerCustomerId ?? (await this.matchReferrerCustomer(referrerName)));
 
     const { data, error } = await this.db
       .from("referrals")
@@ -3839,6 +4090,13 @@ export class SupabaseRepository implements Repository {
         note: input.note?.trim() ?? "",
         status: "submitted",
         submitted_ip: input.submittedIp ?? "",
+        application_link_id: input.applicationLinkId ?? null,
+        ...(input.agencyId
+          ? {
+              agency_id: input.agencyId,
+              agency_member_id: input.agencyMemberId ?? null,
+            }
+          : {}),
       })
       .select("*")
       .single();
@@ -3846,7 +4104,9 @@ export class SupabaseRepository implements Repository {
     const referral = mapReferral(data);
     await this.logActivity({
       kind: "referral_submitted",
-      message: `紹介フォームから「${referral.companyName || referral.contactName}」のご紹介がありました（紹介者: ${referral.referrerName}）`,
+      message: referral.agencyId
+        ? `代理店URLから「${referral.companyName || referral.contactName}」のご相談がありました（代理店: ${referral.referrerName}）`
+        : `紹介フォームから「${referral.companyName || referral.contactName}」のご紹介がありました（紹介者: ${referral.referrerName}）`,
       actor: referral.contactName,
       amount: null,
       linkInvoiceId: null,
@@ -3858,6 +4118,7 @@ export class SupabaseRepository implements Repository {
     const patch: Record<string, unknown> = {};
     if (input.status !== undefined) patch.status = input.status;
     if (input.note !== undefined) patch.note = input.note;
+    if (input.customerId !== undefined) patch.customer_id = input.customerId;
     if (input.referrerCustomerId !== undefined) {
       patch.referrer_customer_id = input.referrerCustomerId;
       if (input.referrerCustomerId) {
@@ -3888,7 +4149,9 @@ export class SupabaseRepository implements Repository {
       paymentMethod: "direct_debit",
       notes: referralNotes(referral),
       assignee: actor,
-      referredByCustomerId: referral.referrerCustomerId,
+      referredByCustomerId: referral.agencyId ? null : referral.referrerCustomerId,
+      agencyId: referral.agencyId ?? null,
+      agencyMemberId: referral.agencyMemberId ?? null,
     });
     const { error } = await this.db
       .from("referrals")

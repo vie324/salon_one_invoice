@@ -113,7 +113,7 @@ export default async function SettingsPage() {
                   <CreditCard className="h-4 w-4" /> 決済
                 </span>
                 <Badge tone={paymentProvider === "stripe" ? "primary" : "neutral"}>
-                  {paymentProvider === "stripe" ? "Stripe" : "手動 / 収納代行"}
+                  {paymentProvider === "stripe" ? "Stripe" : "NSS 口座振替 ＋ 銀行振込"}
                 </Badge>
               </div>
               <div className="flex items-center justify-between">

@@ -1,4 +1,4 @@
-import { ArrowLeft, FileSignature, Mail, MapPin, Phone, Plus } from "lucide-react";
+import { ArrowLeft, FileSignature, Mail, MapPin, Phone, Plus, SquareKanban } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { LtvChart } from "@/components/charts/ltv-chart";
@@ -23,9 +23,13 @@ import { paymentMethodLabels } from "@/lib/domain/constants";
 import { computeCustomerLtv } from "@/lib/domain/ltv";
 import { formatDate, formatJPY, formatMonthKey, maskAccount } from "@/lib/utils";
 import { DeleteRecordButton } from "@/components/records/delete-record-button";
+import { ClearBankInfoButton } from "@/app/(app)/(billing)/orders/[id]/order-actions";
+import { DealTypeBadge } from "@/components/orders/order-ui";
+import { hasLegacyBankInfo } from "@/lib/data/mandate";
+import { resolveDealType } from "@/lib/domain/agency";
+import { nssStage, nssStageLabels } from "@/lib/domain/nss";
 import { BillingButton } from "./billing-button";
 import { EditCustomerButton } from "./edit-customer-button";
-import { MandateButton } from "./mandate-button";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -99,11 +103,17 @@ export default async function CustomerDetailPage({
             agencies={agencies}
             agencyMembers={agencyMembers}
           />
-          <BillingButton
-            customerId={customer.id}
-            stripeConfigured={isStripeConfigured()}
-            plans={plans}
-          />
+          <Link
+            href={`/orders/${customer.id}`}
+            className={buttonClasses({ variant: "outline", size: "sm" })}
+          >
+            <SquareKanban className="h-4 w-4" />
+            受注管理の案件
+          </Link>
+          {/* NSS(口座振替)＋振込の運用のため、Stripe はキーを設定したときだけ出す */}
+          {isStripeConfigured() && (
+            <BillingButton customerId={customer.id} stripeConfigured plans={plans} />
+          )}
           <Link
             href={`/contracts/new?customer=${customer.id}`}
             className={buttonClasses({ variant: "outline", size: "sm" })}
@@ -269,7 +279,8 @@ export default async function CustomerDetailPage({
                   <>
                     <br />
                     獲得代理店： {agency.name}
-                    {agencyMember ? `（${agencyMember.name}）` : ""}
+                    {agencyMember ? `（${agencyMember.name}）` : ""}{" "}
+                    <DealTypeBadge dealType={resolveDealType(customer, agency)} withRate />
                   </>
                 )}
               </div>
@@ -285,27 +296,48 @@ export default async function CustomerDetailPage({
           {customer.paymentMethod === "direct_debit" && (
             <Card>
               <CardHeader className="flex-row items-center justify-between">
-                <CardTitle>口座振替</CardTitle>
+                <CardTitle>口座振替（NSS）</CardTitle>
                 {mandate && <MandateStatusBadge status={mandate.status} />}
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
-                {mandate ? (
-                  <div className="space-y-1.5 text-muted-foreground">
-                    <div>{mandate.bankName} {mandate.branchName}</div>
-                    <div>
-                      {mandate.accountType} {maskAccount(mandate.accountNumber)}
+                <div className="text-sm font-medium">{nssStageLabels[nssStage(mandate)]}</div>
+                <dl className="space-y-1 text-xs text-muted-foreground">
+                  <NssRow label="依頼書を郵送" value={mandate?.formSentOn} />
+                  <NssRow label="依頼書を回収" value={mandate?.formReceivedOn} />
+                  <NssRow label="NSSへ登録" value={mandate?.nssSubmittedOn} />
+                  <NssRow label="登録完了" value={mandate?.registeredAt} />
+                  {mandate?.debitStartMonth && (
+                    <div className="flex justify-between">
+                      <dt>振替開始月</dt>
+                      <dd className="tabular text-foreground">{mandate.debitStartMonth.replace("-", "年")}月分〜</dd>
                     </div>
-                    <div>{mandate.accountHolderKana}</div>
-                    {mandate.registeredAt && (
-                      <div className="text-xs">登録日: {formatDate(mandate.registeredAt)}</div>
-                    )}
+                  )}
+                  {mandate?.nssCustomerNumber && (
+                    <div className="flex justify-between">
+                      <dt>NSS顧客番号</dt>
+                      <dd className="tabular text-foreground">{mandate.nssCustomerNumber}</dd>
+                    </div>
+                  )}
+                  {mandate?.note && <p className="pt-1">メモ: {mandate.note}</p>}
+                </dl>
+                <Link
+                  href={`/orders/${customer.id}`}
+                  className={buttonClasses({ variant: "outline", size: "sm", className: "w-full" })}
+                >
+                  手続きを記録する（受注管理の案件ページ）
+                </Link>
+                <p className="text-[11px] text-muted-foreground">
+                  口座番号などの口座情報は NSS で管理しています（このツールには保存しません）。
+                </p>
+                {mandate && hasLegacyBankInfo(mandate) && (
+                  <div className="rounded-md bg-muted/60 p-2.5 text-xs text-muted-foreground">
+                    旧運用で保存した口座情報: {mandate.bankName} {mandate.branchName} {mandate.accountType}{" "}
+                    {maskAccount(mandate.accountNumber)}
+                    <div className="mt-1 text-right">
+                      <ClearBankInfoButton customerId={customer.id} />
+                    </div>
                   </div>
-                ) : (
-                  <p className="text-muted-foreground">
-                    口座振替の登録がありません。口座振替用紙の回収・収納代行への登録が済んだら登録してください。
-                  </p>
                 )}
-                <MandateButton customerId={customer.id} mandate={mandate} />
               </CardContent>
             </Card>
           )}
@@ -344,23 +376,24 @@ export default async function CustomerDetailPage({
                   <div className="flex justify-between border-t border-border pt-1.5 text-xs text-muted-foreground">
                     <span>小計（税抜）</span>
                     <span className="tabular">
-                      {formatJPY(subscriptionMonthly(plan, subscription.optionKeys, subscription.priceOverride))}
+                      {formatJPY(subscriptionMonthly(plan, subscription.optionKeys, subscription.priceOverride, subscription.storeCount ?? 1))}
                     </span>
                   </div>
                   <div className="flex justify-between text-xs text-muted-foreground">
                     <span>消費税（{Math.round(plan.taxRate * 100)}%）</span>
                     <span className="tabular">
-                      {formatJPY(taxAmount(subscriptionMonthly(plan, subscription.optionKeys, subscription.priceOverride), plan.taxRate))}
+                      {formatJPY(taxAmount(subscriptionMonthly(plan, subscription.optionKeys, subscription.priceOverride, subscription.storeCount ?? 1), plan.taxRate))}
                     </span>
                   </div>
                   <div className="flex justify-between border-t border-border pt-1.5 font-semibold">
                     <span>月額合計（税込）</span>
                     <span className="tabular">
-                      {formatJPY(withTax(subscriptionMonthly(plan, subscription.optionKeys, subscription.priceOverride), plan.taxRate))}
+                      {formatJPY(withTax(subscriptionMonthly(plan, subscription.optionKeys, subscription.priceOverride, subscription.storeCount ?? 1), plan.taxRate))}
                     </span>
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    初期費用 {formatJPY(plan.initialFee)}（税抜）・ 次回請求 {formatDate(subscription.nextBillingDate)}
+                    {(subscription.storeCount ?? 1) > 1 ? `${subscription.storeCount}店舗・` : ""}
+                    次回請求 {formatDate(subscription.nextBillingDate)}
                   </div>
                 </div>
               ) : (
@@ -370,6 +403,15 @@ export default async function CustomerDetailPage({
           </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+function NssRow({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div className="flex justify-between">
+      <dt>{label}</dt>
+      <dd className={value ? "tabular text-foreground" : ""}>{value ? formatDate(value) : "—"}</dd>
     </div>
   );
 }

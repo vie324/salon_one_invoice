@@ -29,7 +29,7 @@ export default async function SubscriptionsPage() {
   const rows = subscriptions
     .map((s) => {
       const plan = planById.get(s.planId);
-      const monthlyExcl = plan ? subscriptionMonthly(plan, s.optionKeys, s.priceOverride) : 0;
+      const monthlyExcl = plan ? subscriptionMonthly(plan, s.optionKeys, s.priceOverride, s.storeCount ?? 1) : 0;
       return {
         ...s,
         customerName: customerName(s.customerId),

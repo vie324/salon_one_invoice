@@ -41,19 +41,23 @@ type NavItem = { href: string; label: string; icon: React.ElementType };
 /** 役割に関係なく全員に出す入口。売上・開発の進捗を1画面にまとめたホーム。 */
 const homeNav: NavItem = { href: "/home", label: "進捗ホーム", icon: Home };
 
+/**
+ * 請求管理のメニュー。上から「申込 → 受注 → 請求 → 入金」の業務の流れの順に並べる。
+ * 受注管理が申込・契約から運用開始までの入口(旧: 顧客ステータス・申込)。
+ */
 const billingNav = [
   { href: "/dashboard", label: "ダッシュボード", icon: LayoutDashboard },
-  { href: "/pipeline", label: "顧客ステータス", icon: SquareKanban },
-  { href: "/applications", label: "申込", icon: Inbox },
-  { href: "/referrals", label: "紹介制度", icon: Gift },
+  { href: "/orders", label: "受注管理", icon: SquareKanban },
+  { href: "/applications", label: "申込・契約URL", icon: Inbox },
+  { href: "/referrals", label: "紹介・問い合わせ", icon: Gift },
+  { href: "/agencies", label: "代理店", icon: Handshake },
+  { href: "/customers", label: "顧客", icon: Users },
   { href: "/contracts", label: "契約書", icon: FileSignature },
   { href: "/invoices", label: "請求書", icon: FileText },
-  { href: "/customers", label: "顧客", icon: Users },
-  { href: "/ltv", label: "LTV分析", icon: TrendingUp },
-  { href: "/agencies", label: "代理店", icon: Handshake },
   { href: "/subscriptions", label: "定期請求", icon: Repeat },
-  { href: "/direct-debit", label: "口座振替", icon: Landmark },
+  { href: "/direct-debit", label: "NSS引き落とし", icon: Landmark },
   { href: "/payments", label: "入金確認", icon: Wallet },
+  { href: "/ltv", label: "LTV分析", icon: TrendingUp },
   { href: "/trash", label: "ゴミ箱", icon: Trash2 },
   { href: "/help", label: "ヘルプ", icon: LifeBuoy },
 ] as const;
@@ -78,8 +82,8 @@ function bottomTabsFor(showBilling: boolean, showDev: boolean): NavItem[] {
   if (showBilling && showDev) {
     return [
       { href: "/home", label: "ホーム", icon: Home },
+      { href: "/orders", label: "受注管理", icon: SquareKanban },
       { href: "/invoices", label: "請求書", icon: FileText },
-      { href: "/customers", label: "顧客", icon: Users },
       { href: "/dev", label: "開発進捗", icon: ClipboardList },
     ];
   }
@@ -93,8 +97,8 @@ function bottomTabsFor(showBilling: boolean, showDev: boolean): NavItem[] {
   }
   return [
     { href: "/home", label: "ホーム", icon: Home },
+    { href: "/orders", label: "受注管理", icon: SquareKanban },
     { href: "/invoices", label: "請求書", icon: FileText },
-    { href: "/customers", label: "顧客", icon: Users },
     { href: "/payments", label: "入金", icon: Wallet },
   ];
 }
@@ -223,9 +227,9 @@ export function AppShell({
           <Banknote className="h-4 w-4 shrink-0 text-sidebar-accent" />
           <div className="text-[11px] leading-tight text-sidebar-muted">
             <div className="font-medium text-sidebar-foreground">
-              {showBilling ? "引き落とし対応" : "Salon One 開発"}
+              {showBilling ? "NSS 口座振替" : "Salon One 開発"}
             </div>
-            {showBilling ? "口座振替＋入金確認" : "依頼・不具合を一元管理"}
+            {showBilling ? "受注 → 引き落とし → 入金確認" : "依頼・不具合を一元管理"}
           </div>
         </div>
       </div>

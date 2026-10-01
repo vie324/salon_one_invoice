@@ -1,4 +1,6 @@
 import type {
+  AgencyCommissionStatus,
+  AgencyDealType,
   BatchItemResult,
   BatchStatus,
   ContractEventType,
@@ -203,11 +205,15 @@ export const subscriptionStatusTone: Record<SubscriptionStatus, BadgeTone> = {
   canceled: "neutral",
 };
 
+/**
+ * 口座振替(NSS)の登録状況。口座情報そのものは NSS で管理し、ここでは手続きの状態だけを持つ。
+ * 「NSS登録済」の顧客だけが毎月の引き落とし(NSS へ登録する一覧)の対象になる。
+ */
 export const mandateStatusLabels: Record<MandateStatus, string> = {
-  pending: "登録申請中",
-  active: "有効",
-  failed: "登録失敗",
-  revoked: "解約",
+  pending: "手続き中",
+  active: "NSS登録済",
+  failed: "不備・再提出",
+  revoked: "停止・解約",
 };
 
 export const mandateStatusTone: Record<MandateStatus, BadgeTone> = {
@@ -223,11 +229,15 @@ export const paymentStatusLabels: Record<PaymentStatus, string> = {
   failed: "失敗",
 };
 
+/**
+ * 毎月の引き落とし(NSS へ登録する一覧)の状態。
+ * draft(一覧を作成・確認中) → submitted(NSSへ登録済・引き落とし待ち) → completed(結果を反映済み)
+ */
 export const batchStatusLabels: Record<BatchStatus, string> = {
-  draft: "作成中",
-  submitted: "送信済",
-  processing: "処理中",
-  completed: "完了",
+  draft: "確認中（NSS未登録）",
+  submitted: "NSS登録済・結果待ち",
+  processing: "結果の反映中",
+  completed: "結果反映済み",
 };
 
 export const batchStatusTone: Record<BatchStatus, BadgeTone> = {
@@ -238,10 +248,31 @@ export const batchStatusTone: Record<BatchStatus, BadgeTone> = {
 };
 
 export const batchItemResultLabels: Record<BatchItemResult, string> = {
-  pending: "未処理",
-  success: "成功",
-  failed: "失敗",
+  pending: "結果待ち",
+  success: "引き落とし済",
+  failed: "引き落とし不可",
 };
+
+/**
+ * NSS から返ってくる「引き落としできなかった理由」の選択肢。
+ * 結果の反映画面で選び、失敗した請求の要フォロー欄にそのまま残す。
+ */
+export const DEBIT_FAILURE_REASONS = [
+  "残高不足",
+  "口座解約・口座不明",
+  "依頼書の不備（登録未完了）",
+  "預金者からの停止依頼",
+  "その他",
+] as const;
+
+/**
+ * 毎月の請求書をお客様が確認できるよう、NSS へ金額を登録する前に空ける日数。
+ * 旧運用(確認期間 約1週間)をそのまま引き継いでいる。
+ */
+export const NSS_CONFIRMATION_DAYS = 7;
+
+/** 口座振替の引き落とし日(既定)。プランの請求日と同じ27日。 */
+export const NSS_DEFAULT_DEBIT_DAY = 27;
 
 export const batchItemResultTone: Record<BatchItemResult, BadgeTone> = {
   pending: "neutral",
@@ -570,6 +601,72 @@ export const referralRewardStatusTone: Record<ReferralRewardStatus, BadgeTone> =
   payable: "warning",
   paid: "success",
 };
+
+/* ---- 代理店 ---- */
+
+/** 代理店区分ごとの報酬ルールと担当範囲 */
+export interface AgencyDealTypeRule {
+  label: string;
+  /** バッジ用の短い表記 */
+  short: string;
+  /** 報酬 = お客様の初期費用(税抜) × この率 */
+  initialFeeRate: number;
+  /** 代理店が担当する範囲(画面・ヘルプ・支払明細に出す説明) */
+  scope: string;
+  /** 商談〜お申込み手続きを代理店が行うか */
+  agencyDoesSales: boolean;
+  /** 初期設定を代理店が行うか(受注管理の「初期設定」の担当表示に使う) */
+  agencyDoesSetup: boolean;
+}
+
+/**
+ * 代理店区分ごとの報酬ルール。
+ * 伴走型を作るときは、AgencyDealType に値を足してここへ1件追加すれば、
+ * 代理店の登録・URL発行・報酬計算の選択肢に自動で出る。
+ */
+export const AGENCY_DEAL_TYPES: Record<AgencyDealType, AgencyDealTypeRule> = {
+  referral: {
+    label: "取次型",
+    short: "取次",
+    initialFeeRate: 0.5,
+    scope: "お客様のご紹介（取次）まで。商談・お申込み手続き・初期設定は当社が行います。",
+    agencyDoesSales: false,
+    agencyDoesSetup: false,
+  },
+  sales_setup: {
+    label: "営業・初期設定型",
+    short: "営業・初期設定",
+    initialFeeRate: 1,
+    scope: "営業（商談〜お申込み手続き）と初期設定まで代理店が行います。",
+    agencyDoesSales: true,
+    agencyDoesSetup: true,
+  },
+};
+
+/** 選択肢として並べる順 */
+export const AGENCY_DEAL_TYPE_KEYS = Object.keys(AGENCY_DEAL_TYPES) as AgencyDealType[];
+
+export const agencyDealTypeTone: Record<AgencyDealType, BadgeTone> = {
+  referral: "info",
+  sales_setup: "primary",
+};
+
+export const agencyCommissionStatusLabels: Record<AgencyCommissionStatus, string> = {
+  pending: "初期費用の入金待ち",
+  payable: "支払対象（未払い）",
+  paid: "支払済",
+  void: "対象外（請求取消）",
+};
+
+export const agencyCommissionStatusTone: Record<AgencyCommissionStatus, BadgeTone> = {
+  pending: "neutral",
+  payable: "warning",
+  paid: "success",
+  void: "neutral",
+};
+
+/** 代理店URLの既定有効日数(0 = 無期限。代理店には同じURLを使い続けてもらう) */
+export const AGENCY_LINK_EXPIRY_DAYS = 0;
 
 /** 署名依頼の既定有効日数 */
 export const CONTRACT_SIGN_EXPIRY_DAYS = 14;

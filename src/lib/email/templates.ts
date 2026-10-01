@@ -1,5 +1,5 @@
 import type { AgencyStatement } from "@/lib/domain/agency";
-import { paymentMethodLabels } from "@/lib/domain/constants";
+import { AGENCY_DEAL_TYPES, paymentMethodLabels } from "@/lib/domain/constants";
 import type { Contract, Invoice, Organization } from "@/lib/domain/types";
 import { formatDate, formatDateTime, formatJPY, formatPercent } from "@/lib/utils";
 
@@ -212,7 +212,7 @@ export function contractSignedEmailHtml(params: {
   </div>`;
 }
 
-/** 営業代理店向けの月次支払明細メール。 */
+/** 営業代理店向けの月次支払明細メール(その月に支払対象になった報酬)。 */
 export function agencyStatementEmailHtml(params: {
   statement: AgencyStatement;
   org: Organization;
@@ -226,9 +226,8 @@ export function agencyStatementEmailHtml(params: {
       (mem) => `
       <tr>
         <td style="padding:8px 4px;border-bottom:1px solid #eee">${escapeHtml(mem.memberName)}</td>
-        <td style="padding:8px 4px;border-bottom:1px solid #eee;text-align:right">${mem.customerCount}件</td>
-        <td style="padding:8px 4px;border-bottom:1px solid #eee;text-align:right">${formatJPY(mem.paidSubtotal)}</td>
-        <td style="padding:8px 4px;border-bottom:1px solid #eee;text-align:right;font-weight:600">${formatJPY(mem.commission)}</td>
+        <td style="padding:8px 4px;border-bottom:1px solid #eee;text-align:right">${mem.count}件</td>
+        <td style="padding:8px 4px;border-bottom:1px solid #eee;text-align:right;font-weight:600">${formatJPY(mem.total)}</td>
       </tr>`,
     )
     .join("");
@@ -239,8 +238,10 @@ export function agencyStatementEmailHtml(params: {
       <tr>
         <td style="padding:6px 4px;border-bottom:1px solid #f2f2f2;font-size:12px">${escapeHtml(l.customerName)}</td>
         <td style="padding:6px 4px;border-bottom:1px solid #f2f2f2;font-size:12px">${escapeHtml(l.memberName)}</td>
-        <td style="padding:6px 4px;border-bottom:1px solid #f2f2f2;font-size:12px;text-align:right">${formatJPY(l.subtotal)}</td>
-        <td style="padding:6px 4px;border-bottom:1px solid #f2f2f2;font-size:12px;text-align:right">${l.paid ? "入金済" : "未入金(対象外)"}</td>
+        <td style="padding:6px 4px;border-bottom:1px solid #f2f2f2;font-size:12px">${escapeHtml(AGENCY_DEAL_TYPES[l.commission.dealType]?.label ?? "")}</td>
+        <td style="padding:6px 4px;border-bottom:1px solid #f2f2f2;font-size:12px;text-align:right">${formatJPY(l.commission.baseAmount)}</td>
+        <td style="padding:6px 4px;border-bottom:1px solid #f2f2f2;font-size:12px;text-align:right">${formatPercent(l.commission.rate, 0)}</td>
+        <td style="padding:6px 4px;border-bottom:1px solid #f2f2f2;font-size:12px;text-align:right;font-weight:600">${formatJPY(l.commission.amount)}</td>
       </tr>`,
     )
     .join("");
@@ -249,39 +250,120 @@ export function agencyStatementEmailHtml(params: {
   <div style="font-family:'Hiragino Sans','Noto Sans JP',sans-serif;max-width:640px;margin:0 auto;color:#152a26">
     <div style="background:#0d3b33;color:#fff;padding:20px 24px;border-radius:12px 12px 0 0;border-bottom:3px solid #c2a15c">
       <div style="font-size:13px;color:#c2a15c">${escapeHtml(org.name)}</div>
-      <div style="font-size:20px;font-weight:700;margin-top:2px">${monthLabel}分 支払明細のご案内</div>
+      <div style="font-size:20px;font-weight:700;margin-top:2px">${monthLabel}分 代理店報酬のご案内</div>
     </div>
     <div style="border:1px solid #eee;border-top:none;padding:24px;border-radius:0 0 12px 12px">
       <p>${escapeHtml(statement.agency.name)}<br/>${escapeHtml(statement.agency.contactName)} 様</p>
-      <p>いつもお世話になっております。${monthLabel}分の紹介手数料の明細をお送りします。</p>
+      <p>いつもお世話になっております。${monthLabel}に初期費用のご入金を確認したお客様の、代理店報酬の明細をお送りします。</p>
 
       <div style="background:#f1f6f4;border-radius:8px;padding:14px 18px;margin:16px 0;border-left:3px solid #c2a15c">
-        <div style="font-size:13px;color:#555">お支払金額（税抜売上 ${formatJPY(statement.paidSubtotal)} × 手数料率 ${formatPercent(statement.agency.commissionRate, 0)}）</div>
-        <div style="font-size:24px;font-weight:700;margin-top:4px">${formatJPY(statement.commission)}</div>
+        <div style="font-size:13px;color:#555">報酬合計（${statement.lines.length}件）</div>
+        <div style="font-size:24px;font-weight:700;margin-top:4px">${formatJPY(statement.total)}</div>
       </div>
 
       <h3 style="font-size:14px;margin:16px 0 6px">営業担当別の内訳</h3>
       <table style="width:100%;border-collapse:collapse">
         <tr style="font-size:12px;color:#888;text-align:left">
-          <th style="padding:4px">営業担当</th><th style="padding:4px;text-align:right">顧客数</th>
-          <th style="padding:4px;text-align:right">入金済売上(税抜)</th><th style="padding:4px;text-align:right">支払額</th>
+          <th style="padding:4px">営業担当</th><th style="padding:4px;text-align:right">件数</th>
+          <th style="padding:4px;text-align:right">報酬</th>
         </tr>
         ${memberRows}
       </table>
 
-      <h3 style="font-size:14px;margin:18px 0 6px">明細（対象請求）</h3>
+      <h3 style="font-size:14px;margin:18px 0 6px">明細</h3>
       <table style="width:100%;border-collapse:collapse">
         <tr style="font-size:11px;color:#888;text-align:left">
-          <th style="padding:4px">顧客</th><th style="padding:4px">営業担当</th>
-          <th style="padding:4px;text-align:right">金額(税抜)</th><th style="padding:4px;text-align:right">入金状況</th>
+          <th style="padding:4px">お客様</th><th style="padding:4px">営業担当</th><th style="padding:4px">区分</th>
+          <th style="padding:4px;text-align:right">初期費用(税抜)</th><th style="padding:4px;text-align:right">率</th>
+          <th style="padding:4px;text-align:right">報酬</th>
         </tr>
         ${lineRows}
       </table>
 
       <p style="color:#777;font-size:12px;margin-top:16px">
-        ※ 支払額は入金済み売上(税抜)に手数料率を乗じて算出しています。未入金分は入金確認後の明細に計上されます。<br/>
+        ※ 報酬はお客様の初期費用(税抜)に区分ごとの率（取次型 50% / 営業・初期設定型 100%）を掛けて算出しています。<br/>
+        ※ お客様の初期費用のご入金を確認した月の明細に計上しています。<br/>
         ※ 内容に相違がある場合は、お手数ですが1週間以内にご連絡ください。
       </p>
+      ${orgFooter(org)}
+    </div>
+  </div>`;
+}
+
+/**
+ * お客様向け: 申込・契約URLからのお申込み(電子署名)の受付完了メール。
+ * このあとの流れ(初回請求書・口座振替依頼書・初期設定)を先に伝えておく。
+ */
+export function orderReceivedEmailHtml(params: {
+  contract: Contract;
+  org: Organization;
+  signUrl: string;
+  initialFeeWithTax: number;
+  monthlyWithTax: number;
+}): string {
+  const { contract, org, initialFeeWithTax, monthlyWithTax } = params;
+  const signUrl = escapeHtml(params.signUrl);
+  return `
+  <div style="font-family:'Hiragino Sans','Noto Sans JP',sans-serif;max-width:600px;margin:0 auto;color:#152a26">
+    <div style="background:#0d3b33;color:#fff;padding:20px 24px;border-radius:12px 12px 0 0;border-bottom:3px solid #c2a15c">
+      <div style="font-size:13px;color:#c2a15c">${escapeHtml(org.name)}</div>
+      <div style="font-size:20px;font-weight:700;margin-top:2px">お申込み・ご契約を受け付けました</div>
+    </div>
+    <div style="border:1px solid #eee;border-top:none;padding:24px;border-radius:0 0 12px 12px">
+      <p>${escapeHtml(contract.customerParty.name)}<br/>${escapeHtml(contract.signerName || contract.customerParty.representative)} 様</p>
+      <p>このたびは「${escapeHtml(contract.title)}」にお申込みいただき、誠にありがとうございます。お申込み内容と電子署名を受け付けました。</p>
+      <div style="background:#f1f6f4;border-radius:8px;padding:12px 16px;margin-top:12px;font-size:14px;border-left:3px solid #c2a15c">
+        <div>契約書番号: ${escapeHtml(contract.contractNumber)}</div>
+        <div>プラン: ${escapeHtml(contract.terms.planName || "—")}（${contract.terms.storeCount}店舗）</div>
+        <div>初期費用: ${formatJPY(initialFeeWithTax)}（税込）</div>
+        <div>月額: ${formatJPY(monthlyWithTax)}（税込）</div>
+        <div>受付日時: ${formatDateTime(contract.signedAt)}</div>
+      </div>
+      <h3 style="font-size:14px;margin:18px 0 6px">このあとの流れ</h3>
+      <ol style="font-size:14px;line-height:1.8;padding-left:20px;margin:0">
+        <li>当社でお申込み内容を確認し、<strong>ご契約を確定</strong>します。</li>
+        <li><strong>初回のご請求書</strong>（初期費用＋初月の日割り料金）をお送りします。<strong>銀行振込</strong>でお支払いください。</li>
+        <li>2ヶ月目以降の月額料金は<strong>口座振替</strong>です。<strong>口座振替依頼書</strong>を郵送しますので、ご記入・ご捺印のうえご返送ください。</li>
+        <li>システムの初期設定が完了しましたら、ご利用開始のご案内をお送りします。</li>
+      </ol>
+      <p style="margin-top:16px;font-size:14px">ご署名いただいた契約書と締結証明書は、下記からいつでも確認・保存(PDF)できます。</p>
+      <div style="text-align:center;margin-top:12px">
+        <a href="${signUrl}" style="background:#0d3b33;color:#fff;text-decoration:none;padding:10px 24px;border-radius:8px;display:inline-block">契約書を表示する</a>
+      </div>
+      <p style="color:#777;font-size:12px;margin-top:20px">
+        本メールに心当たりがない場合は、お手数ですが下記までご連絡ください。
+      </p>
+      ${orgFooter(org)}
+    </div>
+  </div>`;
+}
+
+/** 社内向け: 申込・契約URLから新しいお申込みが届いた通知(受注確認のお願い)。 */
+export function orderNotificationEmailHtml(params: {
+  contract: Contract;
+  org: Organization;
+  orderUrl: string;
+  source: string;
+}): string {
+  const { contract, org, source } = params;
+  const orderUrl = escapeHtml(params.orderUrl);
+  return `
+  <div style="font-family:'Hiragino Sans','Noto Sans JP',sans-serif;max-width:600px;margin:0 auto;color:#152a26">
+    <div style="background:#0d3b33;color:#fff;padding:20px 24px;border-radius:12px 12px 0 0;border-bottom:3px solid #c2a15c">
+      <div style="font-size:13px;color:#c2a15c">${escapeHtml(org.name)} 受注管理</div>
+      <div style="font-size:20px;font-weight:700;margin-top:2px">新しいお申込み（受注確認待ち）</div>
+    </div>
+    <div style="border:1px solid #eee;border-top:none;padding:24px;border-radius:0 0 12px 12px">
+      <p>申込・契約URLからお申込みと電子署名が届きました。内容を確認して「受注を確定」してください。</p>
+      <div style="background:#f1f6f4;border-radius:8px;padding:12px 16px;margin-top:12px;font-size:14px;border-left:3px solid #c2a15c">
+        <div>お客様: ${escapeHtml(contract.customerParty.name)}（${escapeHtml(contract.signerName)}）</div>
+        <div>プラン: ${escapeHtml(contract.terms.planName || "—")}（${contract.terms.storeCount}店舗）</div>
+        <div>契約書番号: ${escapeHtml(contract.contractNumber)}</div>
+        <div>経路: ${escapeHtml(source)}</div>
+      </div>
+      <div style="text-align:center;margin-top:16px">
+        <a href="${orderUrl}" style="background:#0d3b33;color:#fff;text-decoration:none;padding:10px 24px;border-radius:8px;display:inline-block">受注管理で確認する</a>
+      </div>
       ${orgFooter(org)}
     </div>
   </div>`;

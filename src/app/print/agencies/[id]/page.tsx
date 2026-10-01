@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getServiceRepository } from "@/lib/data";
 import { computeAgencyStatement } from "@/lib/domain/agency";
+import { AGENCY_DEAL_TYPES } from "@/lib/domain/constants";
 import { currentMonth, formatDate, formatJPY, formatPercent } from "@/lib/utils";
 import { PrintButton } from "@/app/print/invoices/[id]/print-button";
 import { LogoMark } from "@/components/brand/logo";
@@ -8,7 +9,7 @@ import { LogoMark } from "@/components/brand/logo";
 export const metadata = { title: "支払明細書（印刷）" };
 export const dynamic = "force-dynamic";
 
-/** 営業代理店向けの支払明細書(印刷/PDF)。 */
+/** 営業代理店向けの報酬の支払明細書(印刷/PDF)。対象月に初期費用の入金を確認した案件の報酬。 */
 export default async function PrintAgencyStatementPage({
   params,
   searchParams,
@@ -23,13 +24,21 @@ export default async function PrintAgencyStatementPage({
   const repo = await getServiceRepository();
   const agency = await repo.getAgency(id);
   if (!agency) notFound();
-  const [members, customers, invoices, org] = await Promise.all([
+  const [members, customers, invoices, commissions, org] = await Promise.all([
     repo.listAgencyMembers(id),
     repo.listCustomers(),
     repo.listInvoices(),
+    repo.listAgencyCommissions({ agencyId: id }),
     repo.getOrganization(),
   ]);
-  const statement = computeAgencyStatement({ agency, members, customers, invoices, month });
+  const statement = computeAgencyStatement({
+    agency,
+    members,
+    customers,
+    invoices,
+    commissions,
+    month,
+  });
   const [y, m] = month.split("-");
 
   return (
@@ -45,7 +54,7 @@ export default async function PrintAgencyStatementPage({
             <div>
               <h1 className="text-2xl font-bold tracking-wide">支払明細書</h1>
               <p className="mt-1 text-neutral-500">
-                {y}年{Number(m)}月分 紹介手数料
+                {y}年{Number(m)}月分 代理店報酬
               </p>
             </div>
             <div className="text-right text-xs text-neutral-600">
@@ -62,10 +71,9 @@ export default async function PrintAgencyStatementPage({
               )}
               <div className="mt-6 inline-flex flex-col rounded-md bg-neutral-50 px-4 py-3">
                 <span className="text-xs text-neutral-500">
-                  お支払金額（入金済売上 {formatJPY(statement.paidSubtotal)} ×{" "}
-                  {formatPercent(agency.commissionRate, 0)}）
+                  お支払金額（{statement.lines.length}件）
                 </span>
-                <span className="tabular text-2xl font-bold">{formatJPY(statement.commission)}</span>
+                <span className="tabular text-2xl font-bold">{formatJPY(statement.total)}</span>
               </div>
             </div>
             <div className="text-neutral-700 sm:text-right">
@@ -98,26 +106,22 @@ export default async function PrintAgencyStatementPage({
             <thead>
               <tr className="border-b-2 border-neutral-800 text-xs text-neutral-500">
                 <th className="py-2 text-left font-medium">営業担当</th>
-                <th className="py-2 text-right font-medium">顧客数</th>
-                <th className="py-2 text-right font-medium">請求(税抜)</th>
-                <th className="py-2 text-right font-medium">入金済(税抜)</th>
-                <th className="py-2 text-right font-medium">支払額</th>
+                <th className="py-2 text-right font-medium">件数</th>
+                <th className="py-2 text-right font-medium">報酬</th>
               </tr>
             </thead>
             <tbody>
               {statement.members.map((mem) => (
                 <tr key={mem.memberId ?? "none"} className="border-b border-neutral-200">
                   <td className="py-2">{mem.memberName}</td>
-                  <td className="tabular py-2 text-right">{mem.customerCount}件</td>
-                  <td className="tabular py-2 text-right">{formatJPY(mem.invoicedSubtotal)}</td>
-                  <td className="tabular py-2 text-right">{formatJPY(mem.paidSubtotal)}</td>
-                  <td className="tabular py-2 text-right font-medium">{formatJPY(mem.commission)}</td>
+                  <td className="tabular py-2 text-right">{mem.count}件</td>
+                  <td className="tabular py-2 text-right font-medium">{formatJPY(mem.total)}</td>
                 </tr>
               ))}
               {statement.members.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-3 text-center text-neutral-500">
-                    対象月の実績はありません
+                  <td colSpan={3} className="py-3 text-center text-neutral-500">
+                    対象月の報酬はありません
                   </td>
                 </tr>
               )}
@@ -125,31 +129,36 @@ export default async function PrintAgencyStatementPage({
           </table>
 
           {/* 明細 */}
-          <h2 className="mt-8 font-bold">明細（対象請求）</h2>
+          <h2 className="mt-8 font-bold">明細</h2>
           <table className="mt-2 w-full border-collapse text-xs">
             <thead>
               <tr className="border-b-2 border-neutral-800 text-neutral-500">
-                <th className="py-1.5 text-left font-medium">請求書番号</th>
-                <th className="py-1.5 text-left font-medium">顧客</th>
+                <th className="py-1.5 text-left font-medium">お客様</th>
                 <th className="py-1.5 text-left font-medium">営業担当</th>
-                <th className="py-1.5 text-right font-medium">金額(税抜)</th>
-                <th className="py-1.5 text-right font-medium">入金状況</th>
+                <th className="py-1.5 text-left font-medium">区分</th>
+                <th className="py-1.5 text-right font-medium">初期費用(税抜)</th>
+                <th className="py-1.5 text-right font-medium">率</th>
+                <th className="py-1.5 text-right font-medium">報酬</th>
               </tr>
             </thead>
             <tbody>
               {statement.lines.map((l) => (
-                <tr key={l.invoiceId} className="border-b border-neutral-200">
-                  <td className="tabular py-1.5">{l.invoiceNumber}</td>
-                  <td className="py-1.5">{l.customerName}</td>
+                <tr key={l.commission.id} className="border-b border-neutral-200">
+                  <td className="py-1.5">
+                    {l.customerName}
+                    <div className="text-[10px] text-neutral-500">入金確認 {formatDate(l.confirmedOn)}</div>
+                  </td>
                   <td className="py-1.5 text-neutral-600">{l.memberName}</td>
-                  <td className="tabular py-1.5 text-right">{formatJPY(l.subtotal)}</td>
-                  <td className="py-1.5 text-right">{l.paid ? "入金済" : "未入金(対象外)"}</td>
+                  <td className="py-1.5">{AGENCY_DEAL_TYPES[l.commission.dealType].label}</td>
+                  <td className="tabular py-1.5 text-right">{formatJPY(l.commission.baseAmount)}</td>
+                  <td className="tabular py-1.5 text-right">{formatPercent(l.commission.rate, 0)}</td>
+                  <td className="tabular py-1.5 text-right font-medium">{formatJPY(l.commission.amount)}</td>
                 </tr>
               ))}
               {statement.lines.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-3 text-center text-neutral-500">
-                    対象月の請求はありません
+                  <td colSpan={6} className="py-3 text-center text-neutral-500">
+                    対象月に支払対象になった報酬はありません
                   </td>
                 </tr>
               )}
@@ -159,23 +168,19 @@ export default async function PrintAgencyStatementPage({
           <div className="mt-6 flex justify-end">
             <div className="w-72 space-y-1.5 text-sm">
               <div className="flex justify-between text-neutral-600">
-                <span>対象請求合計（税抜）</span>
-                <span className="tabular">{formatJPY(statement.invoicedSubtotal)}</span>
-              </div>
-              <div className="flex justify-between text-neutral-600">
-                <span>入金済売上（税抜）</span>
-                <span className="tabular">{formatJPY(statement.paidSubtotal)}</span>
+                <span>うち支払済</span>
+                <span className="tabular">{formatJPY(statement.paidTotal)}</span>
               </div>
               <div className="flex justify-between border-t-2 border-neutral-800 pt-2 text-base font-bold">
                 <span>お支払金額</span>
-                <span className="tabular">{formatJPY(statement.commission)}</span>
+                <span className="tabular">{formatJPY(statement.total)}</span>
               </div>
             </div>
           </div>
 
           <div className="mt-8 rounded-md border border-neutral-200 bg-neutral-50 p-4 text-xs text-neutral-600">
-            ※ 支払額は入金済み売上（税抜）に手数料率を乗じて算出しています。未入金分は入金確認後の月の明細に計上されます。
-            内容に相違がある場合は1週間以内にご連絡ください。
+            ※ 報酬はお客様の初期費用（税抜）に区分ごとの率（取次型 50% / 営業・初期設定型 100%）を掛けて算出しています。
+            お客様の初期費用のご入金を確認した月の明細に計上しています。内容に相違がある場合は1週間以内にご連絡ください。
           </div>
         </div>
       </div>

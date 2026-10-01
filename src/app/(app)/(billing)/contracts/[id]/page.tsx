@@ -64,6 +64,10 @@ export default async function ContractDetailPage({
             {contract.title} ・{" "}
             <Link href={`/customers/${contract.customerId}`} className="text-primary hover:underline">
               {contract.customer?.name}
+            </Link>{" "}
+            ・{" "}
+            <Link href={`/orders/${contract.customerId}`} className="text-primary hover:underline">
+              受注管理の案件ページ
             </Link>
           </p>
         </div>

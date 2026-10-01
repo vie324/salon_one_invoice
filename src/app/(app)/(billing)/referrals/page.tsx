@@ -19,7 +19,7 @@ import { formatJPY } from "@/lib/utils";
 import { ReferralLinkManager } from "./link-manager";
 import { ReferralList } from "./referral-list";
 
-export const metadata = { title: "紹介制度" };
+export const metadata = { title: "紹介・問い合わせ" };
 
 // 一覧はデータ依存のため常にサーバーで描画する
 export const dynamic = "force-dynamic";
@@ -36,12 +36,18 @@ async function baseUrl(): Promise<string> {
 
 export default async function ReferralsPage() {
   const repo = await getServiceRepository();
-  const [links, referrals, customers, base] = await Promise.all([
-    repo.listReferralLinks(),
-    repo.listReferrals(),
-    repo.listCustomers(),
-    baseUrl(),
-  ]);
+  const [links, referrals, customers, base, appLinks, plans, agencies, members, org] =
+    await Promise.all([
+      repo.listReferralLinks(),
+      repo.listReferrals(),
+      repo.listCustomers(),
+      baseUrl(),
+      repo.listApplicationLinks(),
+      repo.listPlans(),
+      repo.listAgencies(),
+      repo.listAgencyMembers(),
+      repo.getOrganization(),
+    ]);
 
   const now = new Date();
   const sorted = sortByContactWish(referrals);
@@ -53,8 +59,8 @@ export default async function ReferralsPage() {
   return (
     <div>
       <PageHeader
-        title="紹介制度"
-        description={`ご紹介いただいた方には初期費用の${Math.round(REFERRAL_REWARD_RATE * 100)}%をお支払い、ご紹介を受けた方は初月の端数日数＋${REFERRAL_FREE_MONTHS}ヶ月無料。フォームからのお申込みをここで受け付けます。`}
+        title="紹介・問い合わせ"
+        description={`お客様からのご紹介（紹介した方へ初期費用の${Math.round(REFERRAL_REWARD_RATE * 100)}%、紹介された方は初月の端数日数＋${REFERRAL_FREE_MONTHS}ヶ月無料）と、代理店URLの「まずは相談したい」から届いた問い合わせを受け付けます。連絡して申込の意向が固まったら「申込・契約URLを発行」で送ると、紹介者・代理店の紐付けと特典がそのまま契約・請求まで引き継がれます。`}
       />
 
       <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -78,7 +84,7 @@ export default async function ReferralsPage() {
       </div>
 
       <Card className="p-3 sm:p-4">
-        <h2 className="mb-3 text-sm font-semibold">ご紹介の一覧</h2>
+        <h2 className="mb-3 text-sm font-semibold">ご紹介・問い合わせの一覧</h2>
         {referrals.length === 0 ? (
           <EmptyState
             title="ご紹介はまだありません"
@@ -90,8 +96,11 @@ export default async function ReferralsPage() {
             rows={sorted.map((r) => ({
               ...r,
               due: contactDue(r, now),
+              issuedLinks: appLinks.filter((l) => l.referralId === r.id).length,
+              agencyName: r.agencyId ? (agencies.find((a) => a.id === r.agencyId)?.name ?? null) : null,
             }))}
             customers={customers.map((c) => ({ id: c.id, name: c.name }))}
+            issue={{ plans, agencies, members, orgName: org.name }}
           />
         )}
       </Card>
