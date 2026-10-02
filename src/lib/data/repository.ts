@@ -234,6 +234,12 @@ export interface SubscriptionInput {
    * 紹介制度の「2ヶ月無料」に使う。
    */
   freeMonths?: number;
+  /**
+   * このシステムで最初に請求する月(YYYY-MM)。指定すると freeMonths より優先する。
+   * 利用開始が過去の「過去のお客様」で、システムの外で請求済みの月までさかのぼって
+   * 請求書が作られないようにするために使う。
+   */
+  firstBillingMonth?: string | null;
 }
 
 /** 既存の定期契約の変更(オプション・個別価格・店舗数) */
@@ -650,6 +656,11 @@ export interface Repository {
    * 変更後の支払方法に合わせて読み替える。
    */
   updateInvoicePaymentMethod(id: string, paymentMethod: PaymentMethod): Promise<Invoice>;
+  /**
+   * 請求書の区分の変更。システムに契約書が無い過去のお客様で、「都度」で作った請求書を
+   * 初回請求書(初期費用)として扱うときに使う(受注管理の初回請求・入金の判定に乗る)。
+   */
+  updateInvoiceType(id: string, type: InvoiceType): Promise<Invoice>;
   sendInvoice(id: string): Promise<Invoice>;
   /** 督促メール送付の記録(回数を加算し、最終送付日時を更新)。 */
   recordInvoiceReminder(id: string, params: { actor: string }): Promise<Invoice>;

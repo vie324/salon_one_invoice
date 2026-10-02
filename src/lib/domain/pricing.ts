@@ -1,4 +1,4 @@
-import { formatNumber } from "@/lib/utils";
+import { addMonths, formatNumber, toISODate } from "@/lib/utils";
 import {
   normalizeStoreCount,
   prorateMonthly,
@@ -6,6 +6,7 @@ import {
   subscriptionMonthly,
   taxAmount,
 } from "./calculations";
+import { REFERRAL_FREE_MONTHS } from "./constants";
 import type { ContractFeeRow, ContractFeeTable, ContractTerms, Plan, PlanOption } from "./types";
 
 /**
@@ -203,4 +204,16 @@ export function subscriptionFromTerms(
 export function firstMonthProration(monthlyTotal: number, startDate: string | null) {
   if (!startDate) return null;
   return prorateMonthly(monthlyTotal, startDate);
+}
+
+/**
+ * 過去のお客様(システムに契約書が無い)の毎月の請求を、このシステムで始める月の初期値。
+ * 翌月から(利用開始が先なら、その翌月から。紹介特典の対象なら無料の2ヶ月ぶん先)。
+ * 利用開始が過去でも、システムの外で請求済みの月までさかのぼって請求書を作らないようにする。
+ */
+export function defaultFirstBillingMonth(startedOn: string, referred: boolean, now = new Date()): string {
+  const nextMonth = addMonths(toISODate(now).slice(0, 7), 1);
+  if (!/^\d{4}-\d{2}/.test(startedOn)) return nextMonth;
+  const fromStart = addMonths(startedOn.slice(0, 7), 1 + (referred ? REFERRAL_FREE_MONTHS : 0));
+  return fromStart > nextMonth ? fromStart : nextMonth;
 }

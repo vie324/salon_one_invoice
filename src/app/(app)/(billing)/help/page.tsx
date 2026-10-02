@@ -6,6 +6,7 @@ import {
   FileSignature,
   Gift,
   Handshake,
+  History,
   Landmark,
   LifeBuoy,
   ListChecks,
@@ -44,6 +45,7 @@ const TOC = [
   { id: "review", label: "② 受注確認" },
   { id: "setup", label: "③ 導入準備" },
   { id: "monthly", label: "④ 毎月の請求・NSS引き落とし" },
+  { id: "past", label: "過去のお客様（契約書が無い・旧画面で管理）" },
   { id: "agency", label: "代理店" },
   { id: "referral", label: "紹介制度" },
   { id: "nss", label: "NSS とこのツールの役割分担" },
@@ -117,6 +119,7 @@ export default function HelpPage() {
               <RoleRow step="① 申込・契約URLを発行して渡す" who="営業（請求管理者）／代理店" where={<><StepLink href="/applications">申込・契約URL</StepLink>・<StepLink href="/agencies">代理店</StepLink>・<StepLink href="/referrals">紹介・問い合わせ</StepLink> の「申込・契約URLを発行」</>} done="URL・QR・案内文を渡した" />
               <RoleRow step="① 申込内容の入力・電子署名" who="お客様" where="お客様のスマホ・PC（URLを開くだけ）" done="受注管理に「受注確認」で並ぶ" />
               <RoleRow step="② 内容の確認・受注確定" who="請求管理者" where={<><StepLink href="/orders">受注管理</StepLink> → 案件ページ「受注を確定する」</>} done="初回請求書と毎月の請求ができる" />
+              <RoleRow step="② 過去のお客様の請求を開始" who="請求管理者" where="案件ページ「書面・旧運用で締結済み」→「請求を開始」" done="初回請求書・毎月の請求が設定される" />
               <RoleRow step="③ 初回請求書の送付" who="請求管理者" where="案件ページ「メールで送付」（郵送・手渡しなら「完了にする」）" done="✓ 初回請求書をお客様へ送付（入金を確認すると自動で ✓）" />
               <RoleRow step="③ 初回の入金確認" who="請求管理者" where={<><StepLink href="/payments">入金確認</StepLink>（銀行明細CSVの取込・消込）</>} done="初回請求書が「入金済」" />
               <RoleRow step="③ 口座振替依頼書の郵送" who="請求管理者" where="案件ページ「郵送した」" done="✓ 郵送日" />
@@ -242,9 +245,10 @@ export default function HelpPage() {
         {/* ③ 導入準備 */}
         <Section id="setup" icon={Rocket} title="③ 導入準備（3つを並行で進める）" description="受注確定のあと、次の3つを同時に進めます。すべて終わると自動で「運用中」になります。">
           <div className="grid gap-3 lg:grid-cols-3">
-            <SubCard title="初回請求・入金" icon={CalendarClock}>
+            <SubCard title="請求・入金" icon={CalendarClock}>
               <Steps
                 steps={[
+                  { title: "毎月の請求（定期契約）", body: <>受注確定で自動で登録されます。プランの無い契約や過去のお客様で定期契約が無いと「毎月の請求（定期契約）を登録」が対応待ちに残ります。</> },
                   { title: "初回請求書を送付", body: <>案件ページの「メールで送付」（受注確定の画面で「そのままメールで送る」を選んだ場合は送付済み）。郵送・手渡しの場合は「完了にする」。</> },
                   { title: "入金を確認", body: <><StepLink href="/payments">入金確認</StepLink> で銀行明細CSVを取り込み、消し込みます。期限を過ぎると「遅れ」として対応待ちに出るので、督促メールを送ります。</> },
                 ]}
@@ -284,6 +288,47 @@ export default function HelpPage() {
               { title: "引き落とし不可のフォロー", body: <>お客様へ連絡し、「振込に切り替える」→ 請求書・督促メールを送ります。</> },
             ]}
           />
+        </Section>
+
+        {/* 過去のお客様 */}
+        <Section
+          id="past"
+          icon={History}
+          title="過去のお客様（契約書が無い・旧「顧客ステータス」で管理していたお客様）"
+          description="受注管理になる前から管理していたお客様や、書面・口頭で契約したお客様も、同じ受注管理で請求書の発行から入金確認まで追えます。"
+        >
+          <h3 className="mb-2 text-sm font-semibold">旧「顧客ステータス」の記録は引き継がれます</h3>
+          <Table>
+            <THead>
+              <TR>
+                <TH>旧画面で置いていたステージ</TH>
+                <TH>受注管理で「済み」として引き継ぐもの</TH>
+              </TR>
+            </THead>
+            <TBody>
+              <TR><TD className="font-medium">初回請求</TD><TD>契約・申込内容の確認</TD></TR>
+              <TR><TD className="font-medium">振替手続き・入金チェック</TD><TD>契約・申込内容の確認・初回請求書の発行と送付</TD></TR>
+              <TR><TD className="font-medium">運用中</TD><TD>上記に加えて、初回入金の確認</TD></TR>
+            </TBody>
+          </Table>
+          <p className="mt-2 text-sm text-muted-foreground">
+            旧画面で付けたチェック（締結を確認・初回請求書を発行・初回振込の入金を確認）もそのまま使います。システムに契約書・請求書がある手続きは、そちらのデータで判定します。
+            案件ページの上に「旧「顧客ステータス」で〜まで進めていた案件です」と表示され、違っていれば各項目の「取り消す」で直せます。
+          </p>
+
+          <h3 className="mb-2 mt-5 text-sm font-semibold">契約書が無いお客様の進め方</h3>
+          <Steps
+            steps={[
+              { title: "契約を記録", body: <>案件ページの「契約を締結」の行で「書面・旧運用で締結済み」を押します（電子契約を送るなら「契約書を作成」）。</> },
+              { title: "請求を開始", body: <>「受注確認」に並ぶので「請求を開始」を押し、初回請求書と毎月の請求をまとめて設定します。初回請求書は「このシステムで作成する」「作成済みの請求書を初回請求書にする」「システムの外で発行済み」「初回請求なし」から選びます。</> },
+              { title: "毎月の請求を登録", body: <>プラン・オプション・店舗数・個別価格と<strong>「このシステムで請求を始める月」</strong>を決めます。システムの外で請求済みの月を選ぶと、さかのぼって請求書が作られるので注意してください（初期値は翌月）。</> },
+              { title: "入金を確認", body: <>このシステムの請求書は <StepLink href="/payments">入金確認</StepLink> で消し込むと自動で ✓ が付きます。システムの外で発行した請求書は、入金を確認したら「入金を確認済みにする」を押します。</> },
+            ]}
+          />
+          <Callout>
+            請求書の画面で<strong>区分「初期費用」</strong>を選んで作った請求書は、受注管理の初回請求書として扱われます。「都度」で作ってしまった場合も、案件ページの「請求書を紐付ける」（または「請求を開始」の「作成済みの請求書を初回請求書にする」）で初回請求書にできます。
+            「休止」にしたお客様も、請求書の作成画面の「休止中のお客様」から選べます。
+          </Callout>
         </Section>
 
         {/* 代理店 */}
@@ -381,6 +426,7 @@ export default function HelpPage() {
               <OmissionRow risk="複数店舗なのに毎月1店舗分しか請求されない" fix="店舗数を定期契約に保存し、毎月の請求書に「単価 × 店舗数」で載るよう修正しました。" />
               <OmissionRow risk="代理店報酬の計上漏れ・払い忘れ・二重払い" fix="受注確定で自動計上（同じ請求に二重計上しない）。初期費用の入金後に支払対象になり、支払済みを記録します。" />
               <OmissionRow risk="紹介特典の適用漏れ" fix="紹介からのURLで申し込めば、受注確定で特典が自動適用されます。" />
+              <OmissionRow risk="過去のお客様（契約書が無い・旧画面で進めていた）の請求書発行・入金確認が漏れる" fix="旧画面の記録を引き継ぎ、「請求を開始」「入金を確認済みにする」で同じ受注管理で追えます。定期契約が無ければ「毎月の請求（定期契約）を登録」が対応待ちに残ります。" />
             </TBody>
           </Table>
         </Section>
@@ -400,7 +446,7 @@ export default function HelpPage() {
               <TR><TD className="font-medium">入力用スプレッドシート（請求金額）</TD><TD><StepLink href="/invoices">請求書</StepLink>（定期分は自動作成・自動送付、変動費は明細追加）</TD></TR>
               <TR><TD className="font-medium">NSS システム（収納サイト）</TD><TD>従来どおり NSS で登録。終わったら案件ページで「NSSへ登録した」「登録完了」</TD></TR>
               <TR><TD className="font-medium">NSS システム（収納リンク）</TD><TD><StepLink href="/direct-debit">NSS引き落とし</StepLink> で一覧 → CSV → NSSへ登録 → 結果を反映</TD></TR>
-              <TR><TD className="font-medium">旧「顧客ステータス」（カンバン）</TD><TD><StepLink href="/orders">受注管理</StepLink>（ステージは自動。旧URLを開いても受注管理へ移動します）</TD></TR>
+              <TR><TD className="font-medium">旧「顧客ステータス」（カンバン）</TD><TD><StepLink href="/orders">受注管理</StepLink>（ステージは自動。旧画面で手で進めていた記録は引き継ぎ。旧URLを開いても受注管理へ移動します）</TD></TR>
               <TR><TD className="font-medium">旧「申込」</TD><TD><StepLink href="/applications">申込・契約URL</StepLink></TD></TR>
               <TR><TD className="font-medium">旧「口座振替」（口座情報の登録・汎用CSV・バッチ処理）</TD><TD><StepLink href="/direct-debit">NSS引き落とし</StepLink>（口座情報は持たない・結果は実際の NSS の結果を反映）</TD></TR>
               <TR><TD className="font-medium">旧 代理店手数料（毎月の入金済売上 × 率）</TD><TD>初期費用 × 区分の率（取次型 50%／営業・初期設定型 100%）</TD></TR>

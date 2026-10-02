@@ -1,6 +1,6 @@
 import type { Repository } from "@/lib/data/repository";
 import { resolveDealType } from "@/lib/domain/agency";
-import { computeOrderProgress, type OrderProgress } from "@/lib/domain/onboarding";
+import { AUTO_STAGE_ACTOR, computeOrderProgress, type OrderProgress } from "@/lib/domain/onboarding";
 import type {
   Agency,
   AgencyDealType,
@@ -155,7 +155,7 @@ export async function loadOrderBook(
       try {
         const updated = await repo.updateOnboarding(card.id, {
           stage: progress.stage,
-          actor: "自動（実データから判定）",
+          actor: AUTO_STAGE_ACTOR,
         });
         row = { ...row, card: updated, daysInStage: 0 };
       } catch {

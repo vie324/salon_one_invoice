@@ -13,8 +13,9 @@ export default async function NewInvoicePage({
 }) {
   const { customer } = await searchParams;
   const repo = await getServiceRepository();
+  // 休止中のお客様にも、残りの請求(過去分・最終月など)を出せるよう全員を渡す(フォームで分けて表示)
   const [customers, plans, org] = await Promise.all([
-    repo.listCustomers({ status: "active" }),
+    repo.listCustomers(),
     repo.listPlans(),
     repo.getOrganization(),
   ]);

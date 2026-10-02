@@ -164,6 +164,14 @@ export function recurringBillingCutoff(asOfDate: string): string {
   return `${asOfDate.slice(0, 7)}-${String(lastDay).padStart(2, "0")}`;
 }
 
+/** 指定した月(YYYY-MM)の請求日。billingDay をその月に当てはめる(末日補正あり) */
+export function billingDateInMonth(month: string, billingDay: number): string {
+  const [y, m] = month.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const day = Math.min(Math.max(1, Math.round(billingDay) || 1), lastDay);
+  return `${month}-${String(day).padStart(2, "0")}`;
+}
+
 /**
  * 次回請求日を計算。billingDay を指定月に適用(末日補正あり)。
  * fromDate の翌月の billingDay を返す。
@@ -179,14 +187,13 @@ export function computeNextBillingDate(fromDate: string, billingDay: number): st
 
 /** 請求書の支払期限を発行日から算出 (既定: 翌月末) */
 export function computeDueDate(issueDate: string, daysOrEom: "eom" | number = "eom"): string {
-  const d = new Date(issueDate);
+  // 日付の計算は UTC で行う(画面の時差で月末が前日にずれないように)
+  const [y, m, d] = issueDate.slice(0, 10).split("-").map(Number);
   if (daysOrEom === "eom") {
     // 翌月末
-    return toISODate(new Date(d.getFullYear(), d.getMonth() + 2, 0));
+    return new Date(Date.UTC(y, m + 1, 0)).toISOString().slice(0, 10);
   }
-  const due = new Date(d);
-  due.setDate(due.getDate() + daysOrEom);
-  return toISODate(due);
+  return new Date(Date.UTC(y, m - 1, d + daysOrEom)).toISOString().slice(0, 10);
 }
 
 /* ---- 未収金エイジング ---- */

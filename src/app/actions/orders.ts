@@ -6,6 +6,7 @@ import { getServiceRepository } from "@/lib/data";
 import type { MandateInput } from "@/lib/data/repository";
 import { canAccessBilling } from "@/lib/domain/constants";
 import type { ManualChecklistKey } from "@/lib/domain/onboarding";
+import { setupBilling, type BillingSetupInput } from "@/lib/orders/billing-setup";
 import { confirmOrder } from "@/lib/orders/confirm";
 import { toISODate } from "@/lib/utils";
 
@@ -62,6 +63,30 @@ export async function confirmOrderAction(
     revalidatePath("/contracts");
     revalidatePath("/invoices");
     revalidatePath("/subscriptions");
+    revalidatePath("/agencies");
+    revalidatePath("/referrals");
+    return res;
+  } catch (e) {
+    return { ok: false as const, error: (e as Error).message };
+  }
+}
+
+/**
+ * 請求を開始する(システムに締結済みの契約書が無いお客様)。
+ * 旧「顧客ステータス」で進めていた過去のお客様や、書面・口頭で契約したお客様の
+ * 初回請求書(作成 / 作成済みの請求書を使う / システムの外で発行済み / なし)と
+ * 毎月の請求(定期契約)をまとめて設定する。
+ */
+export async function setupBillingAction(customerId: string, input: BillingSetupInput) {
+  try {
+    const user = await requireOrderUser();
+    const repo = await getServiceRepository();
+    const res = await setupBilling({ repo, customerId, input, actor: user.name });
+    if (!res.ok) return res;
+    revalidateOrder(customerId);
+    revalidatePath("/invoices");
+    revalidatePath("/subscriptions");
+    revalidatePath("/direct-debit");
     revalidatePath("/agencies");
     revalidatePath("/referrals");
     return res;
