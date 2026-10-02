@@ -24,7 +24,7 @@ import {
   subscriptionStatusTone,
 } from "@/lib/domain/constants";
 import type {
-  ApplicationStatus,
+  ApplicationDisplayStatus,
   BatchItemResult,
   BatchStatus,
   ContractStatus,
@@ -75,7 +75,7 @@ export function BatchItemResultBadge({ result }: { result: BatchItemResult }) {
 
 /* ---- 申込 ---- */
 
-export function ApplicationStatusBadge({ status }: { status: ApplicationStatus }) {
+export function ApplicationStatusBadge({ status }: { status: ApplicationDisplayStatus }) {
   return (
     <Badge tone={applicationStatusTone[status]} dot>
       {applicationStatusLabels[status]}

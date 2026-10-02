@@ -14,9 +14,9 @@ import { buildOrderContract, pickOrderTemplate } from "./contract-draft";
  * 申込・契約URLからのお申込み(申込＋電子署名)を受け付ける。
  *
  *   1. 申込を記録(代理店・紹介の紐付けは URL のサーバー側設定から引き継ぐ)
- *   2. 顧客を作成
+ *   2. 顧客を作成し、すぐに申込へ紐付ける
  *   3. 契約書を作成 → 内容ハッシュを固定 → お客様の閲覧・電子署名を記録(締結済み)
- *   4. 申込に顧客・契約書を紐付け、紹介からのURLなら紹介も「顧客登録済」にする
+ *   4. 申込に契約書を紐付け、紹介からのURLなら紹介も「顧客登録済」にする
  *   5. お客様へ受付完了メール、社内へ「受注確認待ち」の通知メール
  *
  * 締結済みの契約は、請求管理者が受注管理で内容を確認して「受注確定」したときに
@@ -179,6 +179,12 @@ export async function submitOrder(params: {
     agencyDealType: agencyId ? link.agencyDealType : null,
     referredByCustomerId: referral && !referral.agencyId ? referral.referrerCustomerId : null,
   });
+  // 顧客ができた時点で申込に紐付ける。このあと契約書の作成などで失敗しても、
+  // 申込が「未対応」のまま残って同じ顧客をもう一度登録してしまう、ということが起きない
+  await repo.linkApplicationRecords(application.id, {
+    customerId: customer.id,
+    status: "customer_created",
+  });
 
   // 3) 契約書 → 内容を固定 → 閲覧・電子署名の記録
   const draft = buildOrderContract({ template, org, info, selection });
@@ -208,11 +214,7 @@ export async function submitOrder(params: {
   if (!signed.ok) throw new Error(signed.error);
 
   // 4) 紐付け
-  await repo.linkApplicationRecords(application.id, {
-    customerId: customer.id,
-    contractId: sent.id,
-    status: "customer_created",
-  });
+  await repo.linkApplicationRecords(application.id, { contractId: sent.id });
   if (referral && !referral.customerId) {
     await repo.updateReferral(referral.id, { customerId: customer.id, status: "customer_created" });
   }

@@ -878,6 +878,12 @@ export interface ServiceCredential {
  */
 export type ApplicationStatus = "submitted" | "customer_created" | "archived";
 
+/**
+ * 画面に出す申込の対応状況。保存している status を、顧客が実在するかで読み替えたもの
+ * (customer_deleted = 登録した顧客が削除(ゴミ箱へ移動)されている)。
+ */
+export type ApplicationDisplayStatus = ApplicationStatus | "customer_deleted";
+
 /** 申込フォームの入力内容 */
 export interface Application {
   id: string;

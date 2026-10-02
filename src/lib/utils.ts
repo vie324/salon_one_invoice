@@ -33,12 +33,19 @@ export function formatCompactJPY(n: number): string {
   return formatJPY(n);
 }
 
+/**
+ * 日付・日時の表示は日本時間で行う。サーバー(Vercel は UTC)とブラウザで同じ文字になるようにするため
+ * (ずれると時刻が9時間ずれて見えたり、画面の読み込み時に React の hydration エラーになる)。
+ */
+const DISPLAY_TIME_ZONE = "Asia/Tokyo";
+
 /** 日付を YYYY/MM/DD 表記 */
 export function formatDate(input: string | Date | null | undefined): string {
   if (!input) return "—";
   const d = typeof input === "string" ? new Date(input) : input;
   if (Number.isNaN(d.getTime())) return "—";
   return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: DISPLAY_TIME_ZONE,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -51,6 +58,7 @@ export function formatDateTime(input: string | Date | null | undefined): string 
   const d = typeof input === "string" ? new Date(input) : input;
   if (Number.isNaN(d.getTime())) return "—";
   return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: DISPLAY_TIME_ZONE,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -63,6 +71,7 @@ export function formatDateTime(input: string | Date | null | undefined): string 
 export function formatYearMonth(input: string | Date): string {
   const d = typeof input === "string" ? new Date(input) : input;
   return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: DISPLAY_TIME_ZONE,
     year: "numeric",
     month: "long",
   }).format(d);

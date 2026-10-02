@@ -2,23 +2,32 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { getServiceRepository } from "@/lib/data";
-import { InvoiceForm } from "../invoice-form";
+import { invoiceTypeLabels } from "@/lib/domain/constants";
+import type { InvoiceType } from "@/lib/domain/types";
+import { InvoiceForm, type PendingContract } from "../invoice-form";
 
 export const metadata = { title: "請求書の作成" };
 
 export default async function NewInvoicePage({
   searchParams,
 }: {
-  searchParams: Promise<{ customer?: string }>;
+  searchParams: Promise<{ customer?: string; type?: string }>;
 }) {
-  const { customer } = await searchParams;
+  const { customer, type } = await searchParams;
   const repo = await getServiceRepository();
   // 休止中のお客様にも、残りの請求(過去分・最終月など)を出せるよう全員を渡す(フォームで分けて表示)
-  const [customers, plans, org] = await Promise.all([
+  const [customers, plans, org, signedContracts] = await Promise.all([
     repo.listCustomers(),
     repo.listPlans(),
     repo.getOrganization(),
+    repo.listContracts({ status: "signed" }),
   ]);
+  // 締結済みで、まだ受注確定(請求の開始)していない契約書。初回請求書は受注確定で作るよう案内する
+  const pendingContracts: PendingContract[] = signedContracts
+    .filter((c) => !c.linkedSubscriptionId && !c.linkedInvoiceId)
+    .map((c) => ({ customerId: c.customerId, contractNumber: c.contractNumber }));
+  const defaultType =
+    type && Object.hasOwn(invoiceTypeLabels, type) ? (type as InvoiceType) : undefined;
 
   return (
     <div>
@@ -35,6 +44,8 @@ export default async function NewInvoicePage({
         plans={plans}
         defaultTaxRate={org.defaultTaxRate}
         defaultCustomerId={customer}
+        defaultType={defaultType}
+        pendingContracts={pendingContracts}
       />
     </div>
   );

@@ -1,18 +1,31 @@
-import { ArrowRight, Inbox } from "lucide-react";
+import { ArrowRight, FilePlus2, Inbox } from "lucide-react";
 import Link from "next/link";
 import { IssueLinkDialog } from "@/components/orders/issue-link-dialog";
 import { ApplicationStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
+import { buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { appUrl } from "@/lib/config";
 import { getServiceRepository } from "@/lib/data";
-import { applicationLinkKind, requestedServices } from "@/lib/domain/application";
+import {
+  applicationLinkKind,
+  isPendingApplication,
+  requestedServices,
+} from "@/lib/domain/application";
+import {
+  applicationBillingLookup,
+  newInvoiceHref,
+  type ApplicationBilling,
+} from "@/lib/orders/application-billing";
+import type { Application } from "@/lib/domain/types";
 import { linkDetails } from "@/lib/orders/link-details";
-import { formatDateTime } from "@/lib/utils";
+import { loadOrderBook } from "@/lib/orders/load";
+import { formatDateTime, formatJPY } from "@/lib/utils";
 import { ApplicationLinkManager } from "@/components/orders/link-manager";
+import { RegisterAndInvoiceButton } from "./register-invoice-button";
 
 export const metadata = { title: "申込・契約URL" };
 
@@ -22,23 +35,25 @@ export const dynamic = "force-dynamic";
 /**
  * 申込・契約URLの一覧と、URLから届いた申込の一覧。
  * 申込のあとの流れ(受注確認・導入準備)は受注管理で追う。
+ * 届いた申込からは、そのまま請求書を作成できる(まだ顧客でなければ顧客登録から)。
  */
 export default async function ApplicationsPage() {
   const repo = await getServiceRepository();
-  const [links, applications, plans, agencies, members, referrals, org] = await Promise.all([
+  const [links, referrals, org, book] = await Promise.all([
     repo.listApplicationLinks(),
-    repo.listApplications(),
-    repo.listPlans(),
-    repo.listAgencies(),
-    repo.listAgencyMembers(),
     repo.listReferrals(),
     repo.getOrganization(),
+    // 顧客が実在するか・請求書と入金の状況を申込ごとに出すため、受注管理と同じ集計を読む
+    loadOrderBook(repo, { sync: false }),
   ]);
+  const { applications, plans, agencies, agencyMembers: members } = book;
+  const billingOf = applicationBillingLookup(book);
 
   const customerLinks = links.filter((l) => applicationLinkKind(l) !== "agency");
   const agencyLinks = links.filter((l) => applicationLinkKind(l) === "agency");
   const details = linkDetails(links, { plans, agencies, members, referrals });
-  const pendingOnly = applications.filter((a) => a.status === "submitted").length;
+  const rows = applications.map((a) => ({ app: a, billing: billingOf(a) }));
+  const pendingCount = rows.filter((r) => isPendingApplication(r.app, r.billing.state)).length;
   const baseUrl = appUrl?.replace(/\/$/, "") ?? "";
 
   return (
@@ -69,9 +84,9 @@ export default async function ApplicationsPage() {
         <SummaryTile label="代理店URL" value={`${agencyLinks.length}件`} />
         <SummaryTile label="申込 合計" value={`${applications.length}件`} />
         <SummaryTile
-          label="申込のみ・未対応"
-          value={`${pendingOnly}件`}
-          accent={pendingOnly > 0}
+          label="顧客登録がまだの申込"
+          value={`${pendingCount}件`}
+          accent={pendingCount > 0}
         />
       </div>
 
@@ -98,8 +113,8 @@ export default async function ApplicationsPage() {
       <Card className="p-4">
         <h2 className="mb-1 text-sm font-semibold">届いた申込</h2>
         <p className="mb-3 text-xs text-muted-foreground">
-          申込＋契約URLからの申込は、顧客・契約書（締結済）・受注管理の案件まで自動で作られます。
-          「申込のみ」のURLから届いたものは、内容を確認して「顧客として登録」→ 契約書を送付してください。
+          申込＋契約URLからの申込は、顧客・契約書（締結済）・受注管理の案件まで自動で作られます（請求は受注管理の「受注を確定する」で始まります）。
+          「申込のみ」のURLから届いたものは「顧客登録して請求書を作成」で、申込内容のまま顧客を登録して請求書を作れます。
         </p>
         {applications.length === 0 ? (
           <EmptyState
@@ -116,12 +131,13 @@ export default async function ApplicationsPage() {
                 <TH>連絡先</TH>
                 <TH>希望連携</TH>
                 <TH>状態</TH>
+                <TH>請求</TH>
                 <TH>受付日時</TH>
                 <TH>URL</TH>
               </TR>
             </THead>
             <TBody>
-              {applications.map((a) => {
+              {rows.map(({ app: a, billing }) => {
                 const services = requestedServices(a);
                 return (
                   <TR key={a.id}>
@@ -156,12 +172,12 @@ export default async function ApplicationsPage() {
                     </TD>
                     <TD>
                       <div className="flex flex-wrap items-center gap-1">
-                        {a.contractId ? (
+                        {a.contractId && billing.state === "registered" ? (
                           <Badge tone="success">契約締結済</Badge>
                         ) : (
-                          <ApplicationStatusBadge status={a.status} />
+                          <ApplicationStatusBadge status={billing.display} />
                         )}
-                        {a.customerId && (
+                        {billing.state === "registered" && a.customerId && (
                           <Link
                             href={`/orders/${a.customerId}`}
                             className="text-xs text-primary hover:underline"
@@ -170,6 +186,9 @@ export default async function ApplicationsPage() {
                           </Link>
                         )}
                       </div>
+                    </TD>
+                    <TD className="text-xs">
+                      <BillingCell app={a} billing={billing} />
                     </TD>
                     <TD className="tabular text-xs">{formatDateTime(a.submittedAt)}</TD>
                     <TD className="text-xs text-muted-foreground">{a.linkName || "—"}</TD>
@@ -180,6 +199,72 @@ export default async function ApplicationsPage() {
           </Table>
         )}
       </Card>
+    </div>
+  );
+}
+
+/** 「請求」欄: 請求書と入金の状況、請求書を作るボタン */
+function BillingCell({
+  app,
+  billing,
+}: {
+  app: Pick<Application, "id" | "companyName" | "customerId" | "status">;
+  billing: ApplicationBilling;
+}) {
+  if (billing.state === "deleted") {
+    return (
+      <div className="space-y-1">
+        <div className="text-destructive">登録した顧客は削除されています</div>
+        <Link href={`/applications/${app.id}`} className="text-primary hover:underline">
+          ゴミ箱から戻す・登録し直す →
+        </Link>
+      </div>
+    );
+  }
+  if (billing.state === "none") {
+    if (app.status === "archived") return <span className="text-muted-foreground">—</span>;
+    return <RegisterAndInvoiceButton applicationId={app.id} companyName={app.companyName} />;
+  }
+
+  const customerId = app.customerId!;
+  return (
+    <div className="space-y-1.5">
+      <div>
+        {billing.invoices.length === 0 ? (
+          <span className="text-muted-foreground">請求書なし</span>
+        ) : (
+          <>
+            <span>請求書 {billing.invoices.length}件</span>
+            {billing.unpaidCount > 0 ? (
+              <div className="tabular font-medium text-[hsl(38_92%_32%)] dark:text-warning">
+                未入金 {formatJPY(billing.unpaidAmount)}（{billing.unpaidCount}件）
+              </div>
+            ) : billing.draftCount > 0 ? (
+              <div className="text-muted-foreground">下書き {billing.draftCount}件（未送付）</div>
+            ) : (
+              <div className="text-success">すべて入金済み</div>
+            )}
+          </>
+        )}
+      </div>
+      {billing.awaitingConfirm ? (
+        <Link
+          href={`/orders/${customerId}`}
+          className={buttonClasses({ size: "sm", variant: "outline" })}
+          title="契約書どおりの初回請求書と毎月の請求を作成します"
+        >
+          受注を確定して請求
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
+      ) : (
+        <Link
+          href={newInvoiceHref(customerId, billing)}
+          className={buttonClasses({ size: "sm", variant: "outline" })}
+        >
+          <FilePlus2 className="h-4 w-4" />
+          請求書を作成
+        </Link>
+      )}
     </div>
   );
 }

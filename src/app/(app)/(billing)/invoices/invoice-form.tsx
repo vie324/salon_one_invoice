@@ -1,6 +1,7 @@
 "use client";
 
 import { Plus, Send, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import { createInvoiceAction } from "@/app/actions/invoices";
@@ -22,16 +23,35 @@ type Row = { description: string; quantity: number; unitPrice: number; taxRate: 
 
 const emptyRow = (taxRate: number): Row => ({ description: "", quantity: 1, unitPrice: 0, taxRate });
 
+/** 締結済みで、まだ受注確定(請求の開始)していない契約書 */
+export interface PendingContract {
+  customerId: string;
+  contractNumber: string;
+}
+
+/**
+ * 区分に合わせた支払方法。初期費用(初回請求書)は銀行振込でいただく運用のため
+ * (口座振替のままだと NSS の引き落とし対象に入ってしまう)。それ以外は顧客の支払方法。
+ */
+function paymentMethodFor(customer: Customer | undefined, type: InvoiceType): PaymentMethod {
+  if (type === "initial") return "bank_transfer";
+  return customer?.paymentMethod ?? "direct_debit";
+}
+
 export function InvoiceForm({
   customers,
   plans,
   defaultTaxRate,
   defaultCustomerId,
+  defaultType,
+  pendingContracts = [],
 }: {
   customers: Customer[];
   plans: Plan[];
   defaultTaxRate: number;
   defaultCustomerId?: string;
+  defaultType?: InvoiceType;
+  pendingContracts?: PendingContract[];
 }) {
   const router = useRouter();
   const today = toISODate(new Date());
@@ -41,13 +61,17 @@ export function InvoiceForm({
     defaultCustomerId && customers.some((c) => c.id === defaultCustomerId)
       ? defaultCustomerId
       : (activeCustomers[0] ?? customers[0])?.id ?? "";
+  const initialType = defaultType ?? "one_time";
   const [customerId, setCustomerId] = React.useState(initialCustomer);
-  const [type, setType] = React.useState<InvoiceType>("one_time");
+  const [type, setType] = React.useState<InvoiceType>(initialType);
   const [planId, setPlanId] = React.useState<string>("");
   const [issueDate, setIssueDate] = React.useState(today);
   const [dueDate, setDueDate] = React.useState(computeDueDate(today));
   const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>(
-    customers.find((c) => c.id === initialCustomer)?.paymentMethod ?? "direct_debit",
+    paymentMethodFor(
+      customers.find((c) => c.id === initialCustomer),
+      initialType,
+    ),
   );
   const [rows, setRows] = React.useState<Row[]>([emptyRow(defaultTaxRate)]);
   const [notes, setNotes] = React.useState("");
@@ -55,11 +79,17 @@ export function InvoiceForm({
   const [pending, startTransition] = React.useTransition();
 
   const customer = customers.find((c) => c.id === customerId);
+  const pendingContract = pendingContracts.find((c) => c.customerId === customerId) ?? null;
 
   // 顧客変更 → 支払方法を追従
   React.useEffect(() => {
-    if (customer) setPaymentMethod(customer.paymentMethod);
+    if (customer) setPaymentMethod(paymentMethodFor(customer, type));
   }, [customerId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const changeType = (next: InvoiceType) => {
+    setType(next);
+    setPaymentMethod(paymentMethodFor(customer, next));
+  };
 
   // プラン選択 → 明細を差し替え
   const applyPlan = (id: string) => {
@@ -135,10 +165,28 @@ export function InvoiceForm({
                 )}
               </Select>
             </Field>
-            <Field label="区分" hint="「初期費用」にすると、受注管理の初回請求書（入金の確認）として扱われます。">
+            {pendingContract && (
+              <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2.5 text-xs sm:col-span-2">
+                <p>
+                  締結済みの契約書（{pendingContract.contractNumber}）があり、まだ受注確定（請求の開始）をしていません。
+                  初回請求書（初期費用＋初月日割り）は、受注管理の「受注を確定する」で作ると契約どおりの金額で作成され、
+                  毎月の請求（定期契約）もまとめて登録されます。
+                </p>
+                <Link
+                  href={`/orders/${customerId}`}
+                  className="mt-1 inline-block font-medium text-primary hover:underline"
+                >
+                  案件ページで受注を確定する →
+                </Link>
+              </div>
+            )}
+            <Field
+              label="区分"
+              hint="「初期費用」にすると、受注管理の初回請求書（入金の確認）として扱われます（銀行振込でのお支払い）。"
+            >
               <Select
                 value={type}
-                onChange={(e) => setType(e.target.value as InvoiceType)}
+                onChange={(e) => changeType(e.target.value as InvoiceType)}
               >
                 {(Object.keys(invoiceTypeLabels) as InvoiceType[]).map((t) => (
                   <option key={t} value={t}>

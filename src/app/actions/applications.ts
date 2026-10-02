@@ -20,6 +20,8 @@ import type {
 } from "@/lib/domain/types";
 import { submitOrder, type OrderSubmission } from "@/lib/orders/submit";
 
+const APPLICATION_STATUSES: ApplicationStatus[] = ["submitted", "customer_created", "archived"];
+
 function revalidateApplications(id?: string) {
   revalidatePath("/applications");
   revalidatePath("/dashboard");
@@ -161,16 +163,28 @@ export async function revealApplicationCredentialsAction(id: string) {
 export async function updateApplicationStatusAction(id: string, status: ApplicationStatus) {
   try {
     await requireApplicationUser();
+    if (!APPLICATION_STATUSES.includes(status)) throw new Error("対応状況を選んでください");
     const repo = await getServiceRepository();
+    const app = await repo.getApplication(id);
+    if (!app) throw new Error("申込が見つかりません");
+    // 「顧客登録済」は顧客を作ったときだけ。状態だけ変えると、顧客が無いまま
+    // 登録済みに見えて、請求書の作成画面にも受注管理の対応待ちにも出てこなくなる
+    if (status === "customer_created") {
+      const customer = app.customerId ? await repo.getCustomer(app.customerId) : null;
+      if (!customer) {
+        throw new Error("顧客の登録は「顧客として登録」から行ってください（顧客が作られ、請求書を作成できるようになります）");
+      }
+    }
     await repo.updateApplicationStatus(id, status);
     revalidateApplications(id);
+    revalidatePath("/orders");
     return { ok: true as const };
   } catch (e) {
     return { ok: false as const, error: (e as Error).message };
   }
 }
 
-/** 申込内容から顧客を作成する。 */
+/** 申込内容から顧客を作成する(登録した顧客を削除していた場合は、もう一度登録する)。 */
 export async function createCustomerFromApplicationAction(id: string) {
   try {
     const user = await requireApplicationUser();
@@ -178,6 +192,8 @@ export async function createCustomerFromApplicationAction(id: string) {
     const customer = await repo.createCustomerFromApplication(id, user.name);
     revalidateApplications(id);
     revalidatePath("/customers");
+    revalidatePath("/orders");
+    revalidatePath("/referrals");
     return { ok: true as const, customerId: customer.id };
   } catch (e) {
     return { ok: false as const, error: (e as Error).message };

@@ -1,5 +1,6 @@
 import type { Repository } from "@/lib/data/repository";
 import { resolveDealType } from "@/lib/domain/agency";
+import { applicationCustomerState, isPendingApplication } from "@/lib/domain/application";
 import { AUTO_STAGE_ACTOR, computeOrderProgress, type OrderProgress } from "@/lib/domain/onboarding";
 import type {
   Agency,
@@ -50,10 +51,12 @@ export interface OrderRow {
 export interface OrderBook {
   rows: OrderRow[];
   /**
-   * 「申込のみ」URLから届き、まだ顧客登録していない申込(古い順)。
+   * まだ顧客登録していない申込(古い順。主に「申込のみ」URLから届いたもの。「対応不要」は除く)。
    * 案件(顧客)になる前なので rows には入らないが、対応待ちとして扱う。
    */
   pendingApplications: Application[];
+  /** 届いた申込すべて(新しい順) */
+  applications: Application[];
   plans: Plan[];
   agencies: Agency[];
   agencyMembers: AgencyMember[];
@@ -164,11 +167,13 @@ export async function loadOrderBook(
     }
     rows.push(row);
   }
+  // 対応状況を手で「顧客登録済」にしただけ(顧客が無い)の申込も、登録するまで対応待ちに残す
+  const liveCustomerIds = new Set(customers.map((c) => c.id));
   const pendingApplications = applications
-    .filter((a) => a.status === "submitted" && !a.customerId)
+    .filter((a) => isPendingApplication(a, applicationCustomerState(a, liveCustomerIds)))
     .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
 
-  return { rows, pendingApplications, plans, agencies, agencyMembers };
+  return { rows, pendingApplications, applications, plans, agencies, agencyMembers };
 }
 
 /** 案件を「対応が急ぐ順」に並べる(受注確認 → 遅れあり → 停滞日数の長い順) */
