@@ -1,4 +1,9 @@
-import type { Application, ApplicationLink, ServiceCredential } from "./types";
+import type {
+  Application,
+  ApplicationDisplayStatus,
+  ApplicationLink,
+  ServiceCredential,
+} from "./types";
 import { APPLICATION_SERVICES } from "./constants";
 
 /**
@@ -86,6 +91,43 @@ export function requestedServices(app: Application): string[] {
   );
   if (app.lineRequested) names.push("LINE連携");
   return names;
+}
+
+/**
+ * 申込から登録した顧客の状態。保存している対応状況(status)ではなく、顧客が実在するかで決める。
+ * 対応状況を手で「顧客登録済」にしただけの申込や、登録した顧客を削除(ゴミ箱へ移動)した申込を
+ * 「登録済み」と取り違えると、請求書の作成画面に出てこない・案件ページが開けない、となるため。
+ *   - registered: 顧客が存在する(請求書を作成できる)
+ *   - deleted:    登録した顧客が削除されている(ゴミ箱から戻すか、もう一度登録する)
+ *   - none:       まだ顧客として登録していない
+ */
+export type ApplicationCustomerState = "registered" | "deleted" | "none";
+
+export function applicationCustomerState(
+  app: Pick<Application, "customerId">,
+  liveCustomerIds: ReadonlySet<string>,
+): ApplicationCustomerState {
+  if (!app.customerId) return "none";
+  return liveCustomerIds.has(app.customerId) ? "registered" : "deleted";
+}
+
+/** 画面に出す対応状況(「対応不要」は手で決めたものを優先し、それ以外は顧客の実在で決める) */
+export function applicationDisplayStatus(
+  app: Pick<Application, "status">,
+  state: ApplicationCustomerState,
+): ApplicationDisplayStatus {
+  if (app.status === "archived") return "archived";
+  if (state === "registered") return "customer_created";
+  if (state === "deleted") return "customer_deleted";
+  return "submitted";
+}
+
+/** まだ顧客として登録しておらず、対応が要る申込か(受注管理の「対応待ち」・未対応の件数) */
+export function isPendingApplication(
+  app: Pick<Application, "status">,
+  state: ApplicationCustomerState,
+): boolean {
+  return state === "none" && app.status !== "archived";
 }
 
 /**

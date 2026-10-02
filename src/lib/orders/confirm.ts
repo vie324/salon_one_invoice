@@ -120,6 +120,23 @@ export async function recordAgencyCommission(
   }
 }
 
+/**
+ * 受注確定の前に請求書の画面で作られた初回請求書(区分「初期費用」・取消以外)のうち、
+ * どの契約にも紐付いていないもの(いちばん新しいもの)。
+ */
+async function findUnlinkedInitialInvoice(repo: Repository, customerId: string) {
+  const [invoices, contracts] = await Promise.all([
+    repo.listInvoices({ customerId, type: "initial" }),
+    repo.listContracts({ customerId }),
+  ]);
+  const linked = new Set(contracts.map((c) => c.linkedInvoiceId).filter(Boolean));
+  return (
+    invoices
+      .filter((i) => i.status !== "canceled" && !linked.has(i.id))
+      .sort((a, b) => b.issueDate.localeCompare(a.issueDate))[0] ?? null
+  );
+}
+
 /** 請求書をメールで送る(送れたかと、画面に出す結果を返す) */
 export async function emailInvoice(
   repo: Repository,
@@ -150,6 +167,7 @@ export async function emailInvoice(
  * サロンワンの運用(初期費用＋初月日割りは請求書で銀行振込、以降は口座振替)に合わせて:
  * - 定期契約を作る(毎月の請求書を自動生成。翌月分から。店舗数・個別価格も契約書どおり)
  * - 初期費用＋初月日割り(利用開始日〜月末)の請求書(銀行振込)を作る
+ *   (請求書の画面で先に初回請求書を作っていたら、新しく作らずにそれを使う)
  * - 顧客の支払方法を口座振替にする(翌月以降は NSS の引き落とし)
  * - 紹介制度で登録された顧客は特典を自動適用(初月日割り無料＋2ヶ月無料、紹介者へ初期費用の25%)
  * - 代理店経由の顧客は代理店報酬(初期費用 × 区分の率)を記録する
@@ -199,12 +217,13 @@ export async function confirmOrder(params: {
   // 紹介謝礼・代理店報酬の対象になる初期費用(税抜)。初回請求に計上した額をそのまま使う
   let initialFeeCharged = 0;
   let initialItems: InvoiceItemInput[] = [];
+  let initialDetails: string[] = [];
   const terms = contract.terms;
 
   const addInitial = (built: ReturnType<typeof initialInvoiceItems>) => {
     initialItems = built.items;
     initialFeeCharged = built.initialFeeCharged;
-    details.push(...built.details);
+    initialDetails = built.details;
   };
 
   if (terms.planId) {
@@ -263,7 +282,17 @@ export async function confirmOrder(params: {
     };
   }
 
-  if (initialItems.length > 0) {
+  // 請求書の画面で先に初回請求書(区分「初期費用」)を作っていたら、それを使う(初期費用の二重請求を防ぐ)
+  const existingInitial =
+    initialItems.length > 0 ? await findUnlinkedInitialInvoice(repo, contract.customerId) : null;
+  let createdInvoice = false;
+  if (existingInitial) {
+    invoiceId = existingInitial.id;
+    details.push(
+      `作成済みの初回請求書 ${existingInitial.invoiceNumber} をこの契約の初回請求書にしました（新しい初回請求書は作っていません）`,
+    );
+  } else if (initialItems.length > 0) {
+    details.push(...initialDetails);
     const issueDate = toISODate(new Date());
     const inv = await repo.createInvoice({
       customerId: contract.customerId,
@@ -279,6 +308,7 @@ export async function confirmOrder(params: {
       status: "sent",
     });
     invoiceId = inv.id;
+    createdInvoice = true;
   }
 
   // 未紐付けの場合のみ紐付け(並行実行による二重の受注確定を防止)。
@@ -292,7 +322,7 @@ export async function confirmOrder(params: {
   });
   if (!linked) {
     if (subscriptionId) await repo.updateSubscriptionStatus(subscriptionId, "canceled");
-    if (invoiceId) await repo.updateInvoiceStatus(invoiceId, "canceled");
+    if (invoiceId && createdInvoice) await repo.updateInvoiceStatus(invoiceId, "canceled");
     return { ok: false, error: "この契約は既に受注確定（請求開始）済みです" };
   }
 
@@ -313,11 +343,13 @@ export async function confirmOrder(params: {
   }
   if (referred) details.push(referralFreePeriodLabel(startedOn));
 
-  // 初回請求書のメール送付
+  // 初回請求書のメール送付(作成済みの請求書を使ったときは、送付済みのことがあるので送らない)
   let emailResult: string | null = null;
   let emailed = false;
-  if (params.emailInvoice && invoiceId) {
+  if (params.emailInvoice && invoiceId && createdInvoice) {
     ({ emailed, emailResult } = await emailInvoice(repo, invoiceId));
+  } else if (params.emailInvoice && existingInitial) {
+    emailResult = `作成済みの初回請求書 ${existingInitial.invoiceNumber} を使ったため、メールは送っていません（必要なら請求書の画面から送付してください）`;
   }
 
   // 受注管理のチェック: 受注確定 = 申込内容の確認済み。メールで送ったなら送付済み

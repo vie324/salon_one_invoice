@@ -3926,7 +3926,10 @@ export class SupabaseRepository implements Repository {
   async createCustomerFromApplication(id: string, actor: string): Promise<Customer> {
     const app = await this.getApplication(id);
     if (!app) throw new Error("申込が見つかりません");
-    if (app.customerId) throw new Error("この申込は既に顧客として登録されています");
+    // 登録した顧客を削除(ゴミ箱へ移動)していた場合は、もう一度登録できる
+    if (app.customerId && (await this.getCustomer(app.customerId))) {
+      throw new Error("この申込は既に顧客として登録されています");
+    }
     const [linkRes, referral] = await Promise.all([
       app.linkId
         ? this.db.from("application_links").select("*").eq("id", app.linkId).maybeSingle()
@@ -3949,17 +3952,37 @@ export class SupabaseRepository implements Repository {
       agencyDealType: link?.agencyDealType ?? null,
       referredByCustomerId: referral?.referrerCustomerId ?? null,
     });
-    const { error } = await this.db
+    // 読んだ時点の紐付けのままのときだけ書き換える(二重クリック・同時操作で顧客が2件できるのを防ぐ)
+    const linkQuery = this.db
       .from("applications")
       .update({ customer_id: customer.id, status: "customer_created" })
       .eq("id", id);
+    const { data: linked, error } = await (app.customerId
+      ? linkQuery.eq("customer_id", app.customerId)
+      : linkQuery.is("customer_id", null)
+    ).select("id");
     if (error) throw error;
+    if (!linked?.length) {
+      await this.softDeleteRecord("customer", customer.id, {
+        actor,
+        reason: "同じ申込からの二重登録のため取り消し",
+      });
+      throw new Error("この申込は既に顧客として登録されています");
+    }
     if (referral && !referral.customerId) {
       const { error: refError } = await this.db
         .from("referrals")
         .update({ customer_id: customer.id, status: "customer_created" })
         .eq("id", referral.id)
         .is("customer_id", null);
+      if (refError) throw refError;
+    } else if (referral && app.customerId && referral.customerId === app.customerId) {
+      // 削除した顧客に付いていた紹介は、登録し直した顧客へ付け替える
+      const { error: refError } = await this.db
+        .from("referrals")
+        .update({ customer_id: customer.id })
+        .eq("id", referral.id)
+        .eq("customer_id", app.customerId);
       if (refError) throw refError;
     }
     return customer;

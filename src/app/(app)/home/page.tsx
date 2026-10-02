@@ -213,8 +213,8 @@ async function loadBilling(repo: Repository, month: string) {
     todos.push({
       href: "/orders",
       icon: UserCheck,
-      label: "未対応の申込（申込のみURL）",
-      detail: "顧客として登録し、契約書を送付",
+      label: "顧客登録がまだの申込",
+      detail: "顧客として登録し、契約書の送付・請求書の作成へ",
       count: pendingApps,
       tone: "warning",
     });

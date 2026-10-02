@@ -2307,7 +2307,11 @@ export class DemoRepository implements Repository {
   async createCustomerFromApplication(id: string, actor: string): Promise<Customer> {
     const app = this.s.applications.find((a) => a.id === id);
     if (!app) throw new Error("申込が見つかりません");
-    if (app.customerId) throw new Error("この申込は既に顧客として登録されています");
+    // 登録した顧客を削除(ゴミ箱へ移動)していた場合は、もう一度登録できる
+    if (app.customerId && this.s.customers.some((c) => c.id === app.customerId && alive(c))) {
+      throw new Error("この申込は既に顧客として登録されています");
+    }
+    const previousCustomerId = app.customerId;
     const link = app.linkId ? this.s.applicationLinks.find((l) => l.id === app.linkId) : undefined;
     const referral = app.referralId
       ? this.s.referrals.find((r) => r.id === app.referralId)
@@ -2331,6 +2335,10 @@ export class DemoRepository implements Repository {
     if (referral && !referral.customerId) {
       referral.customerId = customer.id;
       referral.status = "customer_created";
+      referral.updatedAt = new Date().toISOString();
+    } else if (referral && previousCustomerId && referral.customerId === previousCustomerId) {
+      // 削除した顧客に付いていた紹介は、登録し直した顧客へ付け替える
+      referral.customerId = customer.id;
       referral.updatedAt = new Date().toISOString();
     }
     return customer;

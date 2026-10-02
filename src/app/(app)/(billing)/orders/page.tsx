@@ -374,11 +374,11 @@ function PendingApplications({ applications }: { applications: Application[] }) 
   return (
     <div className="rounded-md border border-border">
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/40 px-3 py-2">
-        <span className="text-sm font-semibold">届いた申込の確認（申込のみURL）</span>
+        <span className="text-sm font-semibold">届いた申込の確認（顧客登録がまだ）</span>
         <OwnerBadge owner="billing" />
         <span className="tabular text-xs text-muted-foreground">{applications.length}件</span>
         <span className="hidden text-xs text-muted-foreground md:inline">
-          — 内容を確認して「顧客として登録」し、契約書を作成・送付します
+          — 内容を確認して「顧客として登録」し、契約書を作成・送付します（すぐ請求するなら「顧客登録して請求書を作成」）
         </span>
       </div>
       <ul className="divide-y divide-border">

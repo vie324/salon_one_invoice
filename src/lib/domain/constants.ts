@@ -507,21 +507,23 @@ export function devSchedulePriorityStars(priority: number): string {
 /* ---- 申込 ---- */
 
 export const applicationStatusLabels: Record<
-  import("./types").ApplicationStatus,
+  import("./types").ApplicationDisplayStatus,
   string
 > = {
   submitted: "未対応",
   customer_created: "顧客登録済",
   archived: "対応不要",
+  customer_deleted: "顧客を削除済み",
 };
 
 export const applicationStatusTone: Record<
-  import("./types").ApplicationStatus,
+  import("./types").ApplicationDisplayStatus,
   BadgeTone
 > = {
   submitted: "warning",
   customer_created: "success",
   archived: "neutral",
+  customer_deleted: "danger",
 };
 
 /** 申込URLの既定有効日数(0 = 無期限) */
