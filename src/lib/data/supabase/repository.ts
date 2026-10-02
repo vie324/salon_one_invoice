@@ -9,6 +9,7 @@ import {
   generateApplicationToken,
 } from "@/lib/domain/application";
 import {
+  billingDateInMonth,
   calcInvoiceTotals,
   computeNextBillingDate,
   effectiveStatus,
@@ -30,8 +31,10 @@ import {
 import { computeDashboardMetrics } from "@/lib/domain/metrics";
 import { referralNotes, referralReward } from "@/lib/domain/referral";
 import {
+  applyChecklistToggles,
   defaultChecklist,
   initialStageFor,
+  legacyProgressFrom,
   mergeChecklist,
   normalizeStage,
 } from "@/lib/domain/onboarding";
@@ -71,6 +74,7 @@ import type {
   Invoice,
   InvoiceItem,
   InvoiceStatus,
+  InvoiceType,
   InvoiceWithCustomer,
   NotificationType,
   Organization,
@@ -342,6 +346,8 @@ function mapOnboarding(r: any): CustomerOnboarding {
       at: h.at,
       by: h.by ?? "",
     })),
+    // 旧「顧客ステータス」での進み具合(読み替え前の履歴・旧チェックから読み取る)
+    legacy: legacyProgressFrom(r.checklist, r.history),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -1025,11 +1031,10 @@ export class SupabaseRepository implements Repository {
         plan_id: input.planId,
         status: "active",
         started_on: input.startedOn,
-        next_billing_date: deferBilling(
-          computeNextBillingDate(input.startedOn, billingDay),
-          input.freeMonths ?? 0,
-          billingDay,
-        ),
+        // 最初に請求する月の指定があればその月から。無ければ紹介制度の無料月数ぶん先送りする
+        next_billing_date: input.firstBillingMonth
+          ? billingDateInMonth(input.firstBillingMonth, billingDay)
+          : deferBilling(computeNextBillingDate(input.startedOn, billingDay), input.freeMonths ?? 0, billingDay),
         billing_day: billingDay,
         option_keys: input.optionKeys ?? [],
         price_override: input.priceOverride ?? null,
@@ -1355,20 +1360,15 @@ export class SupabaseRepository implements Repository {
     if (input.stage !== undefined && input.stage !== current.stage) {
       patch.stage = input.stage;
       patch.stage_changed_at = nowIso;
-      patch.history = [...current.history, { stage: input.stage, at: nowIso, by: actor }];
+      // 履歴は保存されている形(読み替え前のステージ名)のまま残す。旧画面からの引き継ぎに使う
+      const rawHistory = Array.isArray(row.history) ? row.history : [];
+      patch.history = [...rawHistory, { stage: input.stage, at: nowIso, by: actor }];
     }
     if (input.dueDate !== undefined) patch.due_date = input.dueDate;
     if (input.nextAction !== undefined) patch.next_action = input.nextAction;
     if (input.checklist?.length) {
-      const checklist = mergeChecklist(current.checklist);
-      for (const t of input.checklist) {
-        const item = checklist.find((c) => c.key === t.key);
-        if (!item || item.done === t.done) continue;
-        item.done = t.done;
-        item.doneAt = t.done ? nowIso : null;
-        item.doneBy = t.done ? actor : "";
-      }
-      patch.checklist = checklist;
+      // 旧「顧客ステータス」のチェックは消さずに残す
+      patch.checklist = applyChecklistToggles(row.checklist as any[], input.checklist, actor, nowIso);
     }
 
     const { data, error } = await this.db
@@ -1570,6 +1570,22 @@ export class SupabaseRepository implements Repository {
       .select(INVOICE_SELECT)
       .single();
     if (error) throw error;
+    return mapInvoice(data);
+  }
+
+  async updateInvoiceType(id: string, type: InvoiceType): Promise<Invoice> {
+    const patch: Record<string, unknown> = { type };
+    // 定期請求の対象月は「定期」の請求書だけが持つ
+    if (type !== "recurring") patch.billing_period = null;
+    const { data, error } = await this.db
+      .from("invoices")
+      .update(patch)
+      .eq("id", id)
+      .is("deleted_at", null)
+      .select(INVOICE_SELECT)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("請求書が見つかりません");
     return mapInvoice(data);
   }
 

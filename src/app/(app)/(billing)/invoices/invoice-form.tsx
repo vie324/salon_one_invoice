@@ -35,10 +35,12 @@ export function InvoiceForm({
 }) {
   const router = useRouter();
   const today = toISODate(new Date());
+  const activeCustomers = customers.filter((c) => c.status !== "inactive");
+  const inactiveCustomers = customers.filter((c) => c.status === "inactive");
   const initialCustomer =
     defaultCustomerId && customers.some((c) => c.id === defaultCustomerId)
       ? defaultCustomerId
-      : customers[0]?.id ?? "";
+      : (activeCustomers[0] ?? customers[0])?.id ?? "";
   const [customerId, setCustomerId] = React.useState(initialCustomer);
   const [type, setType] = React.useState<InvoiceType>("one_time");
   const [planId, setPlanId] = React.useState<string>("");
@@ -117,14 +119,23 @@ export function InvoiceForm({
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <Field label="顧客" className="sm:col-span-2">
               <Select value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
-                {customers.map((c) => (
+                {activeCustomers.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}（{c.code}）
                   </option>
                 ))}
+                {inactiveCustomers.length > 0 && (
+                  <optgroup label="休止中のお客様">
+                    {inactiveCustomers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}（{c.code}・休止中）
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </Select>
             </Field>
-            <Field label="区分">
+            <Field label="区分" hint="「初期費用」にすると、受注管理の初回請求書（入金の確認）として扱われます。">
               <Select
                 value={type}
                 onChange={(e) => setType(e.target.value as InvoiceType)}
@@ -276,7 +287,7 @@ export function InvoiceForm({
                 {customer.name} 様は
                 <strong> {paymentMethodLabels[paymentMethod]}</strong>
                 でのお支払いです。
-                {paymentMethod === "direct_debit" && "送付後は口座振替バッチに含められます。"}
+                {paymentMethod === "direct_debit" && "送付後は「NSS引き落とし」の対象になります。"}
               </p>
             )}
             {error && <p className="text-sm text-destructive">{error}</p>}

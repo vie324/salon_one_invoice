@@ -41,33 +41,38 @@ export interface ConfirmPreview {
   defaultStartDate: string | null;
 }
 
-/** 受注確定の結果を ConfirmResultNotice へ渡すイベント */
-const ORDER_CONFIRMED_EVENT = "salonone:order-confirmed";
+/** 受注確定・請求の設定の結果を ConfirmResultNotice へ渡すイベント */
+const ORDER_RESULT_EVENT = "salonone:order-result";
+
+/** 受注管理の操作結果(作ったもの・メール送付の結果)を、ページ上のダイアログに出す */
+export function announceOrderResult(title: string, detail: string) {
+  window.dispatchEvent(new CustomEvent(ORDER_RESULT_EVENT, { detail: { title, detail } }));
+}
 
 /**
- * 受注確定の結果(作ったもの・初回請求書のメール送付結果)を表示する。
+ * 受注確定・請求の設定の結果(作ったもの・初回請求書のメール送付結果)を表示する。
  * 確定すると「受注を確定する」の行は完了に変わってボタンごと消えるため、
  * 結果はページに常に置いてあるこの部品で表示する(ボタン側のダイアログでは消えてしまう)。
  */
 export function ConfirmResultNotice() {
-  const [result, setResult] = React.useState<string | null>(null);
+  const [result, setResult] = React.useState<{ title: string; detail: string } | null>(null);
   React.useEffect(() => {
-    const onConfirmed = (e: Event) => setResult((e as CustomEvent<string>).detail);
-    window.addEventListener(ORDER_CONFIRMED_EVENT, onConfirmed);
-    return () => window.removeEventListener(ORDER_CONFIRMED_EVENT, onConfirmed);
+    const onResult = (e: Event) => setResult((e as CustomEvent<{ title: string; detail: string }>).detail);
+    window.addEventListener(ORDER_RESULT_EVENT, onResult);
+    return () => window.removeEventListener(ORDER_RESULT_EVENT, onResult);
   }, []);
   return (
     <Dialog
       open={result !== null}
       onClose={() => setResult(null)}
-      title="受注を確定しました"
+      title={result?.title ?? "受注を確定しました"}
       className="max-w-lg"
     >
       {result !== null && (
         <div className="space-y-4">
           <div className="flex items-start gap-2 rounded-md bg-success/10 p-3 text-sm">
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
-            <span className="whitespace-pre-wrap">{result.split(" / ").join("\n")}</span>
+            <span className="whitespace-pre-wrap">{result.detail.split(" / ").join("\n")}</span>
           </div>
           <p className="text-xs text-muted-foreground">
             続けて「導入準備」（初回請求書の送付・口座振替依頼書の郵送・初期設定）を進めてください。
@@ -114,10 +119,9 @@ export function ConfirmOrderButton({ preview }: { preview: ConfirmPreview }) {
         return;
       }
       setOpen(false);
-      window.dispatchEvent(
-        new CustomEvent(ORDER_CONFIRMED_EVENT, {
-          detail: res.emailResult ? `${res.detail} / ${res.emailResult}` : res.detail,
-        }),
+      announceOrderResult(
+        "受注を確定しました",
+        res.emailResult ? `${res.detail} / ${res.emailResult}` : res.detail,
       );
       router.refresh();
     });
@@ -231,22 +235,33 @@ export function ManualCheck({
   itemKey,
   done,
   disabled,
+  label = "完了にする",
+  undoLabel = "取り消す",
+  confirmText,
 }: {
   customerId: string;
   itemKey: ManualChecklistKey;
   done: boolean;
   disabled?: boolean;
+  /** 未完了のときのボタン名 */
+  label?: string;
+  /** 完了しているときのボタン名 */
+  undoLabel?: string;
+  /** 押す前に確認するときの文 */
+  confirmText?: string;
 }) {
   const router = useRouter();
   const [pending, start] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
-  const toggle = () =>
+  const toggle = () => {
+    if (!done && confirmText && !window.confirm(confirmText)) return;
     start(async () => {
       setError(null);
       const res = await toggleOrderChecklistAction(customerId, itemKey, !done);
       if (!res.ok) setError(res.error);
       router.refresh();
     });
+  };
   return (
     <span className="inline-flex flex-col items-end gap-1">
       <Button
@@ -258,12 +273,12 @@ export function ManualCheck({
         {done ? (
           <>
             <Undo2 className="h-3.5 w-3.5" />
-            取り消す
+            {undoLabel}
           </>
         ) : (
           <>
             <CheckCircle2 className="h-3.5 w-3.5" />
-            完了にする
+            {label}
           </>
         )}
       </Button>

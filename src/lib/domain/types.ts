@@ -1045,6 +1045,26 @@ export interface OnboardingChecklistItem {
   done: boolean;
   doneAt: string | null;
   doneBy: string;
+  /**
+   * 受注管理(移行後の画面)で最後に付け外しした日時。
+   * 旧「顧客ステータス」のままの項目には無い(旧画面の記録から引き継ぐかの判定に使う)。
+   */
+  updatedAt?: string | null;
+}
+
+/**
+ * 旧「顧客ステータス」(カンバン・移行前)で手で記録していた進み具合。
+ * システムに契約書・初回請求書が無いまま手で進めていた過去のお客様を、受注管理で引き継ぐために使う。
+ */
+export interface LegacyOnboardingProgress {
+  /** 旧画面で最後に置いていたステージ(表示用。例:「入金チェック」) */
+  stageLabel: string;
+  /** 契約は済んでいた(旧画面で「初回請求」以降に進めていた) */
+  contractDone: boolean;
+  /** 初回請求書の発行・送付は済んでいた(旧画面で「振替手続き」以降に進めていた) */
+  invoiceIssued: boolean;
+  /** 初回入金の確認は済んでいた(旧画面で「運用中」まで進めていた) */
+  paymentChecked: boolean;
 }
 
 /** ステージ移動の履歴(カードのタイムライン表示用) */
@@ -1069,6 +1089,8 @@ export interface CustomerOnboarding {
   /** 現在のステージに入った日時(滞留日数の表示用) */
   stageChangedAt: string;
   history: OnboardingStageEvent[];
+  /** 旧「顧客ステータス」から引き継ぐ進み具合(受注管理になってから作った案件は null) */
+  legacy: LegacyOnboardingProgress | null;
   createdAt: string;
   updatedAt: string;
 }

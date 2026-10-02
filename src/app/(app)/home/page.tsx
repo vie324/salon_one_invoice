@@ -223,8 +223,8 @@ async function loadBilling(repo: Repository, month: string) {
     todos.push({
       href: "/orders?stage=review",
       icon: UserCheck,
-      label: "受注確認待ちの申込",
-      detail: "内容を確認して「受注を確定」",
+      label: "受注確認・請求の開始待ち",
+      detail: "内容を確認して「受注を確定」（契約書が無いお客様は「請求を開始」）",
       count: reviewWaiting,
       tone: "warning",
     });
@@ -247,7 +247,7 @@ async function loadBilling(repo: Repository, month: string) {
       detail:
         setupLate > 0
           ? `うち遅れ ${setupLate}件（初回入金の期限超過・依頼書の返送待ちなど）`
-          : "初回請求書の送付・NSS の手続き・初期設定",
+          : "毎月の請求の登録・初回請求書の送付・入金確認・NSS の手続き・初期設定",
       count: setupActions.length,
       tone: setupLate > 0 ? "danger" : "info",
     });

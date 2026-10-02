@@ -9,9 +9,140 @@ import { computeDueDate, prorateMonthly, subscriptionMonthly } from "@/lib/domai
 import { AGENCY_DEAL_TYPES, REFERRAL_FREE_MONTHS, REFERRAL_REWARD_RATE } from "@/lib/domain/constants";
 import { subscriptionFromTerms } from "@/lib/domain/pricing";
 import { referralFreePeriodLabel, referralReward } from "@/lib/domain/referral";
+import type { Customer } from "@/lib/domain/types";
 import { getEmailProvider } from "@/lib/email";
 import { invoiceEmailHtml } from "@/lib/email/templates";
 import { formatJPY, toISODate } from "@/lib/utils";
+
+/* ---------------------------------------------------------------------------
+ * 受注確定と「請求を開始」(契約書なし)で共通の部品
+ * ------------------------------------------------------------------------- */
+
+/**
+ * 初回請求書(初期費用＋初月日割り)の明細を組み立てる。
+ * 紹介制度で登録された顧客は、初月の端数日数を0円の明細として残す(何が無料かを示す)。
+ */
+export function initialInvoiceItems(params: {
+  startedOn: string;
+  initialFee: number;
+  /** 初期費用の明細名(例: 初期構築費用（CTR-202610-0001）) */
+  initialFeeLabel: string;
+  initialFeeTaxRate: number;
+  /** 初月日割りの元にする月額(税抜・全店舗)。null なら日割りを載せない */
+  monthly: { amount: number; taxRate: number } | null;
+  referred: boolean;
+}): { items: InvoiceItemInput[]; details: string[]; initialFeeCharged: number } {
+  const items: InvoiceItemInput[] = [];
+  const details: string[] = [];
+  let initialFeeCharged = 0;
+  if (params.initialFee > 0) {
+    items.push({
+      description: params.initialFeeLabel,
+      quantity: 1,
+      unitPrice: params.initialFee,
+      taxRate: params.initialFeeTaxRate,
+    });
+    initialFeeCharged = params.initialFee;
+    details.push(`初期費用 ${formatJPY(params.initialFee)}(税抜) を初回請求に計上`);
+  }
+  if (params.monthly && params.monthly.amount > 0) {
+    // 初月日割り: 利用開始日〜月末を暦日按分。翌月分からは定期請求(引き落とし)。
+    const proration = prorateMonthly(params.monthly.amount, params.startedOn);
+    if (proration.amount > 0) {
+      items.push({
+        description: params.referred
+          ? `月額利用料 初月日割り（${proration.label}）※ご紹介特典により無料`
+          : `月額利用料 初月日割り（${proration.label}）`,
+        quantity: 1,
+        unitPrice: params.referred ? 0 : proration.amount,
+        taxRate: params.monthly.taxRate,
+      });
+      details.push(
+        params.referred
+          ? `ご紹介特典により初月日割り ${formatJPY(proration.amount)}(税抜・${proration.days}日分)を無料`
+          : `初月日割り ${formatJPY(proration.amount)}(税抜・${proration.days}日分)を初回請求に計上`,
+      );
+    }
+  }
+  return { items, details, initialFeeCharged };
+}
+
+/** 紹介制度: 紹介した側へのお支払い(初期費用の25%)を記録する。記録したら説明文を返す */
+export async function recordReferralReward(
+  repo: Repository,
+  customerId: string,
+  initialFeeCharged: number,
+): Promise<string | null> {
+  if (initialFeeCharged <= 0) return null;
+  try {
+    const referral = await repo.findReferralByCustomerId(customerId);
+    // お支払い額が決まっている(お支払い済みを含む)謝礼は書き換えない
+    if (!referral || referral.agencyId || referral.rewardStatus !== "pending") return null;
+    await repo.setReferralReward(referral.id, {
+      rewardBaseAmount: initialFeeCharged,
+      rewardAmount: referralReward(initialFeeCharged),
+      status: "payable",
+    });
+    return `ご紹介者へのお支払い ${formatJPY(referralReward(initialFeeCharged))}(初期費用の${Math.round(REFERRAL_REWARD_RATE * 100)}%)を計上`;
+  } catch {
+    // 謝礼の記録に失敗しても請求の開始そのものは通す(紹介制度の画面から手当てできる)
+    return null;
+  }
+}
+
+/** 代理店: 報酬(初期費用 × 区分の率)を記録する。支払対象になるのは初期費用の入金後 */
+export async function recordAgencyCommission(
+  repo: Repository,
+  customer: Customer,
+  invoiceId: string | null,
+  initialFeeCharged: number,
+): Promise<string | null> {
+  if (!customer.agencyId || initialFeeCharged <= 0) return null;
+  try {
+    const agency = await repo.getAgency(customer.agencyId);
+    if (!agency) return null;
+    const dealType = resolveDealType(customer, agency);
+    const amount = agencyCommissionAmount(initialFeeCharged, dealType);
+    await repo.createAgencyCommission({
+      agencyId: agency.id,
+      agencyMemberId: customer.agencyMemberId ?? null,
+      customerId: customer.id,
+      invoiceId,
+      dealType,
+      baseAmount: initialFeeCharged,
+      rate: agencyCommissionRate(dealType),
+      amount,
+    });
+    return `代理店報酬 ${formatJPY(amount)}（${agency.name}・${AGENCY_DEAL_TYPES[dealType].label}・${agencyRateLabel(dealType)}）を計上。初期費用の入金後に支払対象`;
+  } catch {
+    // 報酬の記録に失敗しても請求の開始は通す(代理店の画面で確認できる)
+    return null;
+  }
+}
+
+/** 請求書をメールで送る(送れたかと、画面に出す結果を返す) */
+export async function emailInvoice(
+  repo: Repository,
+  invoiceId: string,
+  label = "初回請求書",
+): Promise<{ emailed: boolean; emailResult: string }> {
+  const full = await repo.getInvoice(invoiceId);
+  const org = await repo.getOrganization();
+  if (!full?.customer?.email) {
+    return { emailed: false, emailResult: `顧客のメールアドレスが未登録のため、${label}はメール送付していません` };
+  }
+  const res = await getEmailProvider().send({
+    to: full.customer.email,
+    subject: `【${org.name}】請求書 ${full.invoiceNumber} のご案内`,
+    html: invoiceEmailHtml({ invoice: full, customerName: full.customer.name, org }),
+  });
+  return {
+    emailed: res.ok,
+    emailResult: res.ok
+      ? (res.message ?? `${label}をメールで送付しました`)
+      : `${label}のメール送付に失敗しました: ${res.message}`,
+  };
+}
 
 /**
  * 受注確定(= 契約書第3条の「甲の承諾」)。締結済みの契約から請求を開始する。
@@ -67,26 +198,13 @@ export async function confirmOrder(params: {
   let invoiceId: string | null = null;
   // 紹介謝礼・代理店報酬の対象になる初期費用(税抜)。初回請求に計上した額をそのまま使う
   let initialFeeCharged = 0;
-  const initialItems: InvoiceItemInput[] = [];
+  let initialItems: InvoiceItemInput[] = [];
   const terms = contract.terms;
 
-  const prorationItem = (monthly: number, taxRate: number) => {
-    const proration = prorateMonthly(monthly, startedOn);
-    if (proration.amount <= 0) return;
-    // 紹介特典: 初月の端数日数は無料。0円の明細として残し、何が無料かを示す
-    initialItems.push({
-      description: referred
-        ? `月額利用料 初月日割り（${proration.label}）※ご紹介特典により無料`
-        : `月額利用料 初月日割り（${proration.label}）`,
-      quantity: 1,
-      unitPrice: referred ? 0 : proration.amount,
-      taxRate,
-    });
-    details.push(
-      referred
-        ? `ご紹介特典により初月日割り ${formatJPY(proration.amount)}(税抜・${proration.days}日分)を無料`
-        : `初月日割り ${formatJPY(proration.amount)}(税抜・${proration.days}日分)を初回請求に計上`,
-    );
+  const addInitial = (built: ReturnType<typeof initialInvoiceItems>) => {
+    initialItems = built.items;
+    initialFeeCharged = built.initialFeeCharged;
+    details.push(...built.details);
   };
 
   if (terms.planId) {
@@ -112,35 +230,31 @@ export async function confirmOrder(params: {
     );
     if (subPlan.adjustment) details.push(subPlan.adjustment);
 
-    const initialFee = terms.initialFee ?? plan.initialFee;
-    if (initialFee > 0) {
-      initialItems.push({
-        description: `初期構築費用（${contract.contractNumber}）`,
-        quantity: 1,
-        unitPrice: initialFee,
-        taxRate: plan.taxRate,
-      });
-      initialFeeCharged = initialFee;
-      details.push(`初期費用 ${formatJPY(initialFee)}(税抜) を初回請求に計上`);
-    }
-    // 初月日割り: 利用開始日〜月末を暦日按分。翌月分からは定期請求(引き落とし)。
     const monthly =
       terms.monthlyFee ??
       subscriptionMonthly(plan, subPlan.optionKeys, subPlan.priceOverride, subPlan.storeCount);
-    prorationItem(monthly, plan.taxRate);
+    addInitial(
+      initialInvoiceItems({
+        startedOn,
+        initialFee: terms.initialFee ?? plan.initialFee,
+        initialFeeLabel: `初期構築費用（${contract.contractNumber}）`,
+        initialFeeTaxRate: plan.taxRate,
+        monthly: { amount: monthly, taxRate: plan.taxRate },
+        referred,
+      }),
+    );
   } else if ((terms.initialFee ?? 0) > 0 || (terms.monthlyFee ?? 0) > 0) {
     // プラン連携なし(カスタム)の契約: 初回請求だけ作る(毎月の請求は定期請求で個別に設定)
-    if (terms.initialFee && terms.initialFee > 0) {
-      initialItems.push({
-        description: `初期構築費用（${contract.contractNumber}）`,
-        quantity: 1,
-        unitPrice: terms.initialFee,
-        taxRate: 0.1,
-      });
-      initialFeeCharged = terms.initialFee;
-      details.push(`初期費用 ${formatJPY(terms.initialFee)}(税抜) を初回請求に計上`);
-    }
-    if (terms.monthlyFee && terms.monthlyFee > 0) prorationItem(terms.monthlyFee, 0.1);
+    addInitial(
+      initialInvoiceItems({
+        startedOn,
+        initialFee: terms.initialFee ?? 0,
+        initialFeeLabel: `初期構築費用（${contract.contractNumber}）`,
+        initialFeeTaxRate: 0.1,
+        monthly: terms.monthlyFee ? { amount: terms.monthlyFee, taxRate: 0.1 } : null,
+        referred,
+      }),
+    );
     details.push("プラン連携なしの契約のため、毎月の請求は「定期請求」で設定してください");
   } else {
     return {
@@ -183,49 +297,14 @@ export async function confirmOrder(params: {
   }
 
   // 紹介制度: 紹介した側へのお支払い(初期費用の25%)を記録する
-  if (referred && initialFeeCharged > 0) {
-    try {
-      const referral = await repo.findReferralByCustomerId(contract.customerId);
-      if (referral && !referral.agencyId) {
-        await repo.setReferralReward(referral.id, {
-          rewardBaseAmount: initialFeeCharged,
-          rewardAmount: referralReward(initialFeeCharged),
-          status: "payable",
-        });
-        details.push(
-          `ご紹介者へのお支払い ${formatJPY(referralReward(initialFeeCharged))}(初期費用の${Math.round(REFERRAL_REWARD_RATE * 100)}%)を計上`,
-        );
-      }
-    } catch {
-      // 謝礼の記録に失敗しても受注確定そのものは通す(紹介制度の画面から手当てできる)
-    }
+  if (referred) {
+    const referralDetail = await recordReferralReward(repo, contract.customerId, initialFeeCharged);
+    if (referralDetail) details.push(referralDetail);
   }
 
   // 代理店: 報酬(初期費用 × 区分の率)を記録する。支払対象になるのは初期費用の入金後。
-  if (customer.agencyId && initialFeeCharged > 0) {
-    try {
-      const agency = await repo.getAgency(customer.agencyId);
-      if (agency) {
-        const dealType = resolveDealType(customer, agency);
-        const amount = agencyCommissionAmount(initialFeeCharged, dealType);
-        await repo.createAgencyCommission({
-          agencyId: agency.id,
-          agencyMemberId: customer.agencyMemberId ?? null,
-          customerId: customer.id,
-          invoiceId,
-          dealType,
-          baseAmount: initialFeeCharged,
-          rate: agencyCommissionRate(dealType),
-          amount,
-        });
-        details.push(
-          `代理店報酬 ${formatJPY(amount)}（${agency.name}・${AGENCY_DEAL_TYPES[dealType].label}・${agencyRateLabel(dealType)}）を計上。初期費用の入金後に支払対象`,
-        );
-      }
-    } catch {
-      // 報酬の記録に失敗しても受注確定は通す(代理店の画面で確認できる)
-    }
-  }
+  const agencyDetail = await recordAgencyCommission(repo, customer, invoiceId, initialFeeCharged);
+  if (agencyDetail) details.push(agencyDetail);
 
   // 翌月以降の月額は口座振替(NSS)で請求する運用のため、支払方法を切り替える。
   if (customer.paymentMethod !== "direct_debit") {
@@ -238,21 +317,7 @@ export async function confirmOrder(params: {
   let emailResult: string | null = null;
   let emailed = false;
   if (params.emailInvoice && invoiceId) {
-    const full = await repo.getInvoice(invoiceId);
-    const org = await repo.getOrganization();
-    if (full?.customer?.email) {
-      const res = await getEmailProvider().send({
-        to: full.customer.email,
-        subject: `【${org.name}】請求書 ${full.invoiceNumber} のご案内`,
-        html: invoiceEmailHtml({ invoice: full, customerName: full.customer.name, org }),
-      });
-      emailed = res.ok;
-      emailResult = res.ok
-        ? (res.message ?? "初回請求書をメールで送付しました")
-        : `初回請求書のメール送付に失敗しました: ${res.message}`;
-    } else {
-      emailResult = "顧客のメールアドレスが未登録のため、初回請求書はメール送付していません";
-    }
+    ({ emailed, emailResult } = await emailInvoice(repo, invoiceId));
   }
 
   // 受注管理のチェック: 受注確定 = 申込内容の確認済み。メールで送ったなら送付済み

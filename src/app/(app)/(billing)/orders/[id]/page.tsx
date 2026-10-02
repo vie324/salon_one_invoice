@@ -39,23 +39,27 @@ import {
   agencyRateLabel,
   commissionStatus,
 } from "@/lib/domain/agency";
-import { normalizeStoreCount } from "@/lib/domain/calculations";
+import { effectiveStatus, normalizeStoreCount, subscriptionMonthly, withTax } from "@/lib/domain/calculations";
 import {
   AGENCY_DEAL_TYPES,
   agencyCommissionStatusLabels,
   agencyCommissionStatusTone,
+  invoiceStatusLabels,
   referralRewardStatusLabels,
 } from "@/lib/domain/constants";
 import {
+  LEGACY_ACTOR,
   onboardingStageLabels,
   orderOwnerLabels,
   type ManualChecklistKey,
   type OrderStepItem,
   type OrderTrack,
 } from "@/lib/domain/onboarding";
+import { planDisplayName } from "@/lib/domain/pricing";
 import { getEmailStatus } from "@/lib/email";
 import { loadOrderBook, type OrderRow } from "@/lib/orders/load";
-import { cn, formatDate, formatDateTime, formatJPY, maskAccount } from "@/lib/utils";
+import { cn, formatDate, formatDateTime, formatJPY, maskAccount, toISODate } from "@/lib/utils";
+import { BillingSetupButton, type BillingSetupContext } from "./billing-setup";
 import {
   ClearBankInfoButton,
   CloseOrderButton,
@@ -128,6 +132,55 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
     };
   }
 
+  // 「請求を開始」(システムに契約書が無いお客様)のダイアログに渡す状態
+  const existingSub =
+    row.subscriptions.find((s) => s.status === "active") ??
+    row.subscriptions.find((s) => s.status !== "canceled") ??
+    null;
+  const existingSubPlan = existingSub ? book.plans.find((p) => p.id === existingSub.planId) : null;
+  const existingSubMonthly =
+    existingSub && existingSubPlan
+      ? subscriptionMonthly(
+          existingSubPlan,
+          existingSub.optionKeys ?? [],
+          existingSub.priceOverride,
+          existingSub.storeCount ?? 1,
+        )
+      : 0;
+  const billingCtx: BillingSetupContext = {
+    customerId: customer.id,
+    customerName: customer.name,
+    plans: book.plans.filter((p) => p.active),
+    initialMode: progress.initialMode,
+    canSetInitial: progress.initialMode !== "system",
+    subscription:
+      existingSub && existingSubPlan
+        ? {
+            label: `${planDisplayName(existingSubPlan)}・${normalizeStoreCount(existingSub.storeCount)}店舗・月額 ${formatJPY(
+              withTax(existingSubMonthly, existingSubPlan.taxRate),
+            )}（税込）`,
+            monthly: existingSubMonthly,
+            taxRate: existingSubPlan.taxRate,
+          }
+        : null,
+    candidates: row.invoices
+      .filter((i) => i.type !== "initial" && i.status !== "canceled" && !i.subscriptionId)
+      .map((i) => ({
+        id: i.id,
+        invoiceNumber: i.invoiceNumber,
+        issueDate: i.issueDate,
+        total: i.total,
+        statusLabel: invoiceStatusLabels[effectiveStatus(i)],
+      })),
+    paymentMethod: customer.paymentMethod,
+    referred: Boolean(customer.referredByCustomerId),
+    emailReady,
+    customerEmail: customer.email,
+    defaultStartDate: existingSub?.startedOn ?? toISODate(new Date()),
+  };
+  // 契約書の「受注を確定する」で請求を始める案件は、ダイアログを使わない
+  const billingSetupAvailable = !(progress.signed && !progress.billingStarted);
+
   const closed = progress.stage === "closed";
   const next = progress.next;
 
@@ -152,8 +205,10 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
             <span className="tabular">{customer.code}</span>
-            {(signedContract ?? contract) && (
+            {(signedContract ?? contract) ? (
               <span>・{(signedContract ?? contract)!.terms.planName || "プラン未設定"}</span>
+            ) : (
+              existingSubPlan && <span>・{planDisplayName(existingSubPlan)}</span>
             )}
             {progress.monthlyFee > 0 && <span>・月額 {formatJPY(progress.monthlyFee)}（税込）</span>}
             {row.agency && row.dealType && (
@@ -181,6 +236,8 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
 
       <FlowStepper current={closed ? undefined : progress.stage} compact />
 
+      {progress.legacy && <LegacyNotice legacy={progress.legacy} progress={progress} />}
+
       {/* 次にやること */}
       {!closed && (
         <NextActionCard
@@ -189,6 +246,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           confirmPreview={confirmPreview}
           emailReady={emailReady}
           initialInvoiceId={initialInvoice?.id ?? null}
+          billingCtx={billingSetupAvailable ? billingCtx : null}
         />
       )}
       {closed && (
@@ -217,6 +275,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               emailReady={emailReady}
               initialInvoiceId={initialInvoice?.id ?? null}
               confirmPreview={confirmPreview}
+              billingCtx={billingSetupAvailable ? billingCtx : null}
             />
           ))}
         </div>
@@ -262,7 +321,9 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <Row label="契約書">
-                {contract ? (
+                {progress.contractOffline && !contract ? (
+                  "書面・旧運用（システムの外）で締結済み"
+                ) : contract ? (
                   <span className="flex items-center gap-2">
                     <Link href={`/contracts/${contract.id}`} className="tabular text-primary hover:underline">
                       {contract.contractNumber}
@@ -287,7 +348,22 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                     <InvoiceStatusBadge status={initialInvoice.status} />
                   </span>
                 ) : (
-                  "—"
+                  <span className="flex flex-col items-end gap-0.5">
+                    <span>
+                      {progress.initialMode === "outside"
+                        ? "システムの外で発行済み"
+                        : progress.initialMode === "none"
+                          ? "なし"
+                          : progress.signed && !progress.billingStarted
+                            ? "受注確定で作成"
+                            : "未設定"}
+                    </span>
+                    {billingSetupAvailable &&
+                      (progress.contractDone || progress.billingStarted) &&
+                      (progress.initialMode === "outside" || progress.initialMode === "none") && (
+                        <BillingSetupButton ctx={billingCtx} focus="initial" label="変更" variant="ghost" />
+                      )}
+                  </span>
                 )}
               </Row>
               <Row label="毎月の請求">
@@ -301,8 +377,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                       次回 {formatDate(subscription.nextBillingDate)}
                     </span>
                   </span>
-                ) : (
+                ) : progress.subscriptionNone ? (
+                  "このシステムでは請求しない"
+                ) : progress.signed && !progress.billingStarted ? (
                   "受注確定で作成"
+                ) : (
+                  <span className="font-medium text-warning">未登録</span>
                 )}
               </Row>
               <Row label="口座振替（NSS）">
@@ -444,6 +524,39 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   );
 }
 
+/* ---------------------------------------------------------------- 旧画面からの引き継ぎ */
+
+function LegacyNotice({
+  legacy,
+  progress,
+}: {
+  legacy: NonNullable<OrderRow["progress"]["legacy"]>;
+  progress: OrderRow["progress"];
+}) {
+  // システムに記録が無く、旧画面の記録から「済み」にしたもの
+  const items = progress.tracks
+    .flatMap((t) => t.items)
+    .filter((i) => i.done && i.doneBy === LEGACY_ACTOR)
+    .map((i) => i.label);
+  return (
+    <Card className="border-info/40 bg-info/5 p-3 text-sm sm:p-4">
+      <div className="flex items-start gap-2">
+        <History className="mt-0.5 h-4 w-4 shrink-0 text-info" />
+        <div className="min-w-0">
+          <div className="font-medium">
+            旧「顧客ステータス」で「{legacy.stageLabel}」まで進めていた案件です
+          </div>
+          <p className="mt-0.5 text-muted-foreground">
+            {items.length > 0
+              ? `システムに契約書・請求書の記録が無い手続きは、旧画面の記録を引き継いで「済み」にしています（${items.join("／")}）。違っていれば、その項目の「取り消す」で直せます。`
+              : "契約・請求・入金の記録はこのシステムのデータで判定しています。"}
+          </p>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 /* ---------------------------------------------------------------- 次にやること */
 
 function NextActionCard({
@@ -452,12 +565,14 @@ function NextActionCard({
   confirmPreview,
   emailReady,
   initialInvoiceId,
+  billingCtx,
 }: {
   row: OrderRow;
   next: OrderStepItem | null;
   confirmPreview: ConfirmPreview | null;
   emailReady: boolean;
   initialInvoiceId: string | null;
+  billingCtx: BillingSetupContext | null;
 }) {
   if (!next) {
     return (
@@ -490,6 +605,7 @@ function NextActionCard({
             emailReady={emailReady}
             initialInvoiceId={initialInvoiceId}
             confirmPreview={confirmPreview}
+            billingCtx={billingCtx}
             primary
           />
         </div>
@@ -506,12 +622,14 @@ function TrackCard({
   emailReady,
   initialInvoiceId,
   confirmPreview,
+  billingCtx,
 }: {
   track: OrderTrack;
   row: OrderRow;
   emailReady: boolean;
   initialInvoiceId: string | null;
   confirmPreview: ConfirmPreview | null;
+  billingCtx: BillingSetupContext | null;
 }) {
   const required = track.items.filter((i) => !i.skipped && !i.optional);
   const doneCount = required.filter((i) => i.done).length;
@@ -573,7 +691,7 @@ function TrackCard({
                   )}
                   {item.hint && !item.done && (
                     <div className={cn("text-xs text-muted-foreground", item.late && "text-destructive")}>
-                      {item.blocked ? "前の手続きが終わると着手できます。" : item.hint}
+                      {item.blocked && !item.skipped ? "前の手続きが終わると着手できます。" : item.hint}
                     </div>
                   )}
                 </div>
@@ -586,6 +704,7 @@ function TrackCard({
                     emailReady={emailReady}
                     initialInvoiceId={initialInvoiceId}
                     confirmPreview={confirmPreview}
+                    billingCtx={billingCtx}
                   />
                 </div>
               )}
@@ -612,6 +731,7 @@ function ItemAction({
   emailReady,
   initialInvoiceId,
   confirmPreview,
+  billingCtx,
   primary,
 }: {
   item: OrderStepItem;
@@ -619,38 +739,111 @@ function ItemAction({
   emailReady: boolean;
   initialInvoiceId: string | null;
   confirmPreview: ConfirmPreview | null;
+  billingCtx: BillingSetupContext | null;
   primary?: boolean;
 }) {
   const customerId = row.customer.id;
   const contract = row.contracts.find((c) => c.id === row.progress.contractId) ?? null;
   const mandate = row.mandate;
+  const { progress } = row;
 
   switch (item.key) {
-    case "contract_signed":
-      if (item.done) return null;
+    case "contract_signed": {
+      if (item.done) {
+        // システムの外で締結済み(手で付けた・旧画面から引き継いだ)は取り消せる
+        return item.mode === "manual" ? (
+          <ManualCheck customerId={customerId} itemKey="ct_signed" done />
+        ) : null;
+      }
+      const offline = (
+        <ManualCheck
+          customerId={customerId}
+          itemKey="ct_signed"
+          done={false}
+          label="書面・旧運用で締結済み"
+          confirmText="契約は書面・旧運用など、システムの外で締結済みとして記録します。よろしいですか？"
+        />
+      );
       if (!contract || contract.status === "canceled" || contract.status === "declined") {
         return (
+          <>
+            {offline}
+            <Link
+              href={`/contracts/new?customer=${customerId}`}
+              className={buttonClasses({ size: "sm", variant: primary ? "primary" : "outline" })}
+            >
+              契約書を作成
+            </Link>
+          </>
+        );
+      }
+      return (
+        <>
+          {offline}
           <Link
-            href={`/contracts/new?customer=${customerId}`}
+            href={`/contracts/${contract.id}`}
             className={buttonClasses({ size: "sm", variant: primary ? "primary" : "outline" })}
           >
-            契約書を作成
+            {contract.status === "draft" ? "契約書を送付" : "契約書を開く（リマインド・再送）"}
+            <ExternalLink className="h-3.5 w-3.5" />
+          </Link>
+        </>
+      );
+    }
+    case "order_confirmed":
+      if (item.done) return null;
+      if (confirmPreview) return <ConfirmOrderButton preview={confirmPreview} />;
+      // システムに契約書が無いお客様(過去のお客様・書面契約): 初回請求書と毎月の請求をまとめて設定
+      if (billingCtx && progress.contractDone && !progress.signed) {
+        return (
+          <BillingSetupButton
+            ctx={billingCtx}
+            focus="all"
+            label="請求を開始"
+            variant={primary ? "primary" : "outline"}
+          />
+        );
+      }
+      return null;
+    case "subscription_registered":
+      if (item.done) {
+        if (item.mode === "manual") return <ManualCheck customerId={customerId} itemKey="sub_none" done />;
+        return (
+          <Link href="/subscriptions" className={buttonClasses({ size: "sm", variant: "ghost" })}>
+            定期請求
           </Link>
         );
       }
       return (
-        <Link
-          href={`/contracts/${contract.id}`}
-          className={buttonClasses({ size: "sm", variant: primary ? "primary" : "outline" })}
-        >
-          {contract.status === "draft" ? "契約書を送付" : "契約書を開く（リマインド・再送）"}
-          <ExternalLink className="h-3.5 w-3.5" />
-        </Link>
+        <>
+          <ManualCheck
+            customerId={customerId}
+            itemKey="sub_none"
+            done={false}
+            label="毎月の請求なし"
+            confirmText="このお客様は、このシステムで毎月の請求をしない（スポット契約・システムの外で請求）として記録します。よろしいですか？"
+          />
+          {billingCtx && (
+            <BillingSetupButton
+              ctx={billingCtx}
+              focus="subscription"
+              label="定期契約を登録"
+              variant={primary ? "primary" : "outline"}
+            />
+          )}
+        </>
       );
-    case "order_confirmed":
-      if (item.done || !confirmPreview) return null;
-      return <ConfirmOrderButton preview={confirmPreview} />;
     case "initial_invoice_sent":
+      if (progress.initialMode === "undecided") {
+        return billingCtx ? (
+          <BillingSetupButton
+            ctx={billingCtx}
+            focus="initial"
+            label="初回請求書を用意"
+            variant={primary ? "primary" : "outline"}
+          />
+        ) : null;
+      }
       return (
         <>
           {initialInvoiceId && (
@@ -671,6 +864,22 @@ function ItemAction({
         </>
       );
     case "initial_paid":
+      // システムの外で発行した初回請求書: 入金の確認を手で記録する(請求書を紐付けることもできる)
+      if (progress.initialMode === "outside") {
+        return (
+          <>
+            {!item.done && billingCtx && billingCtx.candidates.length > 0 && (
+              <BillingSetupButton ctx={billingCtx} focus="initial" label="請求書を紐付ける" variant="ghost" />
+            )}
+            <ManualCheck
+              customerId={customerId}
+              itemKey="ip_check"
+              done={item.done}
+              label="入金を確認済みにする"
+            />
+          </>
+        );
+      }
       if (item.done) return null;
       return (
         <>

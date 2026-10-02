@@ -8,6 +8,7 @@ import {
   generateApplicationToken,
 } from "@/lib/domain/application";
 import {
+  billingDateInMonth,
   calcInvoiceTotals,
   computeNextBillingDate,
   effectiveStatus,
@@ -29,8 +30,10 @@ import { toLinkedIssue } from "@/lib/domain/dev-schedule";
 import { computeDashboardMetrics } from "@/lib/domain/metrics";
 import { referralNotes, referralReward } from "@/lib/domain/referral";
 import {
+  applyChecklistToggles,
   defaultChecklist,
   initialStageFor,
+  legacyProgressFrom,
   mergeChecklist,
   normalizeStage,
 } from "@/lib/domain/onboarding";
@@ -66,6 +69,7 @@ import type {
   Invoice,
   InvoiceItem,
   InvoiceStatus,
+  InvoiceType,
   InvoiceWithCustomer,
   NotificationType,
   Organization,
@@ -319,12 +323,10 @@ export class DemoRepository implements Repository {
   async createSubscription(input: SubscriptionInput): Promise<Subscription> {
     const plan = this.s.plans.find((p) => p.id === input.planId);
     const billingDay = input.billingDay ?? plan?.billingDay ?? 27;
-    // 紹介制度の無料月数ぶん、最初の請求を先送りする
-    const firstBilling = deferBilling(
-      computeNextBillingDate(input.startedOn, billingDay),
-      input.freeMonths ?? 0,
-      billingDay,
-    );
+    // 最初に請求する月の指定があればその月から。無ければ紹介制度の無料月数ぶん先送りする
+    const firstBilling = input.firstBillingMonth
+      ? billingDateInMonth(input.firstBillingMonth, billingDay)
+      : deferBilling(computeNextBillingDate(input.startedOn, billingDay), input.freeMonths ?? 0, billingDay);
     const sub: Subscription = {
       id: genId("sub"),
       customerId: input.customerId,
@@ -539,6 +541,7 @@ export class DemoRepository implements Repository {
         checklist: defaultChecklist(),
         stageChangedAt: now,
         history: [{ stage, at: now, by: "システム" }],
+        legacy: null,
         createdAt: now,
         updatedAt: now,
       });
@@ -546,14 +549,23 @@ export class DemoRepository implements Repository {
     const aliveIds = new Set(customers.map((c) => c.id));
     return cards
       .filter((o) => aliveIds.has(o.customerId))
-      .map((o) => ({
-        ...o,
-        // 旧ステージ(移行前の値)は新しいステージへ読み替える
-        stage: normalizeStage(o.stage),
-        history: o.history.map((h) => ({ ...h, stage: normalizeStage(h.stage) })),
-        checklist: mergeChecklist(o.checklist),
-      }))
+      .map((o) => this.presentOnboarding(o))
       .sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+
+  /**
+   * 保存しているカード(旧ステージ名・旧チェックを含む)を画面用に整える。
+   * 保存データそのものは書き換えない(旧「顧客ステータス」からの引き継ぎに使う)。
+   */
+  private presentOnboarding(o: CustomerOnboarding): CustomerOnboarding {
+    return {
+      ...o,
+      // 旧ステージ(移行前の値)は新しいステージへ読み替える
+      stage: normalizeStage(o.stage),
+      history: o.history.map((h) => ({ ...h, stage: normalizeStage(h.stage) })),
+      checklist: mergeChecklist(o.checklist),
+      legacy: legacyProgressFrom(o.checklist, o.history),
+    };
   }
 
   async updateOnboarding(
@@ -572,17 +584,11 @@ export class DemoRepository implements Repository {
     if (input.dueDate !== undefined) card.dueDate = input.dueDate;
     if (input.nextAction !== undefined) card.nextAction = input.nextAction;
     if (input.checklist?.length) {
-      card.checklist = mergeChecklist(card.checklist);
-      for (const t of input.checklist) {
-        const item = card.checklist.find((c) => c.key === t.key);
-        if (!item || item.done === t.done) continue;
-        item.done = t.done;
-        item.doneAt = t.done ? now : null;
-        item.doneBy = t.done ? actor : "";
-      }
+      // 旧「顧客ステータス」のチェックは消さずに残す
+      card.checklist = applyChecklistToggles(card.checklist, input.checklist, actor, now);
     }
     card.updatedAt = now;
-    return { ...card, checklist: mergeChecklist(card.checklist) };
+    return this.presentOnboarding(card);
   }
 
   async reorderOnboardings(orderedIds: string[]): Promise<void> {
@@ -699,6 +705,15 @@ export class DemoRepository implements Repository {
     // 入金待ち(振替予定) ⇔ 送付済(振込待ち) を支払方法に合わせて読み替える
     if (paymentMethod === "direct_debit" && inv.status === "sent") inv.status = "awaiting_payment";
     if (paymentMethod !== "direct_debit" && inv.status === "awaiting_payment") inv.status = "sent";
+    return decorate(inv);
+  }
+
+  async updateInvoiceType(id: string, type: InvoiceType): Promise<Invoice> {
+    const inv = this.s.invoices.filter(alive).find((i) => i.id === id);
+    if (!inv) throw new Error("請求書が見つかりません");
+    inv.type = type;
+    // 定期請求の対象月は「定期」の請求書だけが持つ
+    if (type !== "recurring") inv.billingPeriod = null;
     return decorate(inv);
   }
 
