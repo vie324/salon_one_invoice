@@ -12,6 +12,7 @@ import {
   AGENCY_DEAL_TYPE_KEYS,
   AGENCY_DEAL_TYPES,
   paymentMethodLabels,
+  paymentMethodOptions,
 } from "@/lib/domain/constants";
 import type {
   Agency,
@@ -137,7 +138,7 @@ export function EditCustomerButton({
                 value={form.paymentMethod}
                 onChange={(e) => set({ paymentMethod: e.target.value as PaymentMethod })}
               >
-                {(Object.keys(paymentMethodLabels) as PaymentMethod[]).map((m) => (
+                {paymentMethodOptions(form.paymentMethod).map((m) => (
                   <option key={m} value={m}>
                     {paymentMethodLabels[m]}
                   </option>

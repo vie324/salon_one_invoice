@@ -76,8 +76,6 @@ export default async function InvoiceDetailPage({
                 total={invoice.total}
                 amountPaid={invoice.amountPaid}
                 paymentMethod={invoice.paymentMethod}
-                hasEmail={Boolean(invoice.customer?.email)}
-                reminderCount={invoice.reminderCount ?? 0}
               />
               <div className="mt-2 border-t border-border pt-2">
                 <DeleteRecordButton

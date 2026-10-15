@@ -5,12 +5,7 @@ import type { ManualChecklistKey } from "@/lib/domain/onboarding";
 import { normalizeOverride, planDisplayName, validOptionKeys } from "@/lib/domain/pricing";
 import type { Invoice, PaymentMethod } from "@/lib/domain/types";
 import { formatJPY, isMonthKey, toISODate } from "@/lib/utils";
-import {
-  emailInvoice,
-  initialInvoiceItems,
-  recordAgencyCommission,
-  recordReferralReward,
-} from "./confirm";
+import { initialInvoiceItems, recordAgencyCommission, recordReferralReward } from "./confirm";
 import { loadOrderBook } from "./load";
 
 /**
@@ -24,7 +19,7 @@ export interface BillingSetupInput {
   /** 初回請求書(初期費用＋初月日割り)。keep = 今回は決めない・変えない */
   initial:
     | { mode: "keep" }
-    | { mode: "create"; initialFee: number; includeProration: boolean; emailInvoice: boolean }
+    | { mode: "create"; initialFee: number; includeProration: boolean }
     | { mode: "existing"; invoiceId: string }
     | { mode: "outside"; sent: boolean; paid: boolean }
     | { mode: "none" };
@@ -52,7 +47,6 @@ type Result =
       detail: string;
       invoiceId: string | null;
       subscriptionId: string | null;
-      emailResult: string | null;
     }
   | { ok: false; error: string };
 
@@ -218,8 +212,6 @@ export async function setupBilling(params: {
     details.push("毎月の請求はこのシステムで行わない設定にしました");
   }
 
-  let emailResult: string | null = null;
-  let emailed = false;
   if (initial.mode === "create" && built) {
     const issueDate = toISODate(new Date());
     const inv = await repo.createInvoice({
@@ -243,10 +235,6 @@ export async function setupBilling(params: {
     }
     const agencyDetail = await recordAgencyCommission(repo, customer, invoiceId, built.initialFeeCharged);
     if (agencyDetail) details.push(agencyDetail);
-    if (initial.emailInvoice) {
-      ({ emailed, emailResult } = await emailInvoice(repo, invoiceId));
-      if (emailed) toggles.push({ key: "initial_invoice_sent", done: true });
-    }
   } else if (initial.mode === "existing" && existingInvoice) {
     await repo.updateInvoiceType(existingInvoice.id, "initial");
     invoiceId = existingInvoice.id;
@@ -283,6 +271,5 @@ export async function setupBilling(params: {
     detail: details.join(" / "),
     invoiceId,
     subscriptionId,
-    emailResult,
   };
 }

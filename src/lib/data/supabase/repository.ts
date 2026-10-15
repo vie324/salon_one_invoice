@@ -128,8 +128,6 @@ import type {
   ReferralRewardInput,
   ReferralUpdateInput,
   Repository,
-  StripeInvoiceInput,
-  StripeSubscriptionInput,
   SubscriptionInput,
   SubscriptionUpdateInput,
 } from "../repository";
@@ -179,7 +177,6 @@ function mapCustomer(r: any): Customer {
     assignee: r.assignee ?? "",
     notes: r.notes ?? "",
     createdAt: r.created_at,
-    stripeCustomerId: r.stripe_customer_id ?? null,
     agencyId: r.agency_id ?? null,
     agencyMemberId: r.agency_member_id ?? null,
     // agency_deal_type 列は移行(0023)で追加される。未適用でも読み込みは落とさない。
@@ -284,7 +281,6 @@ function mapSubscription(r: any): Subscription {
     optionKeys: Array.isArray(r.option_keys) ? r.option_keys : [],
     priceOverride: r.price_override == null ? null : Number(r.price_override),
     storeCount: Number(r.store_count ?? 1) || 1,
-    stripeSubscriptionId: r.stripe_subscription_id ?? null,
   };
 }
 
@@ -324,7 +320,6 @@ function mapInvoice(r: any): Invoice {
     sentAt: r.sent_at,
     paidAt: r.paid_at,
     createdAt: r.created_at,
-    externalId: r.external_id ?? null,
     reminderCount: Number(r.reminder_count ?? 0),
     lastReminderAt: r.last_reminder_at ?? null,
   };
@@ -1613,27 +1608,6 @@ export class SupabaseRepository implements Repository {
     return mapInvoice(data);
   }
 
-  async recordInvoiceReminder(id: string, params: { actor: string }): Promise<Invoice> {
-    const current = await this.getInvoice(id);
-    if (!current) throw new Error("請求書が見つかりません");
-    const count = (current.reminderCount ?? 0) + 1;
-    const { data, error } = await this.db
-      .from("invoices")
-      .update({ reminder_count: count, last_reminder_at: new Date().toISOString() })
-      .eq("id", id)
-      .select(INVOICE_SELECT)
-      .single();
-    if (error) throw error;
-    await this.logActivity({
-      kind: "reminder_sent",
-      message: `${current.customer?.name ?? ""} 様へ請求書 ${current.invoiceNumber} の督促メールを送付（${count}回目）`,
-      actor: params.actor,
-      amount: Math.max(0, current.total - current.amountPaid),
-      linkInvoiceId: id,
-    });
-    return mapInvoice(data);
-  }
-
   async listPayments(filter?: { customerId?: string }): Promise<Payment[]> {
     let q = this.db
       .from("payments")
@@ -2150,7 +2124,6 @@ export class SupabaseRepository implements Repository {
       .select("*")
       .eq("status", "active")
       .is("deleted_at", null) // 削除(ゴミ箱)済みの契約は生成しない
-      .is("stripe_subscription_id", null) // Stripe 管理の契約は除外(Stripe が課金)
       .lte("next_billing_date", cutoff);
     if (subsError) throw subsError;
     const created: Invoice[] = [];
@@ -2813,283 +2786,6 @@ export class SupabaseRepository implements Repository {
 
   async addContractEvent(contractId: string, event: ContractEventInput): Promise<void> {
     await this.logContractEvent(contractId, event);
-  }
-
-  // --- Stripe 連携 ---
-  async linkStripeCustomer(customerId: string, stripeCustomerId: string): Promise<void> {
-    const { error } = await this.db
-      .from("customers")
-      .update({ stripe_customer_id: stripeCustomerId })
-      .eq("id", customerId);
-    if (error) throw error;
-  }
-
-  async findCustomerByStripeCustomerId(stripeCustomerId: string): Promise<Customer | null> {
-    const { data, error } = await this.db
-      .from("customers")
-      .select("*")
-      .eq("stripe_customer_id", stripeCustomerId)
-      .maybeSingle();
-    // エラーを「顧客未連携」と誤判定すると Webhook が入金記録をスキップする
-    if (error) throw error;
-    return data ? mapCustomer(data) : null;
-  }
-
-  async upsertStripeSubscription(input: StripeSubscriptionInput): Promise<Subscription> {
-    // limit(1) で複数行時の maybeSingle エラーを回避
-    const { data: existingRows, error: existingError } = await this.db
-      .from("subscriptions")
-      .select("*")
-      .eq("stripe_subscription_id", input.stripeSubscriptionId)
-      .order("created_at")
-      .limit(1);
-    if (existingError) throw existingError;
-    const existing = existingRows?.[0];
-    if (existing) {
-      const patch: Record<string, unknown> = { status: input.status };
-      if (input.status === "canceled") patch.canceled_on = toISODate(new Date());
-      const { data, error } = await this.db
-        .from("subscriptions")
-        .update(patch)
-        .eq("id", existing.id)
-        .select("*")
-        .single();
-      if (error) throw error;
-      return mapSubscription(data);
-    }
-    // プランを名称で検索、無ければ作成
-    const { data: planRows, error: planError } = await this.db
-      .from("plans")
-      .select("*")
-      .eq("name", input.planName)
-      .limit(1);
-    if (planError) throw planError;
-    let planRow = planRows?.[0];
-    if (!planRow) {
-      const created = await this.db
-        .from("plans")
-        .insert({
-          name: input.planName,
-          description: "Stripe連携プラン",
-          amount: input.amount,
-          tax_rate: 0,
-          billing_cycle: "monthly",
-          billing_day: 1,
-          active: true,
-          initial_fee: 0,
-          term: "monthly",
-          options: [],
-        })
-        .select("*")
-        .single();
-      if (created.error) throw created.error;
-      planRow = created.data;
-    }
-    const today = toISODate(new Date());
-    const { data, error } = await this.db
-      .from("subscriptions")
-      .insert({
-        customer_id: input.customerId,
-        plan_id: planRow.id,
-        status: input.status,
-        started_on: today,
-        next_billing_date: computeNextBillingDate(today, planRow.billing_day),
-        billing_day: planRow.billing_day,
-        option_keys: [],
-        stripe_subscription_id: input.stripeSubscriptionId,
-      })
-      .select("*")
-      .single();
-    if (error) {
-      // 並行再送による一意制約違反なら既存を返す（重複行を作らない）
-      if ((error as any).code === "23505") {
-        const { data: again } = await this.db
-          .from("subscriptions")
-          .select("*")
-          .eq("stripe_subscription_id", input.stripeSubscriptionId)
-          .limit(1);
-        if (again?.[0]) return mapSubscription(again[0]);
-      }
-      throw error;
-    }
-    // 注: 顧客の payment_method は変更しない（他の口座振替契約の請求方法を壊さないため）。
-    return mapSubscription(data);
-  }
-
-  async markStripeSubscriptionCanceled(stripeSubscriptionId: string): Promise<void> {
-    const { error } = await this.db
-      .from("subscriptions")
-      .update({ status: "canceled", canceled_on: toISODate(new Date()) })
-      .eq("stripe_subscription_id", stripeSubscriptionId);
-    if (error) throw error;
-  }
-
-  async recordStripeInvoice(input: StripeInvoiceInput): Promise<Invoice | null> {
-    const customer = await this.findCustomerByStripeCustomerId(input.stripeCustomerId);
-    if (!customer) return null;
-
-    // 冪等化 + 失敗→成功の状態遷移
-    const { data: existRows, error: existError } = await this.db
-      .from("invoices")
-      .select("*")
-      .eq("external_id", input.externalId)
-      .limit(1);
-    if (existError) throw existError;
-    const existing = existRows?.[0];
-    if (existing) {
-      if (existing.status === "failed" && input.status === "paid") {
-        // 書き込み失敗を握りつぶすと 200 を返してしまい Stripe が再送しない
-        // (=入金記録が失われる)ため、必ず伝播させて再送させる。
-        const { error: updError } = await this.db
-          .from("invoices")
-          .update({
-            status: "paid",
-            subtotal: input.total,
-            total: input.total,
-            amount_paid: input.total,
-            paid_at: input.paidAt ?? input.issueDate,
-          })
-          .eq("id", existing.id);
-        if (updError) throw updError;
-        const { error: delError } = await this.db
-          .from("invoice_items")
-          .delete()
-          .eq("invoice_id", existing.id);
-        if (delError) throw delError;
-        const { error: insError } = await this.db.from("invoice_items").insert(
-          input.lines.map((l, idx) => ({
-            invoice_id: existing.id,
-            description: l.description,
-            quantity: 1,
-            unit_price: l.amount,
-            tax_rate: 0,
-            amount: l.amount,
-            position: idx,
-          })),
-        );
-        if (insError) throw insError;
-        const { error: payError } = await this.db.from("payments").insert({
-          invoice_id: existing.id,
-          customer_id: customer.id,
-          amount: input.total,
-          method: "credit_card",
-          status: "confirmed",
-          paid_at: input.paidAt ?? input.issueDate,
-          reference: "Stripe",
-          matched_by: "auto",
-          memo: "",
-        });
-        if (payError) throw payError;
-        await this.logActivity({
-          kind: "payment_confirmed",
-          message: `${customer.name} 様のStripe決済（再試行）を確認`,
-          actor: "Stripe",
-          amount: input.total,
-          linkInvoiceId: existing.id,
-        });
-        const { data: fresh, error: freshError } = await this.db
-          .from("invoices")
-          .select(INVOICE_SELECT)
-          .eq("id", existing.id)
-          .single();
-        if (freshError) throw freshError;
-        return fresh ? mapInvoice(fresh) : null;
-      }
-      return null;
-    }
-
-    const org = await this.getOrganization();
-    const { data: existingNums, error: numsError } = await this.db
-      .from("invoices")
-      .select("invoice_number");
-    if (numsError) throw numsError;
-    const number = nextInvoiceNumber(
-      org.invoicePrefix,
-      input.issueDate,
-      (existingNums ?? []).map((r: any) => r.invoice_number),
-    );
-    const { data: subRows, error: subError } = await this.db
-      .from("subscriptions")
-      .select("id")
-      .eq("customer_id", customer.id)
-      .not("stripe_subscription_id", "is", null)
-      .order("created_at", { ascending: false })
-      .limit(1);
-    if (subError) throw subError;
-    const subId = subRows?.[0]?.id ?? null;
-
-    const paid = input.status === "paid";
-    const { data: invRow, error } = await this.db
-      .from("invoices")
-      .insert({
-        invoice_number: number,
-        customer_id: customer.id,
-        subscription_id: subId,
-        type: input.type,
-        status: paid ? "paid" : "failed",
-        issue_date: input.issueDate,
-        due_date: input.issueDate,
-        billing_period: input.billingPeriod ?? null,
-        payment_method: "credit_card",
-        subtotal: input.total,
-        tax_total: 0,
-        total: input.total,
-        amount_paid: paid ? input.total : 0,
-        notes: "Stripe決済",
-        sent_at: new Date().toISOString(),
-        paid_at: paid ? input.paidAt ?? input.issueDate : null,
-        external_id: input.externalId,
-      })
-      .select("*")
-      .single();
-    if (error) {
-      // 並行挿入の一意制約違反は冪等スキップ
-      if ((error as any).code === "23505") return null;
-      throw error;
-    }
-
-    // 明細・入金の書き込み。失敗したら請求書を補償削除して再送で作り直させる
-    const { error: itemsErr } = await this.db.from("invoice_items").insert(
-      input.lines.map((l, idx) => ({
-        invoice_id: invRow.id,
-        description: l.description,
-        quantity: 1,
-        unit_price: l.amount,
-        tax_rate: 0,
-        amount: l.amount,
-        position: idx,
-      })),
-    );
-    let payErr: unknown = null;
-    if (paid) {
-      const r = await this.db.from("payments").insert({
-        invoice_id: invRow.id,
-        customer_id: customer.id,
-        amount: input.total,
-        method: "credit_card",
-        status: "confirmed",
-        paid_at: input.paidAt ?? input.issueDate,
-        reference: "Stripe",
-        matched_by: "auto",
-        memo: input.type === "initial" ? "初期費用＋初月" : "",
-      });
-      payErr = r.error;
-    }
-    if (itemsErr || payErr) {
-      await this.db.from("invoices").delete().eq("id", invRow.id);
-      throw itemsErr || payErr;
-    }
-
-    await this.logActivity({
-      kind: "payment_confirmed",
-      message: paid
-        ? `${customer.name} 様のStripe決済を確認`
-        : `${customer.name} 様のStripe決済が失敗`,
-      actor: "Stripe",
-      amount: input.total,
-      linkInvoiceId: invRow.id,
-    });
-    return mapInvoice(invRow);
   }
 
   // --- 開発依頼 / 進捗管理 ---

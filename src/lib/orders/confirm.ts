@@ -10,8 +10,6 @@ import { AGENCY_DEAL_TYPES, REFERRAL_FREE_MONTHS, REFERRAL_REWARD_RATE } from "@
 import { subscriptionFromTerms } from "@/lib/domain/pricing";
 import { referralFreePeriodLabel, referralReward } from "@/lib/domain/referral";
 import type { Customer } from "@/lib/domain/types";
-import { getEmailProvider } from "@/lib/email";
-import { invoiceEmailHtml } from "@/lib/email/templates";
 import { formatJPY, toISODate } from "@/lib/utils";
 
 /* ---------------------------------------------------------------------------
@@ -137,30 +135,6 @@ async function findUnlinkedInitialInvoice(repo: Repository, customerId: string) 
   );
 }
 
-/** 請求書をメールで送る(送れたかと、画面に出す結果を返す) */
-export async function emailInvoice(
-  repo: Repository,
-  invoiceId: string,
-  label = "初回請求書",
-): Promise<{ emailed: boolean; emailResult: string }> {
-  const full = await repo.getInvoice(invoiceId);
-  const org = await repo.getOrganization();
-  if (!full?.customer?.email) {
-    return { emailed: false, emailResult: `顧客のメールアドレスが未登録のため、${label}はメール送付していません` };
-  }
-  const res = await getEmailProvider().send({
-    to: full.customer.email,
-    subject: `【${org.name}】請求書 ${full.invoiceNumber} のご案内`,
-    html: invoiceEmailHtml({ invoice: full, customerName: full.customer.name, org }),
-  });
-  return {
-    emailed: res.ok,
-    emailResult: res.ok
-      ? (res.message ?? `${label}をメールで送付しました`)
-      : `${label}のメール送付に失敗しました: ${res.message}`,
-  };
-}
-
 /**
  * 受注確定(= 契約書第3条の「甲の承諾」)。締結済みの契約から請求を開始する。
  *
@@ -171,7 +145,7 @@ export async function emailInvoice(
  * - 顧客の支払方法を口座振替にする(翌月以降は NSS の引き落とし)
  * - 紹介制度で登録された顧客は特典を自動適用(初月日割り無料＋2ヶ月無料、紹介者へ初期費用の25%)
  * - 代理店経由の顧客は代理店報酬(初期費用 × 区分の率)を記録する
- * - 受注管理のチェック(申込内容の確認・初回請求書の送付)を付ける
+ * - 受注管理のチェック(申込内容の確認)を付ける
  *
  * 受注管理の案件ページと、契約書の画面の「受注を確定」の両方から使う。
  */
@@ -180,8 +154,6 @@ export async function confirmOrder(params: {
   contractId: string;
   startedOn: string;
   actor: string;
-  /** 初回請求書をそのままメールで送るか */
-  emailInvoice?: boolean;
 }): Promise<
   | {
       ok: true;
@@ -189,7 +161,6 @@ export async function confirmOrder(params: {
       customerId: string;
       invoiceId: string | null;
       subscriptionId: string | null;
-      emailResult: string | null;
     }
   | { ok: false; error: string }
 > {
@@ -343,25 +314,14 @@ export async function confirmOrder(params: {
   }
   if (referred) details.push(referralFreePeriodLabel(startedOn));
 
-  // 初回請求書のメール送付(作成済みの請求書を使ったときは、送付済みのことがあるので送らない)
-  let emailResult: string | null = null;
-  let emailed = false;
-  if (params.emailInvoice && invoiceId && createdInvoice) {
-    ({ emailed, emailResult } = await emailInvoice(repo, invoiceId));
-  } else if (params.emailInvoice && existingInitial) {
-    emailResult = `作成済みの初回請求書 ${existingInitial.invoiceNumber} を使ったため、メールは送っていません（必要なら請求書の画面から送付してください）`;
-  }
-
-  // 受注管理のチェック: 受注確定 = 申込内容の確認済み。メールで送ったなら送付済み
+  // 受注管理のチェック: 受注確定 = 申込内容の確認済み
+  // (初回請求書の送付は、PDFをお客様へ送ったあとに案件ページで「完了にする」)
   try {
     const card = (await repo.listOnboardings()).find((o) => o.customerId === customer.id);
     if (card) {
       await repo.updateOnboarding(card.id, {
         actor,
-        checklist: [
-          { key: "review_checked", done: true },
-          ...(emailed ? [{ key: "initial_invoice_sent", done: true }] : []),
-        ],
+        checklist: [{ key: "review_checked", done: true }],
       });
     }
   } catch {
@@ -374,6 +334,5 @@ export async function confirmOrder(params: {
     customerId: customer.id,
     invoiceId,
     subscriptionId,
-    emailResult,
   };
 }

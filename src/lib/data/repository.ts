@@ -283,19 +283,6 @@ export interface BankRowInput {
   description: string;
 }
 
-/** Stripe から同期する請求書(外部請求書)の入力 */
-export interface StripeInvoiceInput {
-  externalId: string;
-  stripeCustomerId: string;
-  status: "paid" | "failed";
-  type: InvoiceType;
-  billingPeriod?: string | null;
-  issueDate: string;
-  lines: { description: string; amount: number }[];
-  total: number;
-  paidAt?: string | null;
-}
-
 /* ---- 契約書 / 電子契約 ---- */
 
 export interface ContractFilter {
@@ -365,15 +352,6 @@ export interface ContractSignParams {
 export type ContractActionResult =
   | { ok: true; contract: Contract }
   | { ok: false; error: string; locked?: boolean };
-
-export interface StripeSubscriptionInput {
-  customerId: string;
-  stripeSubscriptionId: string;
-  planName: string;
-  /** 月額(税込・JPY) */
-  amount: number;
-  status: import("@/lib/domain/types").SubscriptionStatus;
-}
 
 /* ---- 開発依頼 / 進捗管理 ---- */
 
@@ -662,8 +640,6 @@ export interface Repository {
    */
   updateInvoiceType(id: string, type: InvoiceType): Promise<Invoice>;
   sendInvoice(id: string): Promise<Invoice>;
-  /** 督促メール送付の記録(回数を加算し、最終送付日時を更新)。 */
-  recordInvoiceReminder(id: string, params: { actor: string }): Promise<Invoice>;
 
   // --- 入金 ---
   listPayments(filter?: { customerId?: string }): Promise<Payment[]>;
@@ -787,14 +763,6 @@ export interface Repository {
   listContractEvents(contractId: string): Promise<ContractEvent[]>;
   /** 証跡イベントの追記(リマインド送信の記録など) */
   addContractEvent(contractId: string, event: ContractEventInput): Promise<void>;
-
-  // --- Stripe 連携 ---
-  linkStripeCustomer(customerId: string, stripeCustomerId: string): Promise<void>;
-  findCustomerByStripeCustomerId(stripeCustomerId: string): Promise<Customer | null>;
-  upsertStripeSubscription(input: StripeSubscriptionInput): Promise<Subscription>;
-  markStripeSubscriptionCanceled(stripeSubscriptionId: string): Promise<void>;
-  /** Stripe請求書を同期(externalId で冪等)。作成した Invoice、既存なら null */
-  recordStripeInvoice(input: StripeInvoiceInput): Promise<Invoice | null>;
 
   // --- 開発依頼 / 進捗管理 ---
   listDevIssues(filter?: DevIssueFilter): Promise<DevIssue[]>;

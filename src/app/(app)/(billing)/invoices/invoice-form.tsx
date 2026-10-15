@@ -9,7 +9,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Label, Select, Textarea } from "@/components/ui/input";
 import { calcInvoiceTotals, computeDueDate } from "@/lib/domain/calculations";
-import { invoiceTypeLabels, paymentMethodLabels, TAX_RATE_OPTIONS } from "@/lib/domain/constants";
+import {
+  invoiceTypeLabels,
+  paymentMethodLabels,
+  paymentMethodOptions,
+  TAX_RATE_OPTIONS,
+} from "@/lib/domain/constants";
 import type {
   Customer,
   InvoiceItem,
@@ -200,7 +205,7 @@ export function InvoiceForm({
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
               >
-                {(Object.keys(paymentMethodLabels) as PaymentMethod[]).map((m) => (
+                {paymentMethodOptions(paymentMethod).map((m) => (
                   <option key={m} value={m}>
                     {paymentMethodLabels[m]}
                   </option>
@@ -347,7 +352,7 @@ export function InvoiceForm({
                 disabled={pending}
               >
                 <Send className="h-4 w-4" />
-                作成して送付
+                作成して送付済にする
               </Button>
               <Button
                 type="button"

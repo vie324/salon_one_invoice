@@ -233,7 +233,7 @@ export async function markContractSignedManuallyAction(
  */
 export async function startContractBillingAction(
   id: string,
-  params: { startedOn: string; emailInvoice?: boolean },
+  params: { startedOn: string },
 ) {
   try {
     const repo = await getServiceRepository();
@@ -243,7 +243,6 @@ export async function startContractBillingAction(
       contractId: id,
       startedOn: params.startedOn,
       actor: user.name,
-      emailInvoice: params.emailInvoice,
     });
     if (!res.ok) return res;
     revalidateContractViews(id);
@@ -253,7 +252,7 @@ export async function startContractBillingAction(
     revalidatePath(`/orders/${res.customerId}`);
     revalidatePath("/agencies");
     revalidatePath("/referrals");
-    return { ok: true as const, detail: res.detail, emailResult: res.emailResult };
+    return { ok: true as const, detail: res.detail };
   } catch (e) {
     return { ok: false as const, error: (e as Error).message };
   }

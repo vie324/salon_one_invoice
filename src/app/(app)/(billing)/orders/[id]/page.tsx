@@ -2,6 +2,7 @@ import {
   ArrowLeft,
   Building2,
   ExternalLink,
+  FileDown,
   FileSignature,
   Gift,
   Handshake,
@@ -56,7 +57,6 @@ import {
   type OrderTrack,
 } from "@/lib/domain/onboarding";
 import { planDisplayName } from "@/lib/domain/pricing";
-import { getEmailStatus } from "@/lib/email";
 import { loadOrderBook, type OrderRow } from "@/lib/orders/load";
 import { cn, formatDate, formatDateTime, formatJPY, maskAccount, toISODate } from "@/lib/utils";
 import { BillingSetupButton, type BillingSetupContext } from "./billing-setup";
@@ -68,7 +68,6 @@ import {
   ManualCheck,
   NssStepButton,
   OrderNoteForm,
-  SendInvoiceButton,
   type ConfirmPreview,
 } from "./order-actions";
 
@@ -90,7 +89,6 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
     repo.listAgencyCommissions({ customerId: id }),
     repo.getOrganization(),
   ]);
-  const emailReady = getEmailStatus().mode === "send";
   const { customer, progress, application, mandate } = row;
   const contract = row.contracts.find((c) => c.id === progress.contractId) ?? null;
   const signedContract = row.contracts.find((c) => c.status === "signed") ?? null;
@@ -126,8 +124,6 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               amount: agencyCommissionAmount(initialFee, dealType),
             }
           : null,
-      customerEmail: customer.email,
-      emailReady,
       defaultStartDate: terms.startDate,
     };
   }
@@ -174,8 +170,6 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       })),
     paymentMethod: customer.paymentMethod,
     referred: Boolean(customer.referredByCustomerId),
-    emailReady,
-    customerEmail: customer.email,
     defaultStartDate: existingSub?.startedOn ?? toISODate(new Date()),
   };
   // 契約書の「受注を確定する」で請求を始める案件は、ダイアログを使わない
@@ -244,7 +238,6 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           row={row}
           next={next}
           confirmPreview={confirmPreview}
-          emailReady={emailReady}
           initialInvoiceId={initialInvoice?.id ?? null}
           billingCtx={billingSetupAvailable ? billingCtx : null}
         />
@@ -272,7 +265,6 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               key={track.key}
               track={track}
               row={row}
-              emailReady={emailReady}
               initialInvoiceId={initialInvoice?.id ?? null}
               confirmPreview={confirmPreview}
               billingCtx={billingSetupAvailable ? billingCtx : null}
@@ -563,14 +555,12 @@ function NextActionCard({
   row,
   next,
   confirmPreview,
-  emailReady,
   initialInvoiceId,
   billingCtx,
 }: {
   row: OrderRow;
   next: OrderStepItem | null;
   confirmPreview: ConfirmPreview | null;
-  emailReady: boolean;
   initialInvoiceId: string | null;
   billingCtx: BillingSetupContext | null;
 }) {
@@ -602,7 +592,6 @@ function NextActionCard({
           <ItemAction
             item={next}
             row={row}
-            emailReady={emailReady}
             initialInvoiceId={initialInvoiceId}
             confirmPreview={confirmPreview}
             billingCtx={billingCtx}
@@ -619,14 +608,12 @@ function NextActionCard({
 function TrackCard({
   track,
   row,
-  emailReady,
   initialInvoiceId,
   confirmPreview,
   billingCtx,
 }: {
   track: OrderTrack;
   row: OrderRow;
-  emailReady: boolean;
   initialInvoiceId: string | null;
   confirmPreview: ConfirmPreview | null;
   billingCtx: BillingSetupContext | null;
@@ -701,7 +688,6 @@ function TrackCard({
                   <ItemAction
                     item={item}
                     row={row}
-                    emailReady={emailReady}
                     initialInvoiceId={initialInvoiceId}
                     confirmPreview={confirmPreview}
                     billingCtx={billingCtx}
@@ -728,7 +714,6 @@ const MANUAL_KEYS: ManualChecklistKey[] = [
 function ItemAction({
   item,
   row,
-  emailReady,
   initialInvoiceId,
   confirmPreview,
   billingCtx,
@@ -736,7 +721,6 @@ function ItemAction({
 }: {
   item: OrderStepItem;
   row: OrderRow;
-  emailReady: boolean;
   initialInvoiceId: string | null;
   confirmPreview: ConfirmPreview | null;
   billingCtx: BillingSetupContext | null;
@@ -855,7 +839,15 @@ function ItemAction({
             </Link>
           )}
           {!item.done && initialInvoiceId && (
-            <SendInvoiceButton customerId={customerId} invoiceId={initialInvoiceId} emailReady={emailReady} />
+            <a
+              href={`/print/invoices/${initialInvoiceId}?pdf=1`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={buttonClasses({ size: "sm" })}
+            >
+              <FileDown className="h-3.5 w-3.5" />
+              PDFを保存
+            </a>
           )}
           {/* 実データから完了と判定した項目(入金済みなど)は手で取り消せない */}
           {item.mode === "manual" && (
