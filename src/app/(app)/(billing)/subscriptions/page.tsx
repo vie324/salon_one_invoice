@@ -1,5 +1,7 @@
-import { Repeat, TrendingUp, Users } from "lucide-react";
+import { Repeat, Tags, TrendingUp, Users } from "lucide-react";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { buttonClasses } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
@@ -55,6 +57,12 @@ export default async function SubscriptionsPage() {
       <PageHeader
         title="定期請求"
         description="料金プラン（基本料金＋オプション）と定期請求を管理します。毎月の請求は自動生成できます。"
+        actions={
+          <Link href="/pricing" className={buttonClasses({ variant: "outline" })}>
+            <Tags className="h-4 w-4" />
+            顧客別料金を見る
+          </Link>
+        }
       />
 
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3">
