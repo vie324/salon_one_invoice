@@ -1,19 +1,7 @@
 import type { AgencyStatement } from "@/lib/domain/agency";
-import { AGENCY_DEAL_TYPES, paymentMethodLabels } from "@/lib/domain/constants";
-import type { Contract, Invoice, Organization } from "@/lib/domain/types";
-import { formatDate, formatDateTime, formatJPY, formatPercent } from "@/lib/utils";
-
-/** 振込先の1行表記(未設定の項目は省く)。支店番号は括弧で支店名に添える。 */
-function bankLine(org: Organization): string {
-  if (!org.bankName) return "";
-  const branch = org.bankBranchCode
-    ? `${org.bankBranch}（${org.bankBranchCode}）`
-    : org.bankBranch;
-  return [org.bankName, branch, org.bankAccountType, org.bankAccountNumber, org.bankAccountHolder]
-    .filter(Boolean)
-    .map((v) => escapeHtml(String(v)))
-    .join(" ");
-}
+import { AGENCY_DEAL_TYPES } from "@/lib/domain/constants";
+import type { Contract, Organization } from "@/lib/domain/types";
+import { formatDateTime, formatJPY, formatPercent } from "@/lib/utils";
 
 /**
  * メール末尾の発行元表記。適格請求書の要件に合わせて登録番号も記載する
@@ -25,120 +13,6 @@ function orgFooter(org: Organization): string {
     ? `<br />登録番号: ${escapeHtml(org.registrationNumber)}`
     : "";
   return `<p style="color:#999;font-size:12px;margin-top:24px">${escapeHtml(org.name)}　${line}${registration}</p>`;
-}
-
-/** 請求書送付メールの本文(HTML)。 */
-export function invoiceEmailHtml(params: {
-  invoice: Invoice;
-  customerName: string;
-  org: Organization;
-  viewUrl?: string;
-}): string {
-  const { invoice, customerName, org, viewUrl } = params;
-  const rows = invoice.items
-    .map(
-      (it) => `
-      <tr>
-        <td style="padding:8px 4px;border-bottom:1px solid #eee">${escapeHtml(it.description)}</td>
-        <td style="padding:8px 4px;border-bottom:1px solid #eee;text-align:right">${it.quantity}</td>
-        <td style="padding:8px 4px;border-bottom:1px solid #eee;text-align:right">${formatJPY(it.unitPrice)}</td>
-        <td style="padding:8px 4px;border-bottom:1px solid #eee;text-align:right">${formatJPY(it.amount)}</td>
-      </tr>`,
-    )
-    .join("");
-
-  const payLine =
-    invoice.paymentMethod === "direct_debit"
-      ? `お支払いは <strong>口座振替</strong> にて ${formatDate(invoice.dueDate)} に引き落としの予定です。`
-      : `お支払いは <strong>${paymentMethodLabels[invoice.paymentMethod]}</strong> にて ${formatDate(invoice.dueDate)} までにお願いいたします。`;
-
-  const bankInfo =
-    invoice.paymentMethod === "bank_transfer" && org.bankName
-      ? `<p style="margin:4px 0;color:#555">お振込先: ${bankLine(org)}</p>`
-      : "";
-
-  return `
-  <div style="font-family:'Hiragino Sans','Noto Sans JP',sans-serif;max-width:600px;margin:0 auto;color:#152a26">
-    <div style="background:#0d3b33;color:#fff;padding:20px 24px;border-radius:12px 12px 0 0;border-bottom:3px solid #c2a15c">
-      <div style="font-size:13px;color:#c2a15c">${escapeHtml(org.name)}</div>
-      <div style="font-size:20px;font-weight:700;margin-top:2px">請求書のご案内</div>
-    </div>
-    <div style="border:1px solid #eee;border-top:none;padding:24px;border-radius:0 0 12px 12px">
-      <p>${escapeHtml(customerName)} 様</p>
-      <p>いつもご利用いただきありがとうございます。下記のとおりご請求申し上げます。</p>
-      <table style="width:100%;border-collapse:collapse;margin:16px 0">
-        <tr style="font-size:12px;color:#888;text-align:left">
-          <th style="padding:4px">品目</th><th style="padding:4px;text-align:right">数量</th>
-          <th style="padding:4px;text-align:right">単価</th><th style="padding:4px;text-align:right">金額</th>
-        </tr>
-        ${rows}
-      </table>
-      <div style="text-align:right">
-        <div style="color:#666;font-size:13px">小計 ${formatJPY(invoice.subtotal)} / 消費税 ${formatJPY(invoice.taxTotal)}</div>
-        <div style="font-size:22px;font-weight:700;margin-top:4px">合計 ${formatJPY(invoice.total)}</div>
-      </div>
-      <div style="background:#f1f6f4;border-radius:8px;padding:12px 16px;margin-top:16px;font-size:14px;border-left:3px solid #c2a15c">
-        <div>請求書番号: ${invoice.invoiceNumber}</div>
-        <div>発行日: ${formatDate(invoice.issueDate)} / 支払期限: ${formatDate(invoice.dueDate)}</div>
-        <p style="margin:8px 0 0">${payLine}</p>
-        ${bankInfo}
-      </div>
-      ${
-        viewUrl
-          ? `<div style="text-align:center;margin-top:20px"><a href="${viewUrl}" style="background:#0d3b33;color:#fff;text-decoration:none;padding:10px 24px;border-radius:8px;display:inline-block">請求書を表示</a></div>`
-          : ""
-      }
-      ${orgFooter(org)}
-    </div>
-  </div>`;
-}
-
-/**
- * 入金督促(リマインド)メールの本文(HTML)。
- * 支払期限を過ぎた請求について、行き違いを考慮した丁寧な文面で残額と振込先を案内する。
- */
-export function paymentReminderEmailHtml(params: {
-  invoice: Invoice;
-  customerName: string;
-  org: Organization;
-  /** 期限からの経過日数(期限内なら 0 以下) */
-  overdueDays: number;
-}): string {
-  const { invoice, customerName, org, overdueDays } = params;
-  const remain = Math.max(0, invoice.total - invoice.amountPaid);
-
-  const bankInfo =
-    invoice.paymentMethod !== "direct_debit" && org.bankName
-      ? `<p style="margin:4px 0;color:#555">お振込先: ${bankLine(org)}</p>`
-      : "";
-
-  const lead =
-    overdueDays > 0
-      ? `お支払期限（${formatDate(invoice.dueDate)}）を過ぎておりますが、下記のご請求についてご入金の確認ができておりません。`
-      : `下記のご請求について、お支払期限（${formatDate(invoice.dueDate)}）が近づいておりますのでご案内申し上げます。`;
-
-  return `
-  <div style="font-family:'Hiragino Sans','Noto Sans JP',sans-serif;max-width:600px;margin:0 auto;color:#152a26">
-    <div style="background:#0d3b33;color:#fff;padding:20px 24px;border-radius:12px 12px 0 0;border-bottom:3px solid #c2a15c">
-      <div style="font-size:13px;color:#c2a15c">${escapeHtml(org.name)}</div>
-      <div style="font-size:20px;font-weight:700;margin-top:2px">お支払いのご確認（ご案内）</div>
-    </div>
-    <div style="border:1px solid #eee;border-top:none;padding:24px;border-radius:0 0 12px 12px">
-      <p>${escapeHtml(customerName)} 様</p>
-      <p>いつもご利用いただきありがとうございます。${lead}</p>
-      <div style="background:#f1f6f4;border-radius:8px;padding:12px 16px;margin-top:16px;font-size:14px;border-left:3px solid #c2a15c">
-        <div>請求書番号: ${invoice.invoiceNumber}</div>
-        <div>発行日: ${formatDate(invoice.issueDate)} / 支払期限: ${formatDate(invoice.dueDate)}</div>
-        <div style="margin-top:8px;font-size:18px;font-weight:700">お支払い残額 ${formatJPY(remain)}</div>
-        ${bankInfo}
-      </div>
-      <p style="margin-top:16px">
-        本メールと行き違いでご入金いただいている場合は、何卒ご容赦ください。<br />
-        ご不明な点がございましたら、本メールへご返信いただくかお電話にてお問い合わせください。
-      </p>
-      ${orgFooter(org)}
-    </div>
-  </div>`;
 }
 
 /** 電子契約の署名依頼メール(初回送付・リマインド共用)。 */

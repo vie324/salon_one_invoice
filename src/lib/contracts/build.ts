@@ -74,7 +74,7 @@ export function feeTablesFromPlan(
 
 /**
  * 公開署名ページ(社外の契約者)へ渡す契約データのサニタイズ。
- * 社内CRM情報(customer: メモ・担当者・Stripe ID等)とアクセスコードを除去する。
+ * 社内CRM情報(customer: メモ・担当者等)とアクセスコードを除去する。
  * 契約書の書面に必要な情報は customerParty スナップショットに全て含まれる。
  */
 export function sanitizeContractForSigner(

@@ -120,7 +120,7 @@ export default function HelpPage() {
               <RoleRow step="① 申込内容の入力・電子署名" who="お客様" where="お客様のスマホ・PC（URLを開くだけ）" done="受注管理に「受注確認」で並ぶ" />
               <RoleRow step="② 内容の確認・受注確定" who="請求管理者" where={<><StepLink href="/orders">受注管理</StepLink> → 案件ページ「受注を確定する」</>} done="初回請求書と毎月の請求ができる" />
               <RoleRow step="② 過去のお客様の請求を開始" who="請求管理者" where="案件ページ「書面・旧運用で締結済み」→「請求を開始」" done="初回請求書・毎月の請求が設定される" />
-              <RoleRow step="③ 初回請求書の送付" who="請求管理者" where="案件ページ「メールで送付」（郵送・手渡しなら「完了にする」）" done="✓ 初回請求書をお客様へ送付（入金を確認すると自動で ✓）" />
+              <RoleRow step="③ 初回請求書の送付" who="請求管理者" where="案件ページ「PDFを保存」→ お客様へ送ったら「完了にする」" done="✓ 初回請求書をお客様へ送付（入金を確認すると自動で ✓）" />
               <RoleRow step="③ 初回の入金確認" who="請求管理者" where={<><StepLink href="/payments">入金確認</StepLink>（銀行明細CSVの取込・消込）</>} done="初回請求書が「入金済」" />
               <RoleRow step="③ 口座振替依頼書の郵送" who="請求管理者" where="案件ページ「郵送した」" done="✓ 郵送日" />
               <RoleRow step="③ 依頼書の回収" who="お客様が返送 → 請求管理者" where="案件ページ「回収した」" done="✓ 回収日（原本は本部保管）" />
@@ -231,7 +231,7 @@ export default function HelpPage() {
           <h3 className="mb-2 mt-5 text-sm font-semibold">「受注を確定する」でまとめて作られるもの</h3>
           <Steps
             steps={[
-              { title: "初回請求書（銀行振込）", body: <>初期費用＋初月の日割り（利用開始日〜月末）。支払期限は発行から14日。確定画面で「そのままメールで送る」を選べます。</> },
+              { title: "初回請求書（銀行振込）", body: <>初期費用＋初月の日割り（利用開始日〜月末）。支払期限は発行から14日。確定後に案件ページの「PDFを保存」でPDFにしてお送りします。</> },
               { title: "毎月の請求（定期契約）", body: <>翌月分から毎月の請求書が自動で作られます。<strong>店舗数・個別価格も契約書どおり</strong>に請求されます。</> },
               { title: "支払方法を口座振替（NSS）に", body: <>翌月以降は NSS で引き落とします。口座振替依頼書の手続きを進めてください。</> },
               { title: "紹介特典・代理店報酬の確定", body: <>紹介のお客様は初月日割り無料＋{REFERRAL_FREE_MONTHS}ヶ月無料、紹介者へ初期費用の{Math.round(REFERRAL_REWARD_RATE * 100)}%。代理店経由は初期費用×区分の率を報酬として計上します。</> },
@@ -249,8 +249,8 @@ export default function HelpPage() {
               <Steps
                 steps={[
                   { title: "毎月の請求（定期契約）", body: <>受注確定で自動で登録されます。プランの無い契約や過去のお客様で定期契約が無いと「毎月の請求（定期契約）を登録」が対応待ちに残ります。</> },
-                  { title: "初回請求書を送付", body: <>案件ページの「メールで送付」（受注確定の画面で「そのままメールで送る」を選んだ場合は送付済み）。郵送・手渡しの場合は「完了にする」。</> },
-                  { title: "入金を確認", body: <><StepLink href="/payments">入金確認</StepLink> で銀行明細CSVを取り込み、消し込みます。期限を過ぎると「遅れ」として対応待ちに出るので、督促メールを送ります。</> },
+                  { title: "初回請求書を送付", body: <>案件ページの「PDFを保存」でPDFにし、メール・LINE・郵送などでお客様へ送ったら「完了にする」。</> },
+                  { title: "入金を確認", body: <><StepLink href="/payments">入金確認</StepLink> で銀行明細CSVを取り込み、消し込みます。期限を過ぎると「遅れ」として対応待ちに出るので、お客様へご連絡します。</> },
                 ]}
               />
             </SubCard>
@@ -280,12 +280,12 @@ export default function HelpPage() {
         <Section id="monthly" icon={Repeat} title="④ 毎月の請求・NSS引き落とし" description="運用中のお客様の毎月の流れです。">
           <Steps
             steps={[
-              { title: "請求書の自動作成・送付（毎月1日）", body: <><StepLink href="/subscriptions">定期請求</StepLink> から、その月の請求書（引き落とし日は27日）が毎月1日に自動で作られ、メールで送付されます（口座振替の請求は「入金待ち（引き落とし予定）」）。広告運用代行費などの変動費は <StepLink href="/invoices/new">請求書 → 新規作成</StepLink> で追加します。</> },
+              { title: "請求書の自動作成（毎月1日）", body: <><StepLink href="/subscriptions">定期請求</StepLink> から、その月の請求書（引き落とし日は27日）が毎月1日に自動で作られます（口座振替の請求は「入金待ち（引き落とし予定）」）。メールでは送らないので、お客様に渡す場合は請求書の画面の「PDFを保存」を使います。広告運用代行費などの変動費は <StepLink href="/invoices/new">請求書 → 新規作成</StepLink> で追加します。</> },
               { title: `確認期間（約${NSS_CONFIRMATION_DAYS}日）`, body: <>お客様に請求内容を確認していただく期間です。修正の連絡があれば請求書の金額を訂正してから次へ進みます（NSS引き落とし画面に「確認期間中」と表示されます）。</> },
               { title: "対象の確認", body: <><StepLink href="/direct-debit">NSS引き落とし</StepLink> で、その月に引き落とせる請求と、<strong>NSS の登録がまだで引き落とせない請求</strong>を確認します。引き落とせない請求は「振込に切り替える」を押し、請求書を送付します。</> },
               { title: "NSS へ金額を登録", body: <>「NSS登録用の一覧を作る」→「NSS登録用の一覧（CSV・確認用）」を見ながら NSS の収納リンクへ確定金額を登録 →「NSSへ登録した」。</> },
               { title: "結果の反映", body: <>引き落とし日のあと、NSS の振替結果を見ながら「結果を反映する」。引き落とせなかったものだけ「不可」にして理由（残高不足など）を選びます。成功分は入金済み、不可は「引落失敗」になります。</> },
-              { title: "引き落とし不可のフォロー", body: <>お客様へ連絡し、「振込に切り替える」→ 請求書・督促メールを送ります。</> },
+              { title: "引き落とし不可のフォロー", body: <>お客様へ連絡し、「振込に切り替える」→ 請求書のPDFをお送りします。</> },
             ]}
           />
         </Section>
@@ -418,7 +418,7 @@ export default function HelpPage() {
             <TBody>
               <OmissionRow risk="申込は届いたのに契約書を送り忘れる" fix="申込と契約を1本のURLに統合。「申込のみ」URLから届いた申込は、顧客登録するまで受注管理の対応待ちの先頭に、登録後は「契約書の作成・送付」として残ります。" />
               <OmissionRow risk="締結したのに請求を始め忘れる" fix="締結済みは「受注確認」として受注管理とホームのいちばん上に出続けます。" />
-              <OmissionRow risk="初回請求書を作ったが送っていない" fix="「初回請求書の送付」に ✓ が付くまで対応待ちに残ります（案件ページの「メールで送付」なら自動で ✓。入金を確認した場合も自動で ✓）。" />
+              <OmissionRow risk="初回請求書を作ったが送っていない" fix="「初回請求書の送付」に ✓ が付くまで対応待ちに残ります（PDFを送ったら「完了にする」。入金を確認した場合は自動で ✓）。" />
               <OmissionRow risk="口座振替依頼書が戻ってこない" fix="郵送から14日を超えると「要確認」と赤く表示されます。" />
               <OmissionRow risk="NSS 登録が終わる前の月の請求が引き落とされない" fix="NSS引き落とし画面に「引き落とせない請求」として出ます。「振込に切り替える」で案内文も振込に変わります。" />
               <OmissionRow risk="NSS に登録したが結果を反映していない" fix="一覧が「NSS登録済・結果待ち」のまま残り、引き落とし日以降に反映を促します。" />
@@ -445,7 +445,7 @@ export default function HelpPage() {
             <TBody>
               <TR><TD className="font-medium">初期入力シート・入力用スプレッドシート（住所回収）</TD><TD>申込・契約URL（お客様が入力）</TD></TR>
               <TR><TD className="font-medium">紙の契約書・申込書</TD><TD>申込・契約URLの電子署名（条文を変える場合は「契約書」から個別作成。紙は「書面締結を登録」）</TD></TR>
-              <TR><TD className="font-medium">入力用スプレッドシート（請求金額）</TD><TD><StepLink href="/invoices">請求書</StepLink>（定期分は自動作成・自動送付、変動費は明細追加）</TD></TR>
+              <TR><TD className="font-medium">入力用スプレッドシート（請求金額）</TD><TD><StepLink href="/invoices">請求書</StepLink>（定期分は自動作成、変動費は明細追加。お客様へは PDF でお渡し）</TD></TR>
               <TR><TD className="font-medium">NSS システム（収納サイト）</TD><TD>従来どおり NSS で登録。終わったら案件ページで「NSSへ登録した」「登録完了」</TD></TR>
               <TR><TD className="font-medium">NSS システム（収納リンク）</TD><TD><StepLink href="/direct-debit">NSS引き落とし</StepLink> で一覧 → CSV → NSSへ登録 → 結果を反映</TD></TR>
               <TR><TD className="font-medium">旧「顧客ステータス」（カンバン）</TD><TD><StepLink href="/orders">受注管理</StepLink>（ステージは自動。旧画面で手で進めていた記録は引き継ぎ。旧URLを開いても受注管理へ移動します）</TD></TR>

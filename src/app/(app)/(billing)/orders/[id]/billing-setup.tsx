@@ -13,7 +13,7 @@ import {
   subscriptionMonthly,
   taxAmount,
 } from "@/lib/domain/calculations";
-import { paymentMethodLabels } from "@/lib/domain/constants";
+import { paymentMethodLabels, paymentMethodOptions } from "@/lib/domain/constants";
 import type { InitialInvoiceMode } from "@/lib/domain/onboarding";
 import { defaultFirstBillingMonth, planDisplayName } from "@/lib/domain/pricing";
 import type { PaymentMethod, Plan } from "@/lib/domain/types";
@@ -37,8 +37,6 @@ export interface BillingSetupContext {
   paymentMethod: PaymentMethod;
   /** 紹介特典の対象(初月日割り無料・2ヶ月無料) */
   referred: boolean;
-  emailReady: boolean;
-  customerEmail: string;
   /** 利用開始日の初期値 */
   defaultStartDate: string;
 }
@@ -47,7 +45,6 @@ type Focus = "all" | "initial" | "subscription";
 type InitialChoice = "keep" | "create" | "existing" | "outside" | "none";
 type SubChoice = "keep" | "create" | "none";
 
-const PAYMENT_METHODS: PaymentMethod[] = ["direct_debit", "bank_transfer", "credit_card", "cash"];
 
 /**
  * 請求を開始する(システムに締結済みの契約書が無いお客様)。
@@ -82,7 +79,6 @@ export function BillingSetupButton({
   const [feeTouched, setFeeTouched] = React.useState(false);
   const [includeProration, setIncludeProration] = React.useState(true);
   const [prorationTouched, setProrationTouched] = React.useState(false);
-  const [emailInvoice, setEmailInvoice] = React.useState(false);
   const [invoiceId, setInvoiceId] = React.useState("");
   const [outsideSent, setOutsideSent] = React.useState(true);
   const [outsidePaid, setOutsidePaid] = React.useState(false);
@@ -109,7 +105,6 @@ export function BillingSetupButton({
     // 利用開始が先月以前(過去のお客様)なら、初月日割りは通常システムの外で請求済み
     setIncludeProration(ctx.defaultStartDate.slice(0, 7) >= currentMonth());
     setProrationTouched(false);
-    setEmailInvoice(ctx.emailReady && Boolean(ctx.customerEmail));
     setInvoiceId(ctx.candidates[0]?.id ?? "");
     setOutsideSent(true);
     setOutsidePaid(false);
@@ -176,7 +171,7 @@ export function BillingSetupButton({
         startedOn,
         initial:
           initialChoice === "create"
-            ? { mode: "create", initialFee: fee, includeProration, emailInvoice }
+            ? { mode: "create", initialFee: fee, includeProration }
             : initialChoice === "existing"
               ? { mode: "existing", invoiceId }
               : initialChoice === "outside"
@@ -205,10 +200,7 @@ export function BillingSetupButton({
         return;
       }
       setOpen(false);
-      announceOrderResult(
-        "請求を設定しました",
-        res.emailResult ? `${res.detail} / ${res.emailResult}` : res.detail,
-      );
+      announceOrderResult("請求を設定しました", res.detail);
       router.refresh();
     });
 
@@ -325,25 +317,9 @@ export function BillingSetupButton({
                     <span className="text-muted-foreground">初回請求書の合計（税込）</span>
                     <span className="tabular font-semibold">{formatJPY(initialTotal)}</span>
                   </div>
-                  <label className="flex cursor-pointer items-start gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5 h-4 w-4 accent-[hsl(var(--primary))]"
-                      checked={emailInvoice}
-                      disabled={!ctx.emailReady || !ctx.customerEmail}
-                      onChange={(e) => setEmailInvoice(e.target.checked)}
-                    />
-                    <span>
-                      そのままメールで送る
-                      <span className="block text-xs text-muted-foreground">
-                        {!ctx.emailReady
-                          ? "メール送信が未設定のため送れません（郵送・手渡ししたら、案件ページで「完了にする」）"
-                          : !ctx.customerEmail
-                            ? "お客様のメールアドレスが未登録です"
-                            : `送付先: ${ctx.customerEmail}`}
-                      </span>
-                    </span>
-                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    作成した請求書は、案件ページの「PDFを保存」からPDFにしてお客様へお送りください。
+                  </p>
                 </div>
               )}
 
@@ -489,7 +465,7 @@ export function BillingSetupButton({
                     </Field>
                     <Field label="毎月のお支払い方法">
                       <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}>
-                        {PAYMENT_METHODS.map((m) => (
+                        {paymentMethodOptions(paymentMethod).map((m) => (
                           <option key={m} value={m}>
                             {m === "direct_debit" ? "口座振替（NSS）" : paymentMethodLabels[m]}
                           </option>

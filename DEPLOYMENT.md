@@ -17,8 +17,8 @@
 1. `0001_init.sql` … テーブル・インデックス
 2. `0002_rls.sql` … Row Level Security ポリシー
 3. `0003_functions.sql` … サインアップ時の profiles 自動作成ほか
-4. `0004_stripe.sql` … Stripe 連携カラム
-5. `0005_stripe_unique.sql` … Stripe サブスクの一意制約
+4. `0004_stripe.sql` … Stripe 連携カラム（Stripe 連携は廃止済み。カラムが残るだけなので、番号順にそのまま実行して問題ありません）
+5. `0005_stripe_unique.sql` … Stripe サブスクの一意制約（同上）
 6. `0006_plan_options.sql` … 料金プランのオプション/初期費用/期間区分
 7. `0007_contracts.sql` … 契約書・電子契約（内容凍結/追記専用トリガー・RLS）
 8. `0008_agencies_pricing.sql` … 営業代理店・営業マン・個別料金
@@ -92,8 +92,6 @@
    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ | anon キー |
    | `SUPABASE_SERVICE_ROLE_KEY` | ✅ | service_role キー（Cron 用） |
    | `CRON_SECRET` | ✅ | Cron 保護用の任意文字列 |
-   | `PAYMENT_PROVIDER` |  | `manual`（既定）/ `stripe` |
-   | `STRIPE_SECRET_KEY` |  | Stripe 利用時 |
    | `MAIL_HOST` ほか `MAIL_*` |  | SMTP でメールを送る場合（→ [5. メールを実際に送る設定](#5-メールを実際に送る設定)） |
    | `RESEND_API_KEY` / `EMAIL_FROM` |  | Resend で送る場合 |
    | `NEXT_PUBLIC_APP_URL` |  | 公開URL。メール内リンク（署名URL等）に使用 |
@@ -105,7 +103,7 @@
 
 ## 5. メールを実際に送る設定
 
-既定ではメールは**送信されません**（サーバーログに出力するプレビューのみ）。契約書の署名依頼・締結完了通知、請求書、代理店の支払明細をお客様へ実際に届けるには、**SMTP** か **Resend** のどちらかを設定します。
+既定ではメールは**送信されません**（サーバーログに出力するプレビューのみ）。契約書の署名依頼・締結完了通知、申込の受付通知、代理店の支払明細を実際に届けるには（請求書はメールで送らず、PDF で保存してお渡しします）、**SMTP** か **Resend** のどちらかを設定します。
 
 ### A. Google Workspace の SMTP リレーで送る（推奨）
 
@@ -181,7 +179,7 @@ MX を Google Workspace に向けている場合、ドメインのDNS（Xserver 
 
 #### 送信量の上限
 
-SMTP リレーは **1ユーザーあたり24時間で10,000通**（宛先数も10,000件）、1回の SMTP トランザクションあたりの宛先は100件までです。請求書の一斉送付などで上限に近づく場合は送信を分割してください。
+SMTP リレーは **1ユーザーあたり24時間で10,000通**（宛先数も10,000件）、1回の SMTP トランザクションあたりの宛先は100件までです。一斉送付などで上限に近づく場合は送信を分割してください。
 
 ### B. Resend（API）で送る
 

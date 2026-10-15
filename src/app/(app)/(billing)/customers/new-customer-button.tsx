@@ -7,7 +7,7 @@ import { createCustomerAction } from "@/app/actions/customers";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/input";
-import { paymentMethodLabels } from "@/lib/domain/constants";
+import { paymentMethodLabels, paymentMethodOptions } from "@/lib/domain/constants";
 import type { PaymentMethod } from "@/lib/domain/types";
 
 export function NewCustomerButton() {
@@ -80,7 +80,7 @@ export function NewCustomerButton() {
                 value={form.paymentMethod}
                 onChange={(e) => set({ paymentMethod: e.target.value as PaymentMethod })}
               >
-                {(Object.keys(paymentMethodLabels) as PaymentMethod[]).map((m) => (
+                {paymentMethodOptions(form.paymentMethod).map((m) => (
                   <option key={m} value={m}>
                     {paymentMethodLabels[m]}
                   </option>

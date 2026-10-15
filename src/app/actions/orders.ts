@@ -45,7 +45,7 @@ async function cardFor(customerId: string) {
  */
 export async function confirmOrderAction(
   contractId: string,
-  params: { startedOn: string; emailInvoice: boolean },
+  params: { startedOn: string },
 ) {
   try {
     const user = await requireOrderUser();
@@ -55,7 +55,6 @@ export async function confirmOrderAction(
       contractId,
       startedOn: params.startedOn,
       actor: user.name,
-      emailInvoice: params.emailInvoice,
     });
     if (!res.ok) return res;
     revalidateOrder(res.customerId);

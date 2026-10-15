@@ -815,7 +815,7 @@ export function computeOrderProgress(input: OrderProgressInput): OrderProgress {
                 ? "初回請求書はありません（初期費用・初月日割りなし）"
                 : initialMode === "outside"
                   ? "システムの外で発行した初回請求書です。お客様へ送付済みなら「完了にする」を押してください。"
-                  : "「メールで送付」で送るか、郵送・手渡しした場合は「完了にする」を押してください（入金を確認すると自動で完了します）。",
+                  : "「PDFを保存」でPDFにしてお客様へ送り、「完了にする」を押してください（入金を確認すると自動で完了します）。",
             },
             Boolean(legacy?.invoiceIssued),
           ),

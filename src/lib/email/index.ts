@@ -4,7 +4,6 @@ import {
   emailFromAddress,
   emailProvider,
   emailReady,
-  invoiceAutoEmail,
   isServerlessRuntime,
   resendApiKey,
   smtpAuthMode,
@@ -63,8 +62,6 @@ export interface EmailStatus {
   hasApiKey: boolean;
   /** メール内リンク(署名URL等)の基準URL。未設定ならリクエストヘッダから推定。 */
   appUrl: string;
-  /** 定期請求の請求書を自動送付するか */
-  invoiceAutoEmail: boolean;
   /** 実送信するために足りない設定(空なら送信可能) */
   issues: string[];
   /** 設定は揃っているが注意が必要な点 */
@@ -149,7 +146,7 @@ export function getEmailStatus(): EmailStatus {
 
   if (!appUrl) {
     issues.push(
-      "NEXT_PUBLIC_APP_URL が未設定です。署名・請求書リンクは実行環境のURLから推定されます（本番URLの設定を推奨）",
+      "NEXT_PUBLIC_APP_URL が未設定です。署名リンクなどは実行環境のURLから推定されます（本番URLの設定を推奨）",
     );
   }
 
@@ -174,7 +171,6 @@ export function getEmailStatus(): EmailStatus {
         : null,
     hasApiKey: !!resendApiKey,
     appUrl,
-    invoiceAutoEmail,
     issues,
     warnings,
   };

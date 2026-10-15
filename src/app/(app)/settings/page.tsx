@@ -2,7 +2,6 @@ import {
   AlertTriangle,
   Building2,
   CalendarRange,
-  CreditCard,
   Database,
   Mail,
   ShieldCheck,
@@ -12,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireUser } from "@/lib/auth";
-import { isDemoMode, paymentProvider } from "@/lib/config";
+import { isDemoMode } from "@/lib/config";
 import { getServiceRepository } from "@/lib/data";
 import { getEmailStatus } from "@/lib/email";
 import { isProductAdmin, roleLabels, roleTone } from "@/lib/domain/constants";
@@ -110,14 +109,6 @@ export default async function SettingsPage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                  <CreditCard className="h-4 w-4" /> 決済
-                </span>
-                <Badge tone={paymentProvider === "stripe" ? "primary" : "neutral"}>
-                  {paymentProvider === "stripe" ? "Stripe" : "NSS 口座振替 ＋ 銀行振込"}
-                </Badge>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="inline-flex items-center gap-1.5 text-muted-foreground">
                   <Mail className="h-4 w-4" /> メール
                 </span>
                 <Badge tone={email.mode === "send" ? "success" : "warning"}>
@@ -195,10 +186,6 @@ export default async function SettingsPage() {
             <Row
               label="メール内リンクのURL"
               value={email.appUrl || "未設定（実行環境から自動判定）"}
-            />
-            <Row
-              label="定期請求の請求書を自動送付"
-              value={email.invoiceAutoEmail ? "有効" : "無効"}
             />
           </div>
 

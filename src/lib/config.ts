@@ -17,11 +17,6 @@ export const isDemoMode = !isSupabaseConfigured;
 
 export const appName = process.env.NEXT_PUBLIC_APP_NAME ?? "SalonOne";
 
-/** 決済プロバイダ: manual(手動/CSV) | stripe */
-export const paymentProvider = (process.env.PAYMENT_PROVIDER ?? "manual") as
-  | "manual"
-  | "stripe";
-
 /** Resend の API キー(Resend 利用時に必須) */
 export const resendApiKey = process.env.RESEND_API_KEY ?? "";
 
@@ -109,10 +104,6 @@ export const cronSecret = process.env.CRON_SECRET ?? "";
 
 /** 署名リンク等の絶対URL生成に使う。未設定時はリクエストヘッダから推定。 */
 export const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
-
-/** 定期請求の自動生成時に請求書メールも自動送付するか(既定: 有効) */
-export const invoiceAutoEmail =
-  (process.env.INVOICE_AUTO_EMAIL ?? "true").toLowerCase() !== "false";
 
 /** AIモック生成(Claude API)。未設定時はデモ用サンプル生成のみ */
 export const anthropicApiKey = process.env.ANTHROPIC_API_KEY ?? "";

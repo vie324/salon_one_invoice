@@ -109,8 +109,6 @@ export interface Customer {
   /** メモ(特別待遇の理由・注記事項など) */
   notes: string;
   createdAt: string;
-  /** Stripe 顧客ID（決済連携時） */
-  stripeCustomerId?: string | null;
   /** 獲得した営業代理店/営業マン(代理店報酬の計算に使用) */
   agencyId?: string | null;
   agencyMemberId?: string | null;
@@ -208,8 +206,6 @@ export interface Subscription {
    * 毎月の請求はこの店舗数を掛けて計算する。未設定は1店舗。
    */
   storeCount?: number;
-  /** Stripe サブスクリプションID（決済連携時） */
-  stripeSubscriptionId?: string | null;
   /** 削除(ゴミ箱)に入れた日時。null/未設定 = 有効なデータ。 */
   deletedAt?: string | null;
 }
@@ -244,9 +240,7 @@ export interface Invoice {
   sentAt: string | null;
   paidAt: string | null;
   createdAt: string;
-  /** 外部システム(Stripe請求書など)のID。冪等化に使用 */
-  externalId?: string | null;
-  /** 督促メールの送付回数(未送付は 0/未設定) */
+  /** 督促メールの送付回数(未送付は 0/未設定)。督促メールは廃止済みで、過去の記録の表示用 */
   reminderCount?: number;
   /** 最後に督促メールを送付した日時 */
   lastReminderAt?: string | null;

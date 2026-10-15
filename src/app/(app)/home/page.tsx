@@ -277,7 +277,7 @@ async function loadBilling(repo: Repository, month: string) {
       href: "/invoices?status=draft",
       icon: FileText,
       label: "下書きのままの請求書",
-      detail: "送付するとお客様に届きます",
+      detail: "PDFを保存してお客様へ渡したら「送付済にする」",
       count: drafts,
       tone: "info",
     });

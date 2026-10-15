@@ -158,6 +158,16 @@ export const paymentMethodLabels: Record<PaymentMethod, string> = {
   cash: "現金・その他",
 };
 
+/**
+ * 選択肢に出す支払方法。初期費用などは銀行振込、毎月は口座振替(NSS)で運用するため、
+ * クレジットカードは出さない(過去のデータを表示できるようラベルは残す)。
+ * current を渡すと、選択肢に無い既存の値もそのまま表示できるよう末尾に含める。
+ */
+export function paymentMethodOptions(current?: PaymentMethod | "adjustment" | null): PaymentMethod[] {
+  const base: PaymentMethod[] = ["direct_debit", "bank_transfer", "cash"];
+  return current && current !== "adjustment" && !base.includes(current) ? [...base, current] : base;
+}
+
 export const paymentMethodShort: Record<PaymentMethod, string> = {
   direct_debit: "振替",
   bank_transfer: "振込",

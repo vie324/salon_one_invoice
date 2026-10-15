@@ -11,7 +11,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { buttonClasses } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { isStripeConfigured } from "@/lib/payments/stripe-client";
 import { getServiceRepository } from "@/lib/data";
 import {
   selectedOptions,
@@ -28,7 +27,6 @@ import { DealTypeBadge } from "@/components/orders/order-ui";
 import { hasLegacyBankInfo } from "@/lib/data/mandate";
 import { resolveDealType } from "@/lib/domain/agency";
 import { nssStage, nssStageLabels } from "@/lib/domain/nss";
-import { BillingButton } from "./billing-button";
 import { EditCustomerButton } from "./edit-customer-button";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
@@ -110,10 +108,6 @@ export default async function CustomerDetailPage({
             <SquareKanban className="h-4 w-4" />
             受注管理の案件
           </Link>
-          {/* NSS(口座振替)＋振込の運用のため、Stripe はキーを設定したときだけ出す */}
-          {isStripeConfigured() && (
-            <BillingButton customerId={customer.id} stripeConfigured plans={plans} />
-          )}
           <Link
             href={`/contracts/new?customer=${customer.id}`}
             className={buttonClasses({ variant: "outline", size: "sm" })}

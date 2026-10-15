@@ -1,9 +1,8 @@
 "use client";
 
-import { CheckCircle2, Mail, PauseCircle, PlayCircle, Rocket, Save, Send, Undo2 } from "lucide-react";
+import { CheckCircle2, PauseCircle, PlayCircle, Rocket, Save, Send, Undo2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
-import { sendInvoiceAction } from "@/app/actions/invoices";
 import {
   clearLegacyBankInfoAction,
   confirmOrderAction,
@@ -36,21 +35,19 @@ export interface ConfirmPreview {
   referred: boolean;
   /** 代理店報酬の見込み(代理店経由のときだけ) */
   agencyCommission: { agencyName: string; label: string; amount: number } | null;
-  customerEmail: string;
-  emailReady: boolean;
   defaultStartDate: string | null;
 }
 
 /** 受注確定・請求の設定の結果を ConfirmResultNotice へ渡すイベント */
 const ORDER_RESULT_EVENT = "salonone:order-result";
 
-/** 受注管理の操作結果(作ったもの・メール送付の結果)を、ページ上のダイアログに出す */
+/** 受注管理の操作結果(作ったもの)を、ページ上のダイアログに出す */
 export function announceOrderResult(title: string, detail: string) {
   window.dispatchEvent(new CustomEvent(ORDER_RESULT_EVENT, { detail: { title, detail } }));
 }
 
 /**
- * 受注確定・請求の設定の結果(作ったもの・初回請求書のメール送付結果)を表示する。
+ * 受注確定・請求の設定の結果(作ったもの)を表示する。
  * 確定すると「受注を確定する」の行は完了に変わってボタンごと消えるため、
  * 結果はページに常に置いてあるこの部品で表示する(ボタン側のダイアログでは消えてしまう)。
  */
@@ -94,9 +91,6 @@ export function ConfirmOrderButton({ preview }: { preview: ConfirmPreview }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [startedOn, setStartedOn] = React.useState(preview.defaultStartDate ?? toISODate(new Date()));
-  const [emailInvoice, setEmailInvoice] = React.useState(
-    preview.emailReady && Boolean(preview.customerEmail),
-  );
   const [error, setError] = React.useState<string | null>(null);
   const [pending, start] = React.useTransition();
 
@@ -113,16 +107,13 @@ export function ConfirmOrderButton({ preview }: { preview: ConfirmPreview }) {
   const confirm = () =>
     start(async () => {
       setError(null);
-      const res = await confirmOrderAction(preview.contractId, { startedOn, emailInvoice });
+      const res = await confirmOrderAction(preview.contractId, { startedOn });
       if (!res.ok) {
         setError(res.error);
         return;
       }
       setOpen(false);
-      announceOrderResult(
-        "受注を確定しました",
-        res.emailResult ? `${res.detail} / ${res.emailResult}` : res.detail,
-      );
+      announceOrderResult("受注を確定しました", res.detail);
       router.refresh();
     });
 
@@ -183,25 +174,9 @@ export function ConfirmOrderButton({ preview }: { preview: ConfirmPreview }) {
             )}
           </div>
 
-          <label className="flex cursor-pointer items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="mt-0.5 h-4 w-4 accent-[hsl(var(--primary))]"
-              checked={emailInvoice}
-              disabled={!preview.emailReady || !preview.customerEmail}
-              onChange={(e) => setEmailInvoice(e.target.checked)}
-            />
-            <span>
-              初回請求書をそのままメールで送る
-              <span className="block text-xs text-muted-foreground">
-                {!preview.emailReady
-                  ? "メール送信が未設定のため送れません（郵送・手渡ししたら、案件ページの「初回請求書をお客様へ送付」を「完了にする」）"
-                  : !preview.customerEmail
-                    ? "お客様のメールアドレスが未登録です"
-                    : `送付先: ${preview.customerEmail}`}
-              </span>
-            </span>
-          </label>
+          <p className="text-xs text-muted-foreground">
+            初回請求書は、確定後に案件ページの「PDFを保存」からPDFにしてお客様へお送りください。
+          </p>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex gap-2 [&>*]:flex-1 sm:justify-end sm:[&>*]:flex-none">
@@ -283,43 +258,6 @@ export function ManualCheck({
         )}
       </Button>
       {error && <span className="text-xs text-destructive">{error}</span>}
-    </span>
-  );
-}
-
-/** 初回請求書をメールで送り、「送付済み」にチェックする */
-export function SendInvoiceButton({
-  customerId,
-  invoiceId,
-  emailReady,
-}: {
-  customerId: string;
-  invoiceId: string;
-  emailReady: boolean;
-}) {
-  const router = useRouter();
-  const [pending, start] = React.useTransition();
-  const [message, setMessage] = React.useState<string | null>(null);
-  const send = () =>
-    start(async () => {
-      const res = await sendInvoiceAction(invoiceId, { email: true });
-      if (!res.ok) {
-        setMessage(res.error);
-        return;
-      }
-      const sentOk = Boolean(res.emailResult && !res.emailResult.includes("失敗") && !res.emailResult.includes("未登録"));
-      if (sentOk) await toggleOrderChecklistAction(customerId, "initial_invoice_sent", true);
-      setMessage(res.emailResult ?? "送付しました");
-      router.refresh();
-    });
-  if (!emailReady) return null;
-  return (
-    <span className="inline-flex flex-col items-end gap-1">
-      <Button size="sm" onClick={send} disabled={pending}>
-        <Mail className="h-3.5 w-3.5" />
-        {pending ? "送信中…" : "メールで送付"}
-      </Button>
-      {message && <span className="max-w-[16rem] text-right text-xs text-muted-foreground">{message}</span>}
     </span>
   );
 }

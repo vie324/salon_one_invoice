@@ -280,7 +280,7 @@ export default async function DirectDebitPage({
           </CardHeader>
           <CardContent>
             <p className="mb-2 text-xs text-muted-foreground">
-              残高不足などで引き落とせなかった請求です。お客様へ連絡し、振込に切り替えて請求書（督促）を送ってください。
+              残高不足などで引き落とせなかった請求です。お客様へ連絡し、振込に切り替えて請求書のPDFをお送りください。
             </p>
             <ul className="divide-y divide-border text-sm">
               {failed.map((inv) => (

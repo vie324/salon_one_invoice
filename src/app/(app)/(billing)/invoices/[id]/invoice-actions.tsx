@@ -1,19 +1,18 @@
 "use client";
 
-import { Ban, BellRing, CheckCircle2, Printer, Send, Wallet } from "lucide-react";
+import { Ban, CheckCircle2, FileDown, Send, Wallet } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import {
   sendInvoiceAction,
-  sendPaymentReminderAction,
   updateInvoicePaymentMethodAction,
   updateInvoiceStatusAction,
 } from "@/app/actions/invoices";
 import { recordPaymentAction } from "@/app/actions/payments";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClasses } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/input";
-import { paymentMethodLabels } from "@/lib/domain/constants";
+import { paymentMethodLabels, paymentMethodOptions } from "@/lib/domain/constants";
 import type { PaymentMethod } from "@/lib/domain/types";
 import { formatJPY, toISODate } from "@/lib/utils";
 
@@ -24,8 +23,6 @@ export function InvoiceActions({
   total,
   amountPaid,
   paymentMethod,
-  hasEmail,
-  reminderCount = 0,
 }: {
   id: string;
   customerId: string;
@@ -33,8 +30,6 @@ export function InvoiceActions({
   total: number;
   amountPaid: number;
   paymentMethod: PaymentMethod;
-  hasEmail: boolean;
-  reminderCount?: number;
 }) {
   const router = useRouter();
   const [pending, start] = React.useTransition();
@@ -63,11 +58,10 @@ export function InvoiceActions({
     });
   };
 
-  const run = (fn: () => Promise<{ ok: boolean; error?: string; emailResult?: string | null }>) =>
+  const run = (fn: () => Promise<{ ok: boolean; error?: string }>) =>
     start(async () => {
       const res = await fn();
       if (!res.ok) setFlash(res.error ?? "処理に失敗しました");
-      else if (res.emailResult) setFlash(res.emailResult);
       router.refresh();
     });
 
@@ -75,17 +69,31 @@ export function InvoiceActions({
 
   return (
     <div className="space-y-2">
+      {/* 請求書はメールでは送らず、PDF を保存してお客様へ渡す */}
+      <a
+        href={`/print/invoices/${id}?pdf=1`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={buttonClasses({
+          variant: status === "draft" ? "primary" : "outline",
+          className: "w-full",
+        })}
+      >
+        <FileDown className="h-4 w-4" />
+        PDFを保存
+      </a>
+
       {status === "draft" && (
-        <>
-          <Button
-            className="w-full"
-            disabled={pending}
-            onClick={() => run(() => sendInvoiceAction(id, { email: hasEmail }))}
-          >
-            <Send className="h-4 w-4" />
-            {hasEmail ? "送付（メール送信）" : "送付済にする"}
-          </Button>
-        </>
+        <Button
+          variant="outline"
+          className="w-full"
+          disabled={pending}
+          title="PDFをお客様へ渡したら押します"
+          onClick={() => run(() => sendInvoiceAction(id))}
+        >
+          <Send className="h-4 w-4" />
+          送付済にする
+        </Button>
       )}
 
       {!isPaid && (
@@ -114,27 +122,6 @@ export function InvoiceActions({
         </Button>
       )}
 
-      {!isPaid && status !== "draft" && outstanding > 0 && (
-        <Button
-          variant="outline"
-          className="w-full"
-          disabled={pending || !hasEmail}
-          title={hasEmail ? undefined : "顧客のメールアドレスが未登録です"}
-          onClick={() => {
-            if (
-              !window.confirm(
-                `お支払いのご確認(督促)メールを送信します。よろしいですか？${reminderCount > 0 ? `\n（これまでに${reminderCount}回送信済み）` : ""}`,
-              )
-            )
-              return;
-            run(() => sendPaymentReminderAction(id));
-          }}
-        >
-          <BellRing className="h-4 w-4" />
-          督促メールを送信{reminderCount > 0 ? `（${reminderCount}回送信済）` : ""}
-        </Button>
-      )}
-
       {!isPaid && (
         <div className="border-t border-border pt-3">
           <Field
@@ -146,7 +133,7 @@ export function InvoiceActions({
               disabled={pending}
               onChange={(e) => changeMethod(e.target.value as PaymentMethod)}
             >
-              {(Object.keys(paymentMethodLabels) as PaymentMethod[]).map((m) => (
+              {paymentMethodOptions(method).map((m) => (
                 <option key={m} value={m}>
                   {paymentMethodLabels[m]}
                 </option>
@@ -155,16 +142,6 @@ export function InvoiceActions({
           </Field>
         </div>
       )}
-
-      <a
-        href={`/print/invoices/${id}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-input bg-card text-sm font-medium hover:bg-muted"
-      >
-        <Printer className="h-4 w-4" />
-        印刷 / PDF
-      </a>
 
       {!isPaid && (
         <Button
@@ -246,7 +223,7 @@ function PaymentDialog({
         <div className="grid grid-cols-2 gap-4">
           <Field label="入金方法">
             <Select value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)}>
-              {(Object.keys(paymentMethodLabels) as PaymentMethod[]).map((m) => (
+              {paymentMethodOptions(method).map((m) => (
                 <option key={m} value={m}>
                   {paymentMethodLabels[m]}
                 </option>
