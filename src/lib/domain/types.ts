@@ -812,6 +812,44 @@ export interface AppNotification {
   createdAt: string;
 }
 
+/* ---- マーケティング代行 ---- */
+
+/**
+ * マーケティング代行の状況。
+ * planned(申込済み・開始前) → active(運用中) → stopped(停止)
+ */
+export type MarketingServiceStatus = "planned" | "active" | "stopped";
+
+/**
+ * マーケティング代行(お客様ごとに1件)。
+ *
+ * 契約書の料金表【マーケティング代行費用】のとおり、システム利用料とは別建てで
+ * 「初期構築費用」と「月額運用費 = 最低額 または 広告費等 × 料率 のいずれか高い方」がかかる。
+ * 月額は広告費で毎月変わるため、ここでは契約条件(最低額・料率)を記録し、
+ * 請求書は自動では作らない(広告費が確定してから請求書を作成する)。
+ */
+export interface MarketingService {
+  id: string;
+  customerId: string;
+  status: MarketingServiceStatus;
+  /** 申し込んだ日(YYYY-MM-DD) */
+  appliedOn: string | null;
+  /** 運用を始めた日(YYYY-MM-DD) */
+  startedOn: string | null;
+  /** 停止した日(YYYY-MM-DD) */
+  endedOn: string | null;
+  /** 初期構築費用(税抜) */
+  initialFee: number;
+  /** 月額運用費の最低額(税抜) */
+  monthlyMinimum: number;
+  /** 広告費等に対する料率(0.2 = 20%)。0 = 最低額のみ(固定額) */
+  feeRate: number;
+  /** メモ(運用する媒体・広告予算の目安など) */
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /* ---- 申込(お客様に渡す申込・契約URLからの入力) ---- */
 
 /**

@@ -131,6 +131,8 @@ export default function HelpPage() {
               <RoleRow step="④ NSS へ金額を登録" who="請求管理者" where={<><StepLink href="/direct-debit">NSS引き落とし</StepLink>「NSS登録用の一覧を作る」→ CSV → 「NSSへ登録した」</>} done="一覧が「NSS登録済」" />
               <RoleRow step="④ 引き落とし結果の反映" who="請求管理者" where="NSS引き落とし の一覧「結果を反映する」" done="入金済／引落失敗（要フォロー）" />
               <RoleRow step="毎月 代理店報酬の支払い" who="請求管理者" where={<><StepLink href="/agencies">代理店</StepLink>「支払済みにする」・明細のメール／印刷</>} done="報酬が「支払済」" />
+              <RoleRow step="随時 申込日・金額の確認" who="経営者・請求管理者" where={<StepLink href="/signups">申込一覧</StepLink>} done="どのお客様が・いつ・いくらで申し込んだかが分かる" />
+              <RoleRow step="随時 マーケティング代行の登録" who="請求管理者" where={<>顧客の画面の「マーケティング代行」・<StepLink href="/signups">申込一覧</StepLink> の行を開いて「マーケティング代行を登録」</>} done="申込一覧に申込日と金額が並ぶ（請求書は広告費の確定後に作成）" />
             </TBody>
           </Table>
         </Section>
@@ -450,6 +452,7 @@ export default function HelpPage() {
               <TR><TD className="font-medium">NSS システム（収納リンク）</TD><TD><StepLink href="/direct-debit">NSS引き落とし</StepLink> で一覧 → CSV → NSSへ登録 → 結果を反映</TD></TR>
               <TR><TD className="font-medium">旧「顧客ステータス」（カンバン）</TD><TD><StepLink href="/orders">受注管理</StepLink>（ステージは自動。旧画面で手で進めていた記録は引き継ぎ。旧URLを開いても受注管理へ移動します）</TD></TR>
               <TR><TD className="font-medium">旧「申込」</TD><TD><StepLink href="/applications">申込・契約URL</StepLink></TD></TR>
+              <TR><TD className="font-medium">旧「顧客別料金」</TD><TD><StepLink href="/signups">申込一覧</StepLink>（申込日つきでお客様ごとの金額を表示。旧URLを開いても申込一覧へ移動します）</TD></TR>
               <TR><TD className="font-medium">旧「口座振替」（口座情報の登録・汎用CSV・バッチ処理）</TD><TD><StepLink href="/direct-debit">NSS引き落とし</StepLink>（口座情報は持たない・結果は実際の NSS の結果を反映）</TD></TR>
               <TR><TD className="font-medium">旧 代理店手数料（毎月の入金済売上 × 率）</TD><TD>初期費用 × 区分の率（取次型 50%／営業・初期設定型 100%）</TD></TR>
             </TBody>

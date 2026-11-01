@@ -71,6 +71,7 @@ import type {
   InvoiceStatus,
   InvoiceType,
   InvoiceWithCustomer,
+  MarketingService,
   NotificationType,
   Organization,
   Payment,
@@ -114,6 +115,7 @@ import type {
   InvoiceFilter,
   InvoiceInput,
   MandateInput,
+  MarketingServiceInput,
   OnboardingUpdateInput,
   OrganizationInput,
   PaymentInput,
@@ -127,6 +129,7 @@ import type {
   SubscriptionUpdateInput,
 } from "../repository";
 import { applicationLinkSettings } from "../application-link";
+import { mergeMarketingService } from "../marketing";
 import { mergeMandate } from "../mandate";
 import { getStore } from "./store";
 
@@ -271,6 +274,45 @@ export class DemoRepository implements Repository {
     const mandate: DirectDebitMandate = { id: genId("man"), ...merged };
     this.s.mandates.push(mandate);
     return mandate;
+  }
+
+  // ---- マーケティング代行 ----
+
+  /** 旧デモストア(HMRで保持)に marketingServices が無い場合の後方互換 */
+  private get marketing(): MarketingService[] {
+    if (!this.s.marketingServices) this.s.marketingServices = [];
+    return this.s.marketingServices;
+  }
+
+  async listMarketingServices(): Promise<MarketingService[]> {
+    const live = new Set(this.s.customers.filter((c) => !c.deletedAt).map((c) => c.id));
+    return this.marketing.filter((m) => live.has(m.customerId)).map((m) => ({ ...m }));
+  }
+
+  async getMarketingServiceByCustomer(customerId: string): Promise<MarketingService | null> {
+    const found = this.marketing.find((m) => m.customerId === customerId);
+    return found ? { ...found } : null;
+  }
+
+  async upsertMarketingService(
+    customerId: string,
+    input: MarketingServiceInput,
+  ): Promise<MarketingService> {
+    if (!this.s.customers.some((c) => c.id === customerId)) throw new Error("顧客が見つかりません");
+    const existing = this.marketing.find((m) => m.customerId === customerId) ?? null;
+    const merged = mergeMarketingService(existing, customerId, input);
+    const now = new Date().toISOString();
+    if (existing) {
+      Object.assign(existing, merged, { updatedAt: now });
+      return { ...existing };
+    }
+    const created: MarketingService = { id: genId("mkt"), ...merged, createdAt: now, updatedAt: now };
+    this.marketing.push(created);
+    return { ...created };
+  }
+
+  async deleteMarketingService(customerId: string): Promise<void> {
+    this.s.marketingServices = this.marketing.filter((m) => m.customerId !== customerId);
   }
 
   async listPlans(): Promise<Plan[]> {

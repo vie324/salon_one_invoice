@@ -44,6 +44,8 @@ import type {
   InvoiceStatus,
   InvoiceType,
   InvoiceWithCustomer,
+  MarketingService,
+  MarketingServiceStatus,
   OnboardingStage,
   Organization,
   PaymentMethod,
@@ -152,6 +154,24 @@ export interface MandateInput {
   accountType?: import("@/lib/domain/types").AccountType;
   accountNumber?: string;
   accountHolderKana?: string;
+}
+
+/**
+ * マーケティング代行の登録・更新(お客様ごとに1件)。undefined の項目は変更しない。
+ * 新規登録で省略した金額は契約書の料金表(通常料金)の値になる。
+ */
+export interface MarketingServiceInput {
+  status?: MarketingServiceStatus;
+  appliedOn?: string | null;
+  startedOn?: string | null;
+  endedOn?: string | null;
+  /** 初期構築費用(税抜) */
+  initialFee?: number;
+  /** 月額運用費の最低額(税抜) */
+  monthlyMinimum?: number;
+  /** 広告費等に対する料率(0.2 = 20%) */
+  feeRate?: number;
+  note?: string;
 }
 
 /**
@@ -572,6 +592,15 @@ export interface Repository {
   listMandates(): Promise<DirectDebitMandate[]>;
   /** 口座振替の登録・更新(顧客ごとに1件)。 */
   upsertMandate(customerId: string, input: MandateInput): Promise<DirectDebitMandate>;
+
+  // --- マーケティング代行 ---
+  /** 全件(申込一覧・顧客の画面用)。DB の更新(0024)が未適用なら空で返す。 */
+  listMarketingServices(): Promise<MarketingService[]>;
+  getMarketingServiceByCustomer(customerId: string): Promise<MarketingService | null>;
+  /** 登録・更新(お客様ごとに1件)。 */
+  upsertMarketingService(customerId: string, input: MarketingServiceInput): Promise<MarketingService>;
+  /** 間違えて登録した記録の取り消し(停止ではなく記録ごと消す)。 */
+  deleteMarketingService(customerId: string): Promise<void>;
 
   // --- プラン / 定期契約 ---
   listPlans(): Promise<Plan[]>;

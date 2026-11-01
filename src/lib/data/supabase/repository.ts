@@ -76,6 +76,7 @@ import type {
   InvoiceStatus,
   InvoiceType,
   InvoiceWithCustomer,
+  MarketingService,
   NotificationType,
   Organization,
   Payment,
@@ -119,6 +120,7 @@ import type {
   InvoiceFilter,
   InvoiceInput,
   MandateInput,
+  MarketingServiceInput,
   OnboardingUpdateInput,
   OrganizationInput,
   PaymentInput,
@@ -133,6 +135,7 @@ import type {
 } from "../repository";
 import { applicationLinkSettings, type ApplicationLinkSettings } from "../application-link";
 import { mergeMandate } from "../mandate";
+import { mergeMarketingService } from "../marketing";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -251,6 +254,39 @@ function mapMandate(r: any): DirectDebitMandate {
     note: r.note ?? "",
   };
 }
+
+function mapMarketingService(r: any): MarketingService {
+  return {
+    id: r.id,
+    customerId: r.customer_id,
+    status: r.status,
+    appliedOn: r.applied_on ?? null,
+    startedOn: r.started_on ?? null,
+    endedOn: r.ended_on ?? null,
+    initialFee: Number(r.initial_fee ?? 0),
+    monthlyMinimum: Number(r.monthly_minimum ?? 0),
+    feeRate: Number(r.fee_rate ?? 0),
+    note: r.note ?? "",
+    createdAt: r.created_at,
+    updatedAt: r.updated_at ?? r.created_at,
+  };
+}
+
+/**
+ * marketing_services テーブルが無い(DB の更新 0024 が未適用)ときのエラーか。
+ * 0024 を適用する前にアプリを更新しても、申込一覧・顧客の画面が開けるようにするため。
+ */
+function isMissingTable(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false;
+  return (
+    error.code === "42P01" ||
+    error.code === "PGRST205" ||
+    /relation "?(public\.)?marketing_services"? does not exist|could not find the table/i.test(error.message ?? "")
+  );
+}
+
+const MARKETING_MIGRATION_NOTICE =
+  "マーケティング代行を記録するには、DB の更新（supabase/migrations/0024_marketing_services.sql）を適用してください";
 
 function mapPlan(r: any): Plan {
   return {
@@ -954,6 +990,69 @@ export class SupabaseRepository implements Repository {
       .single();
     if (error) throw error;
     return mapMandate(data);
+  }
+
+  async listMarketingServices(): Promise<MarketingService[]> {
+    const { data, error } = await this.db
+      .from("marketing_services")
+      // 削除(ゴミ箱)した顧客の記録は出さない
+      .select("*, customers!inner(deleted_at)")
+      .is("customers.deleted_at", null);
+    if (isMissingTable(error)) return [];
+    if (error) throw error;
+    return (data ?? []).map(mapMarketingService);
+  }
+
+  async getMarketingServiceByCustomer(customerId: string): Promise<MarketingService | null> {
+    const { data, error } = await this.db
+      .from("marketing_services")
+      .select("*")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (isMissingTable(error)) return null;
+    if (error) throw error;
+    return data ? mapMarketingService(data) : null;
+  }
+
+  async upsertMarketingService(
+    customerId: string,
+    input: MarketingServiceInput,
+  ): Promise<MarketingService> {
+    const { data: existing, error: readError } = await this.db
+      .from("marketing_services")
+      .select("*")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (isMissingTable(readError)) throw new Error(MARKETING_MIGRATION_NOTICE);
+    if (readError) throw readError;
+    const m = mergeMarketingService(existing ? mapMarketingService(existing) : null, customerId, input);
+    const { data, error } = await this.db
+      .from("marketing_services")
+      .upsert(
+        {
+          customer_id: customerId,
+          status: m.status,
+          applied_on: m.appliedOn,
+          started_on: m.startedOn,
+          ended_on: m.endedOn,
+          initial_fee: m.initialFee,
+          monthly_minimum: m.monthlyMinimum,
+          fee_rate: m.feeRate,
+          note: m.note,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "customer_id" },
+      )
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapMarketingService(data);
+  }
+
+  async deleteMarketingService(customerId: string): Promise<void> {
+    const { error } = await this.db.from("marketing_services").delete().eq("customer_id", customerId);
+    if (isMissingTable(error)) throw new Error(MARKETING_MIGRATION_NOTICE);
+    if (error) throw error;
   }
 
   async listPlans(): Promise<Plan[]> {
