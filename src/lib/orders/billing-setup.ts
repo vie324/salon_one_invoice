@@ -1,9 +1,17 @@
 import type { Repository } from "@/lib/data/repository";
-import { billingDateInMonth, computeDueDate, normalizeStoreCount, subscriptionMonthly } from "@/lib/domain/calculations";
+import {
+  billingDateInMonth,
+  computeDueDate,
+  normalizeStoreCount,
+  normalizeStoreTiers,
+  priceGroupsTotal,
+  subscriptionMonthly,
+  subscriptionMonthlyOf,
+} from "@/lib/domain/calculations";
 import { paymentMethodLabels } from "@/lib/domain/constants";
 import type { ManualChecklistKey } from "@/lib/domain/onboarding";
 import { initialFeeCharge, normalizeOverride, planDisplayName, validOptionKeys } from "@/lib/domain/pricing";
-import type { Invoice, PaymentMethod } from "@/lib/domain/types";
+import type { Invoice, PaymentMethod, StorePriceGroup, StoreTier } from "@/lib/domain/types";
 import { formatJPY, isMonthKey, toISODate } from "@/lib/utils";
 import { initialInvoiceItems, recordAgencyCommission, recordReferralReward } from "./confirm";
 import { loadOrderBook } from "./load";
@@ -21,10 +29,11 @@ export interface BillingSetupInput {
     | { mode: "keep" }
     | {
         mode: "create";
-        /** 初期費用(税抜・1店舗あたり)。請求するのは × 店舗数 */
-        initialFeePerStore: number;
-        /** 初期費用の店舗数 */
-        storeCount: number;
+        /**
+         * 初期費用(税抜)の店舗ごとの内訳。1店舗目から店舗数までを隙間なく並べる
+         * (例: 1店舗目 200,000円・2〜3店舗目 100,000円)。全店舗同じ金額なら1まとまり。
+         */
+        initialFeeGroups: StorePriceGroup[];
         includeProration: boolean;
       }
     | { mode: "existing"; invoiceId: string }
@@ -58,6 +67,22 @@ type Result =
   | { ok: false; error: string };
 
 const fail = (error: string): Result => ({ ok: false, error });
+
+/** 画面から来た初期費用の内訳を数値にそろえる(形が崩れていれば null。隙間・合計の確認は initialFeeCharge) */
+function feeGroupsFromInput(raw: unknown): StorePriceGroup[] | null {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > 99) return null;
+  const groups: StorePriceGroup[] = [];
+  for (const g of raw) {
+    if (!g || typeof g !== "object") return null;
+    const r = g as Record<string, unknown>;
+    const from = Number(r.from);
+    const to = Number(r.to);
+    const unitPrice = Number(r.unitPrice);
+    if (![from, to, unitPrice].every(Number.isFinite) || to > 99) return null;
+    groups.push({ from, to, unitPrice });
+  }
+  return groups;
+}
 
 /**
  * 「請求を開始」を実行する。先に入力をすべて確かめてから書き込む
@@ -114,6 +139,7 @@ export async function setupBilling(params: {
     optionKeys: string[];
     storeCount: number;
     priceOverride: number | null;
+    storeTiers: StoreTier[] | null;
     firstBillingMonth: string;
     billingDay: number;
     monthly: number;
@@ -132,15 +158,19 @@ export async function setupBilling(params: {
     const optionKeys = validOptionKeys(plan, subscription.optionKeys);
     const storeCount = normalizeStoreCount(subscription.storeCount);
     const priceOverride = normalizeOverride(subscription.priceOverride);
+    // 今のプランの店舗数による割引を、この定期契約に写して残す(あとでプランを変えても変わらない)
+    const tiers = normalizeStoreTiers(plan.storeTiers);
+    const storeTiers = tiers.length > 0 ? tiers : null;
     newSub = {
       planId: plan.id,
       planLabel: planDisplayName(plan),
       optionKeys,
       storeCount,
       priceOverride,
+      storeTiers,
       firstBillingMonth: subscription.firstBillingMonth,
       billingDay: plan.billingDay || 27,
-      monthly: subscriptionMonthly(plan, optionKeys, priceOverride, storeCount),
+      monthly: subscriptionMonthly(plan, optionKeys, priceOverride, storeCount, storeTiers),
       taxRate: plan.taxRate,
       paymentMethod: subscription.paymentMethod,
     };
@@ -169,19 +199,22 @@ export async function setupBilling(params: {
         const plan = sub ? book.plans.find((p) => p.id === sub.planId) : null;
         if (sub && plan) {
           monthly = {
-            amount: subscriptionMonthly(plan, sub.optionKeys ?? [], sub.priceOverride, sub.storeCount ?? 1),
+            amount: subscriptionMonthlyOf(plan, sub),
             taxRate: plan.taxRate,
           };
         }
       }
     }
     const feeTaxRate = newSub?.taxRate ?? monthly?.taxRate ?? 0.1;
-    // 初期費用は1店舗あたりの金額 × 店舗数
-    const perStore = Math.max(0, Math.round(Number(initial.initialFeePerStore) || 0));
-    const stores = normalizeStoreCount(initial.storeCount);
+    // 初期費用は店舗ごとの金額の合計(店舗数による割引があれば段ごと)
+    const groups = feeGroupsFromInput(initial.initialFeeGroups);
+    const fee = groups ? initialFeeCharge(priceGroupsTotal(groups), groups, groups[groups.length - 1].to) : null;
+    if (!fee?.groups) {
+      return fail("初期費用の店舗ごとの金額が正しくありません。ダイアログを開き直してください");
+    }
     built = initialInvoiceItems({
       startedOn: input.startedOn,
-      initialFee: initialFeeCharge(perStore * stores, perStore, stores),
+      initialFee: fee,
       initialFeeLabel: "初期構築費用",
       initialFeeTaxRate: feeTaxRate,
       monthly,
@@ -206,6 +239,7 @@ export async function setupBilling(params: {
       optionKeys: newSub.optionKeys,
       storeCount: newSub.storeCount,
       priceOverride: newSub.priceOverride,
+      storeTiers: newSub.storeTiers,
       firstBillingMonth: newSub.firstBillingMonth,
     });
     subscriptionId = sub.id;

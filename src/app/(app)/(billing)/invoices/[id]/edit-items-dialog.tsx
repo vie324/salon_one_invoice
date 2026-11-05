@@ -40,11 +40,13 @@ export function EditInvoiceItemsButton({
   const [error, setError] = React.useState<string | null>(null);
   const [rows, setRows] = React.useState<Row[]>([]);
   const [memo, setMemo] = React.useState(notes);
+  const [reason, setReason] = React.useState("");
   const [done, setDone] = React.useState<string[] | null>(null);
 
   const openDialog = () => {
     setRows(items.map((i) => ({ description: i.description, quantity: i.quantity, unitPrice: i.unitPrice, taxRate: i.taxRate })));
     setMemo(notes);
+    setReason("");
     setError(null);
     setOpen(true);
   };
@@ -67,7 +69,11 @@ export function EditInvoiceItemsButton({
   const save = () =>
     start(async () => {
       setError(null);
-      const res = await updateInvoiceItemsAction(invoiceId, { items: rows, notes: memo });
+      if (!reason.trim()) {
+        setError("修正の理由を入れてください（修正履歴に残ります）");
+        return;
+      }
+      const res = await updateInvoiceItemsAction(invoiceId, { items: rows, notes: memo, reason });
       if (!res.ok) {
         setError(res.error);
         return;
@@ -106,7 +112,7 @@ export function EditInvoiceItemsButton({
         open={open}
         onClose={() => setOpen(false)}
         title={`明細を修正 — ${invoiceNumber}`}
-        description="金額は税抜で入力します。請求書番号・発行日・ステータスは変わりません。"
+        description="金額は税抜で入力します。請求書番号・発行日・ステータスは変わりません。直す前の明細は「修正履歴」に残ります。"
         className="max-w-2xl"
       >
         <div className="space-y-4">
@@ -204,13 +210,22 @@ export function EditInvoiceItemsButton({
             <Textarea value={memo} onChange={(e) => setMemo(e.target.value)} />
           </Field>
 
+          <Field label="修正の理由（必須）" hint="直す前の明細・金額と一緒に修正履歴へ残ります。">
+            <Input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              maxLength={200}
+              placeholder="例）店舗数の訂正（1店舗 → 3店舗）"
+            />
+          </Field>
+
           {error && <p className="text-sm text-destructive">{error}</p>}
 
           <div className="flex gap-2 [&>*]:flex-1 sm:justify-end sm:[&>*]:flex-none">
             <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>
               キャンセル
             </Button>
-            <Button onClick={save} disabled={pending}>
+            <Button onClick={save} disabled={pending || !reason.trim()}>
               保存
             </Button>
           </div>

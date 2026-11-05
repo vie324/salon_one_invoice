@@ -9,8 +9,7 @@ import type {
   Customer,
   Plan,
 } from "@/lib/domain/types";
-import { selectedOptions, subscriptionMonthly } from "@/lib/domain/calculations";
-import { formatNumber } from "@/lib/utils";
+import { feeTablesFromSelection, termsFromSelection } from "@/lib/domain/pricing";
 
 /** 顧客レコードから乙(契約者)スナップショットを作る */
 export function partyFromCustomer(customer: Customer): ContractParty {
@@ -23,58 +22,26 @@ export function partyFromCustomer(customer: Customer): ContractParty {
   };
 }
 
-/** プラン選択から申込条件(構造化)を作る */
+/**
+ * プラン選択から申込条件(構造化)を作る。
+ * 申込・契約URLと同じ計算(初期費用・月額とも1店舗あたり、店舗数による割引を含む)。
+ */
 export function termsFromPlan(
   plan: Plan,
   optionKeys: string[],
   storeCount: number,
   startDate: string | null,
 ): ContractTerms {
-  return {
-    planId: plan.id,
-    planName: `${plan.name}（${plan.term === "annual" ? "年間" : "月額"}）`,
-    optionKeys,
-    storeCount,
-    // 初期費用は1店舗あたり。店舗数ぶん掛ける
-    initialFee: plan.initialFee * storeCount,
-    initialFeePerStore: plan.initialFee,
-    monthlyFee: subscriptionMonthly(plan, optionKeys) * storeCount,
-    startDate,
-    notes: "",
-  };
+  return termsFromSelection({ plan, optionKeys, storeCount }, startDate);
 }
 
-/** プラン選択から契約書の個別料金表(別表)を生成する */
+/** プラン選択から契約書の個別料金表(別表)を生成する(申込・契約URLと同じ料金表) */
 export function feeTablesFromPlan(
   plan: Plan,
   optionKeys: string[],
   storeCount: number,
 ): ContractFeeTable[] {
-  const rows = [
-    { item: "初期構築費用", amount: `${formatNumber(plan.initialFee)}円（1店舗あたり）` },
-    {
-      item: "月額利用料",
-      amount: `${formatNumber(plan.amount)}円（1店舗あたり）`,
-    },
-    ...selectedOptions(plan, optionKeys).map((o) => ({
-      item: `オプション: ${o.name}`,
-      amount: `${formatNumber(o.monthly)}円（月額・1店舗あたり）`,
-    })),
-    { item: "契約店舗数", amount: `${storeCount}店舗` },
-    ...(storeCount > 1
-      ? [{ item: "初期費用合計（税別）", amount: `${formatNumber(plan.initialFee * storeCount)}円` }]
-      : []),
-    {
-      item: "月額合計（税別）",
-      amount: `${formatNumber(subscriptionMonthly(plan, optionKeys) * storeCount)}円`,
-    },
-  ];
-  return [
-    {
-      title: `■ お申込みプラン: ${plan.name}（${plan.term === "annual" ? "年間" : "月額"}・税別）`,
-      rows,
-    },
-  ];
+  return feeTablesFromSelection({ plan, optionKeys, storeCount });
 }
 
 /**

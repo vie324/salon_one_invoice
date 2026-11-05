@@ -14,11 +14,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getServiceRepository } from "@/lib/data";
 import {
   selectedOptions,
-  subscriptionMonthly,
+  storePriceGroups,
+  subscriptionMonthlyOf,
   taxAmount,
   withTax,
 } from "@/lib/domain/calculations";
 import { paymentMethodLabels } from "@/lib/domain/constants";
+import { describePriceGroups } from "@/lib/domain/pricing";
 import { computeCustomerLtv } from "@/lib/domain/ltv";
 import { formatDate, formatJPY, formatMonthKey, maskAccount } from "@/lib/utils";
 import { DeleteRecordButton } from "@/components/records/delete-record-button";
@@ -71,6 +73,11 @@ export default async function CustomerDetailPage({
     : null;
   const subscription = subscriptions.find((s) => s.customerId === id);
   const plan = subscription ? plans.find((p) => p.id === subscription.planId) : null;
+  // 基本料金の店舗ごとの内訳(契約に写した店舗数による割引。個別価格なら全店舗その金額)
+  const subscriptionBaseGroups =
+    subscription && plan && subscription.priceOverride == null
+      ? storePriceGroups(plan.amount, subscription.storeTiers, "monthly", subscription.storeCount)
+      : null;
   const outstanding = invoices
     .filter((i) => !["paid", "canceled", "draft"].includes(i.status))
     .reduce((s, i) => s + (i.total - i.amountPaid), 0);
@@ -362,10 +369,12 @@ export default async function CustomerDetailPage({
                     </span>
                   </div>
                   <div className="space-y-0.5 text-xs text-muted-foreground">
-                    <div className="flex justify-between">
-                      <span>基本料金{subscription.priceOverride != null ? "（個別）" : ""}</span>
-                      <span className="tabular">
-                        {formatJPY(subscription.priceOverride ?? plan.amount)}
+                    <div className="flex justify-between gap-2">
+                      <span className="shrink-0">基本料金{subscription.priceOverride != null ? "（個別）" : ""}</span>
+                      <span className="tabular text-right">
+                        {subscriptionBaseGroups && subscriptionBaseGroups.length > 1
+                          ? describePriceGroups(subscriptionBaseGroups)
+                          : formatJPY(subscription.priceOverride ?? plan.amount)}
                       </span>
                     </div>
                     {selectedOptions(plan, subscription.optionKeys).map((o) => (
@@ -378,19 +387,19 @@ export default async function CustomerDetailPage({
                   <div className="flex justify-between border-t border-border pt-1.5 text-xs text-muted-foreground">
                     <span>小計（税抜）</span>
                     <span className="tabular">
-                      {formatJPY(subscriptionMonthly(plan, subscription.optionKeys, subscription.priceOverride, subscription.storeCount ?? 1))}
+                      {formatJPY(subscriptionMonthlyOf(plan, subscription))}
                     </span>
                   </div>
                   <div className="flex justify-between text-xs text-muted-foreground">
                     <span>消費税（{Math.round(plan.taxRate * 100)}%）</span>
                     <span className="tabular">
-                      {formatJPY(taxAmount(subscriptionMonthly(plan, subscription.optionKeys, subscription.priceOverride, subscription.storeCount ?? 1), plan.taxRate))}
+                      {formatJPY(taxAmount(subscriptionMonthlyOf(plan, subscription), plan.taxRate))}
                     </span>
                   </div>
                   <div className="flex justify-between border-t border-border pt-1.5 font-semibold">
                     <span>月額合計（税込）</span>
                     <span className="tabular">
-                      {formatJPY(withTax(subscriptionMonthly(plan, subscription.optionKeys, subscription.priceOverride, subscription.storeCount ?? 1), plan.taxRate))}
+                      {formatJPY(withTax(subscriptionMonthlyOf(plan, subscription), plan.taxRate))}
                     </span>
                   </div>
                   <div className="text-xs text-muted-foreground">

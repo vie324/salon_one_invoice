@@ -1,4 +1,12 @@
-import { normalizeStoreCount, selectedOptions, subscriptionMonthly, withTax } from "@/lib/domain/calculations";
+import {
+  normalizeStoreCount,
+  priceGroupsTotal,
+  selectedOptions,
+  storePriceGroups,
+  subscriptionMonthly,
+  subscriptionMonthlyOf,
+  withTax,
+} from "@/lib/domain/calculations";
 import { initialFeesByCustomer } from "@/lib/domain/client-pricing";
 import type { BadgeTone } from "@/lib/domain/constants";
 import {
@@ -7,7 +15,7 @@ import {
   marketingStatusTone,
 } from "@/lib/domain/marketing";
 import { onboardingStageTone } from "@/lib/domain/onboarding";
-import { planDisplayName } from "@/lib/domain/pricing";
+import { flatPriceGroups, initialFeeCharge, planDisplayName } from "@/lib/domain/pricing";
 import type {
   Agency,
   Application,
@@ -15,6 +23,7 @@ import type {
   OnboardingStage,
   Plan,
   PlanOption,
+  StorePriceGroup,
   Subscription,
 } from "@/lib/domain/types";
 import { formatDate, formatDayWithWeekday, toJstDateKey } from "@/lib/utils";
@@ -81,16 +90,18 @@ export interface SignupRow {
   storeCount: number;
   /** 選んだオプション(税抜・1店舗あたり) */
   options: PlanOption[];
-  /** 基本料金(税抜・1店舗あたり) */
-  basePerStore: number | null;
+  /** 月額の基本料金(税抜・1店舗あたり)の店舗ごとの内訳。店舗数による割引があれば段に分かれる */
+  baseGroups: StorePriceGroup[] | null;
+  /** 基本料金を定価と違う金額(個別価格)にしている */
+  baseCustom: boolean;
   /** プランの定価(税抜・1店舗あたり) */
   listBasePerStore: number | null;
   /** 初期費用(税抜)。記録が無ければ null */
   initialFee: number | null;
-  /** プランの初期費用(定価・税抜・店舗数ぶん) */
+  /** プランの初期費用(定価・税抜・店舗数ぶん。契約の店舗数による割引を含む) */
   listInitialFee: number | null;
-  /** 初期費用の1店舗あたり(税抜)。複数店舗で 合計 = 1店舗あたり × 店舗数 のときだけ */
-  initialFeePerStore: number | null;
+  /** 初期費用の店舗ごとの内訳(税抜・1店舗あたり)。合計と一致して分かるときだけ */
+  initialFeeGroups: StorePriceGroup[] | null;
   /** 毎月の請求額(税抜・全店舗)。マーケティング代行は月額運用費の最低額 */
   monthly: number | null;
   monthlyWithTax: number | null;
@@ -183,34 +194,45 @@ function systemRow(
 
   let storeCount = 1;
   let optionKeys: string[] = [];
-  let basePerStore: number | null = null;
+  let priceOverride: number | null = null;
   let monthly: number | null = null;
+  // 契約に写した店舗数による割引(締結した時点のもの)。定価との比較もこれで行う
+  let tiers = sub?.storeTiers ?? null;
   if (sub && plan) {
     storeCount = normalizeStoreCount(sub.storeCount);
     optionKeys = sub.optionKeys ?? [];
-    basePerStore = sub.priceOverride ?? plan.amount;
-    monthly = subscriptionMonthly(plan, optionKeys, sub.priceOverride, storeCount);
+    priceOverride = sub.priceOverride ?? null;
+    monthly = subscriptionMonthlyOf(plan, sub);
   } else if (terms) {
     storeCount = normalizeStoreCount(terms.storeCount);
     optionKeys = terms.optionKeys ?? [];
-    basePerStore = terms.priceOverride ?? plan?.amount ?? null;
+    priceOverride = terms.priceOverride ?? null;
+    tiers = terms.storeTiers ?? null;
     monthly =
       terms.monthlyFee ??
-      (plan ? subscriptionMonthly(plan, optionKeys, terms.priceOverride, storeCount) : null);
+      (plan ? subscriptionMonthly(plan, optionKeys, priceOverride, storeCount, tiers) : null);
   }
+  const baseGroups = !plan
+    ? null
+    : priceOverride != null
+      ? flatPriceGroups(priceOverride, storeCount)
+      : storePriceGroups(plan.amount, tiers, "monthly", storeCount);
+  const baseCustom = Boolean(plan && priceOverride != null && priceOverride !== plan.amount);
 
   const initialFee = initialFees.get(row.customer.id) ?? null;
   const taxRate = plan?.taxRate ?? 0.1;
   const signupMonthly = terms?.monthlyFee ?? null;
-  // 初期費用の定価は 1店舗あたり × 店舗数
-  const listInitialFee = plan ? plan.initialFee * storeCount : null;
-  const customPrice = Boolean(
-    plan &&
-      ((basePerStore != null && basePerStore !== plan.amount) ||
-        (initialFee != null && initialFee !== listInitialFee)),
-  );
-  const initialFeePerStore =
-    initialFee != null && storeCount > 1 && initialFee % storeCount === 0 ? initialFee / storeCount : null;
+  // 初期費用の定価は 店舗ごとの金額(1店舗あたり・店舗数による割引を含む)の合計
+  const listInitialFee = plan
+    ? priceGroupsTotal(storePriceGroups(plan.initialFee, tiers, "initialFee", storeCount))
+    : null;
+  const customPrice = baseCustom || (listInitialFee != null && initialFee != null && initialFee !== listInitialFee);
+  // 初期費用の内訳: 契約書の内訳が請求額と合えばそれ、無ければ全店舗同じ金額で割り切れるとき
+  const initialFeeGroups =
+    initialFee == null
+      ? null
+      : (initialFeeCharge(initialFee, terms?.initialFeeGroups ?? null, storeCount).groups ??
+        (initialFee % storeCount === 0 ? flatPriceGroups(initialFee / storeCount, storeCount) : null));
 
   const canceled =
     row.subscriptions.length > 0 && row.subscriptions.every((s) => s.status === "canceled");
@@ -239,11 +261,12 @@ function systemRow(
     planName: plan ? planDisplayName(plan) : terms?.planName || (sub ? "プラン不明" : null),
     storeCount,
     options: plan ? selectedOptions(plan, optionKeys) : [],
-    basePerStore,
+    baseGroups,
+    baseCustom,
     listBasePerStore: plan?.amount ?? null,
     initialFee,
     listInitialFee,
-    initialFeePerStore,
+    initialFeeGroups,
     monthly,
     monthlyWithTax: monthly == null ? null : withTax(monthly, taxRate),
     signupMonthly,
@@ -280,11 +303,12 @@ function pendingApplicationRow(app: Application, agency: Pick<Agency, "name"> | 
     planName: null,
     storeCount: 1,
     options: [],
-    basePerStore: null,
+    baseGroups: null,
+    baseCustom: false,
     listBasePerStore: null,
     initialFee: null,
     listInitialFee: null,
-    initialFeePerStore: null,
+    initialFeeGroups: null,
     monthly: null,
     monthlyWithTax: null,
     signupMonthly: null,
@@ -318,11 +342,12 @@ function marketingRow(service: MarketingService, row: OrderRow): SignupRow {
     planName: "マーケティング代行",
     storeCount: 1,
     options: [],
-    basePerStore: null,
+    baseGroups: null,
+    baseCustom: false,
     listBasePerStore: null,
     initialFee: service.initialFee,
     listInitialFee: null,
-    initialFeePerStore: null,
+    initialFeeGroups: null,
     monthly: service.monthlyMinimum,
     monthlyWithTax: withTax(service.monthlyMinimum, 0.1),
     signupMonthly: null,

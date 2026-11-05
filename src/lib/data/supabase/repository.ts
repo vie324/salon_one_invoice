@@ -15,6 +15,7 @@ import {
   effectiveStatus,
   nextInvoiceNumber,
   normalizeStoreCount,
+  normalizeStoreTiers,
   recurringBillingCutoff,
   subscriptionItems,
 } from "@/lib/domain/calculations";
@@ -73,6 +74,7 @@ import type {
   DirectDebitMandate,
   Invoice,
   InvoiceItem,
+  InvoiceRevision,
   InvoiceStatus,
   InvoiceType,
   InvoiceWithCustomer,
@@ -86,6 +88,7 @@ import type {
   ReferralLink,
   ReferralStatus,
   Role,
+  StoreTier,
   Subscription,
   UserProfile,
 } from "@/lib/domain/types";
@@ -288,6 +291,64 @@ function isMissingTable(error: { code?: string; message?: string } | null | unde
   );
 }
 
+/** 列が無い(DB の更新が未適用)ときのエラーか */
+function isMissingColumn(error: { code?: string; message?: string } | null | undefined, column: string): boolean {
+  if (!error) return false;
+  return (
+    (error.code === "42703" || error.code === "PGRST204") && (error.message ?? "").includes(column)
+  );
+}
+
+/** 定期契約に写す店舗数による割引(空なら null = 割引なし) */
+function subscriptionTiers(tiers: unknown): StoreTier[] | null {
+  const list = normalizeStoreTiers(tiers);
+  return list.length > 0 ? list : null;
+}
+
+const VOLUME_MIGRATION_NOTICE =
+  "店舗数による割引を使うには、DB の更新（supabase/migrations/0025_volume_pricing_invoice_revisions.sql）を適用してください";
+
+const REVISION_MIGRATION_NOTICE =
+  "直す前の明細を修正履歴として残すため、DB の更新（supabase/migrations/0025_volume_pricing_invoice_revisions.sql）を適用してから修正してください（請求書は変更していません）";
+
+/** DB の関数が無い(DB の更新が未適用)ときのエラーか */
+function isMissingFunction(error: { code?: string; message?: string } | null | undefined, name: string): boolean {
+  if (!error) return false;
+  return (
+    error.code === "PGRST202" ||
+    ((error.code === "42883" || /could not find the function/i.test(error.message ?? "")) &&
+      (error.message ?? "").includes(name))
+  );
+}
+
+function mapRevisionItems(raw: unknown): Omit<InvoiceItem, "id">[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((it: any) => ({
+    description: String(it?.description ?? ""),
+    quantity: Number(it?.quantity ?? 0),
+    unitPrice: Number(it?.unit_price ?? 0),
+    taxRate: Number(it?.tax_rate ?? 0),
+    amount: Number(it?.amount ?? 0),
+  }));
+}
+
+function mapInvoiceRevision(r: any): InvoiceRevision {
+  return {
+    id: r.id,
+    invoiceId: r.invoice_id,
+    revisedAt: r.revised_at,
+    actor: r.actor ?? "",
+    reason: r.reason ?? "",
+    beforeItems: mapRevisionItems(r.before_items),
+    beforeSubtotal: Number(r.before_subtotal ?? 0),
+    beforeTaxTotal: Number(r.before_tax_total ?? 0),
+    beforeTotal: Number(r.before_total ?? 0),
+    beforeNotes: r.before_notes ?? "",
+    afterItems: mapRevisionItems(r.after_items),
+    afterTotal: Number(r.after_total ?? 0),
+  };
+}
+
 const MARKETING_MIGRATION_NOTICE =
   "マーケティング代行を記録するには、DB の更新（supabase/migrations/0024_marketing_services.sql）を適用してください";
 
@@ -304,6 +365,8 @@ function mapPlan(r: any): Plan {
     initialFee: Number(r.initial_fee ?? 0),
     term: (r.term ?? "monthly") as Plan["term"],
     options: Array.isArray(r.options) ? r.options : [],
+    // 0025 の前の DB には列が無い(割引なしとして読む)
+    storeTiers: normalizeStoreTiers(r.store_tiers ?? []),
   };
 }
 
@@ -320,6 +383,10 @@ function mapSubscription(r: any): Subscription {
     optionKeys: Array.isArray(r.option_keys) ? r.option_keys : [],
     priceOverride: r.price_override == null ? null : Number(r.price_override),
     storeCount: Number(r.store_count ?? 1) || 1,
+    storeTiers: (() => {
+      const tiers = normalizeStoreTiers(r.store_tiers ?? []);
+      return tiers.length > 0 ? tiers : null;
+    })(),
   };
 }
 
@@ -1084,9 +1151,14 @@ export class SupabaseRepository implements Repository {
         initial_fee: input.initialFee ?? 0,
         term: input.term ?? "monthly",
         options: input.options ?? [],
+        // 割引が無いプランは列を書かない(0025 の前の DB でもプランを作れるように)
+        ...(normalizeStoreTiers(input.storeTiers ?? []).length > 0
+          ? { store_tiers: normalizeStoreTiers(input.storeTiers) }
+          : {}),
       })
       .select("*")
       .single();
+    if (isMissingColumn(error, "store_tiers")) throw new Error(VOLUME_MIGRATION_NOTICE);
     if (error) throw error;
     return mapPlan(data);
   }
@@ -1102,12 +1174,14 @@ export class SupabaseRepository implements Repository {
     if (input.initialFee !== undefined) patch.initial_fee = input.initialFee;
     if (input.term !== undefined) patch.term = input.term;
     if (input.options !== undefined) patch.options = input.options;
-    const { data, error } = await this.db
-      .from("plans")
-      .update(patch)
-      .eq("id", id)
-      .select("*")
-      .single();
+    if (input.storeTiers !== undefined) patch.store_tiers = normalizeStoreTiers(input.storeTiers);
+    let { data, error } = await this.db.from("plans").update(patch).eq("id", id).select("*").single();
+    if (isMissingColumn(error, "store_tiers")) {
+      // 0025 の前の DB: 割引を付けないなら、列を書かずにそのほかを保存する
+      if (normalizeStoreTiers(input.storeTiers ?? []).length > 0) throw new Error(VOLUME_MIGRATION_NOTICE);
+      delete patch.store_tiers;
+      ({ data, error } = await this.db.from("plans").update(patch).eq("id", id).select("*").single());
+    }
     if (error) throw error;
     return mapPlan(data);
   }
@@ -1139,9 +1213,14 @@ export class SupabaseRepository implements Repository {
         ...(normalizeStoreCount(input.storeCount) > 1
           ? { store_count: normalizeStoreCount(input.storeCount) }
           : {}),
+        // 店舗数による割引(締結時点の写し)。未指定はプランの今の割引。割引なしは列を書かない
+        ...(subscriptionTiers(input.storeTiers === undefined ? plan?.storeTiers : input.storeTiers)
+          ? { store_tiers: subscriptionTiers(input.storeTiers === undefined ? plan?.storeTiers : input.storeTiers) }
+          : {}),
       })
       .select("*")
       .single();
+    if (isMissingColumn(error, "store_tiers")) throw new Error(VOLUME_MIGRATION_NOTICE);
     if (error) throw error;
     return mapSubscription(data);
   }
@@ -1658,52 +1737,31 @@ export class SupabaseRepository implements Repository {
 
     const items = normalizeItemInputs(input.items);
     const totals = calcInvoiceTotals(items);
-    const toRows = (list: InvoiceItem[]) =>
-      list.map((it, idx) => ({
-        invoice_id: id,
+    // 修正履歴の追記(直す前の明細・金額) → 明細の入れ替え → 合計の更新を、DB の関数で
+    // 1つのトランザクションとして行う。途中で失敗しても、履歴の無い修正や明細の欠けは残らない。
+    const { error: rpcError } = await this.db.rpc("revise_invoice_items", {
+      p_invoice_id: id,
+      p_items: items.map((it) => ({
         description: it.description,
         quantity: it.quantity,
         unit_price: it.unitPrice,
         tax_rate: it.taxRate,
         amount: it.amount,
-        position: idx,
-      }));
-
-    // 明細の入れ替えは「新しい明細を入れる → 古い明細を消す → 合計を直す」の順。
-    // 途中で失敗したら、入れた明細を消して元の状態に戻す(明細が消えたままにならないように)。
-    const { data: inserted, error: insError } = await this.db
-      .from("invoice_items")
-      .insert(toRows(items))
-      .select("id");
-    if (insError) throw insError;
-    const newIds = (inserted ?? []).map((r: any) => r.id as string);
-    const rollback = async () => {
-      if (newIds.length > 0) await this.db.from("invoice_items").delete().in("id", newIds);
-    };
-    const oldIds = inv.items.map((it) => it.id);
-    if (oldIds.length > 0) {
-      const { error: delError } = await this.db.from("invoice_items").delete().in("id", oldIds);
-      if (delError) {
-        await rollback();
-        throw delError;
-      }
-    }
-    const patch: Record<string, unknown> = {
-      subtotal: totals.subtotal,
-      tax_total: totals.taxTotal,
-      total: totals.total,
-    };
-    if (input.notes !== undefined) patch.notes = input.notes;
-    const { error: updError } = await this.db.from("invoices").update(patch).eq("id", id);
-    if (updError) {
-      // 合計を直せなかった: 元の明細に戻す
-      await this.db.from("invoice_items").insert(toRows(inv.items));
-      await rollback();
-      throw updError;
+      })),
+      p_subtotal: totals.subtotal,
+      p_tax_total: totals.taxTotal,
+      p_total: totals.total,
+      p_notes: input.notes ?? null,
+      p_actor: input.actor,
+      p_reason: input.reason,
+    });
+    if (rpcError) {
+      if (isMissingFunction(rpcError, "revise_invoice_items")) throw new Error(REVISION_MIGRATION_NOTICE);
+      throw new Error(rpcError.message);
     }
     await this.logActivity({
       kind: "invoice_updated",
-      message: `${inv.customer?.name ?? ""} 様の請求書 ${inv.invoiceNumber} の明細を修正（${formatJPY(inv.total)} → ${formatJPY(totals.total)}）`,
+      message: `${inv.customer?.name ?? ""} 様の請求書 ${inv.invoiceNumber} の明細を修正（${formatJPY(inv.total)} → ${formatJPY(totals.total)}・理由: ${input.reason}）`,
       actor: input.actor,
       amount: totals.total,
       linkInvoiceId: id,
@@ -1711,6 +1769,20 @@ export class SupabaseRepository implements Repository {
     const updated = await this.getInvoice(id);
     if (!updated) throw new Error("請求書が見つかりません");
     return updated;
+  }
+
+  async listInvoiceRevisions(invoiceId: string): Promise<InvoiceRevision[]> {
+    const { data, error } = await this.db
+      .from("invoice_revisions")
+      .select("*")
+      .eq("invoice_id", invoiceId)
+      .order("revised_at", { ascending: false });
+    if (error) {
+      // DB の更新(0025)が未適用なら、まだ履歴は無い
+      if (isMissingTable(error)) return [];
+      throw error;
+    }
+    return (data ?? []).map(mapInvoiceRevision);
   }
 
   async updateInvoiceStatus(id: string, status: InvoiceStatus): Promise<Invoice> {
@@ -2349,6 +2421,7 @@ export class SupabaseRepository implements Repository {
             period,
             sub.priceOverride,
             sub.storeCount ?? 1,
+            sub.storeTiers,
           ),
           status: customer?.paymentMethod === "direct_debit" ? "awaiting_payment" : "sent",
         });

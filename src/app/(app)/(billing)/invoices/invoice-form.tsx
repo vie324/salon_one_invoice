@@ -8,7 +8,8 @@ import { createInvoiceAction } from "@/app/actions/invoices";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Label, Select, Textarea } from "@/components/ui/input";
-import { calcInvoiceTotals, computeDueDate } from "@/lib/domain/calculations";
+import { calcInvoiceTotals, computeDueDate, priceGroupsTotal } from "@/lib/domain/calculations";
+import { initialFeeCharge, initialFeeLines, planInitialFeeGroups } from "@/lib/domain/pricing";
 import {
   invoiceTypeLabels,
   paymentMethodLabels,
@@ -116,15 +117,16 @@ export function InvoiceForm({
     setInitialStores(count);
     const plan = plans.find((p) => p.id === id);
     if (!plan) return;
-    const row: Row = {
-      description: count > 1 ? "初期構築費用 1店舗あたり" : "初期構築費用",
-      quantity: count,
-      unitPrice: plan.initialFee,
-      taxRate: plan.taxRate,
-    };
+    // 店舗数による割引があれば段ごとの明細になる(受注確定で作る初回請求書と同じ書き方)
+    const groups = planInitialFeeGroups(plan, count);
+    const lines: Row[] = initialFeeLines(
+      initialFeeCharge(priceGroupsTotal(groups), groups, count),
+      "初期構築費用",
+      plan.taxRate,
+    );
     setRows((rs) => {
       const rest = rs.filter((r) => !r.description.startsWith("初期") && r.description.trim() !== "");
-      return [row, ...rest];
+      return [...lines, ...rest];
     });
   };
 
@@ -238,13 +240,14 @@ export function InvoiceForm({
               <div className="grid grid-cols-[1fr_6.5rem] gap-3 sm:col-span-2">
                 <Field
                   label="プランの初期費用から明細を作成"
-                  hint="初期費用は1店舗あたりの金額です。店舗数を入れると「1店舗あたり × 店舗数」の明細になります。"
+                  hint="初期費用は1店舗あたりの金額です。店舗数を入れると「1店舗あたり × 店舗数」の明細になります（店舗数による割引があれば段ごとの明細）。"
                 >
                   <Select value={initialPlanId} onChange={(e) => applyInitialFee(e.target.value, initialStores)}>
                     <option value="">選択してください</option>
                     {plans.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name}（{p.term === "annual" ? "年間" : "月額"}・初期 {formatJPY(p.initialFee)}/店舗）
+                        {p.name}（{p.term === "annual" ? "年間" : "月額"}・初期 {formatJPY(p.initialFee)}/店舗
+                        {p.storeTiers.some((t) => t.initialFee != null) ? "・店舗数で割引" : ""}）
                       </option>
                     ))}
                   </Select>

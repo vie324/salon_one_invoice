@@ -4,6 +4,9 @@ import type {
   InvoiceItem,
   InvoiceStatus,
   Plan,
+  StorePriceGroup,
+  StoreTier,
+  Subscription,
 } from "./types";
 
 /** 明細1行の税抜金額 */
@@ -85,20 +88,97 @@ export function selectedOptions(plan: Pick<Plan, "options">, optionKeys: string[
   return plan.options.filter((o) => optionKeys.includes(o.key));
 }
 
+/* ---------------------------------------------------------------------------
+ * 店舗数による割引(ボリューム割引)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * 店舗数による割引の段をそろえる。
+ * 2〜99店舗目から・金額は0以上の整数・初期費用も月額も空の段は捨てる・同じ開始店舗は後のものを使う。
+ */
+export function normalizeStoreTiers(raw: unknown): StoreTier[] {
+  if (!Array.isArray(raw)) return [];
+  const amount = (v: unknown): number | null => {
+    if (v === null || v === undefined || v === "") return null;
+    const n = Math.round(Number(v));
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  };
+  const byFrom = new Map<number, StoreTier>();
+  for (const t of raw) {
+    if (!t || typeof t !== "object") continue;
+    const r = t as Record<string, unknown>;
+    const fromStore = Math.round(Number(r.fromStore));
+    if (!Number.isFinite(fromStore) || fromStore < 2 || fromStore > 99) continue;
+    const initialFee = amount(r.initialFee);
+    const monthly = amount(r.monthly);
+    if (initialFee == null && monthly == null) continue;
+    byFrom.set(fromStore, { fromStore, initialFee, monthly });
+  }
+  return [...byFrom.values()].sort((a, b) => a.fromStore - b.fromStore);
+}
+
+/**
+ * 1店舗目から店舗数までの「1店舗あたりの金額」を、同じ金額の店舗ごとにまとめる。
+ * 割引の段が無ければ、全店舗が basePerStore の1まとまり。
+ * field で初期費用(initialFee)か月額基本料金(monthly)の段を使う(その項目が空の段は使わない)。
+ */
+export function storePriceGroups(
+  basePerStore: number,
+  tiers: StoreTier[] | null | undefined,
+  field: "initialFee" | "monthly",
+  storeCount: number | null | undefined,
+): StorePriceGroup[] {
+  const n = normalizeStoreCount(storeCount);
+  const steps = normalizeStoreTiers(tiers ?? []).filter((t) => t[field] != null);
+  const groups: StorePriceGroup[] = [];
+  for (let i = 1; i <= n; i++) {
+    let price = basePerStore;
+    for (const t of steps) if (i >= t.fromStore) price = t[field] as number;
+    const last = groups[groups.length - 1];
+    if (last && last.unitPrice === price) last.to = i;
+    else groups.push({ from: i, to: i, unitPrice: price });
+  }
+  return groups;
+}
+
+/** まとまりごとの金額の合計(税抜) */
+export function priceGroupsTotal(groups: Pick<StorePriceGroup, "from" | "to" | "unitPrice">[]): number {
+  return groups.reduce((s, g) => s + (g.to - g.from + 1) * g.unitPrice, 0);
+}
+
+/** 「1店舗目」「2店舗目」「2〜3店舗目」 */
+export function storeRangeLabel(group: Pick<StorePriceGroup, "from" | "to">): string {
+  return group.from === group.to ? `${group.from}店舗目` : `${group.from}〜${group.to}店舗目`;
+}
+
 /**
  * 基本料金 + 選択オプションの月額合計(税抜)。
- * priceOverride(個別価格)が設定されていれば基本料金をそちらで置き換える。
+ * priceOverride(個別価格)が設定されていれば基本料金をそちらで置き換える(全店舗同じ金額)。
  * 料金は1店舗あたりなので、storeCount(契約店舗数)を掛けた額を返す。
+ * storeTiers(店舗数による割引)があれば、基本料金は段ごとの金額で数える(オプションは全店舗同じ金額)。
  */
 export function subscriptionMonthly(
   plan: Pick<Plan, "amount" | "options">,
   optionKeys: string[] = [],
   priceOverride?: number | null,
   storeCount = 1,
+  storeTiers?: StoreTier[] | null,
 ): number {
-  const base = priceOverride ?? plan.amount;
-  const perStore = base + selectedOptions(plan, optionKeys).reduce((s, o) => s + o.monthly, 0);
-  return perStore * normalizeStoreCount(storeCount);
+  const n = normalizeStoreCount(storeCount);
+  const optionsPerStore = selectedOptions(plan, optionKeys).reduce((s, o) => s + o.monthly, 0);
+  const base =
+    priceOverride != null
+      ? priceOverride * n
+      : priceGroupsTotal(storePriceGroups(plan.amount, storeTiers, "monthly", n));
+  return base + optionsPerStore * n;
+}
+
+/** 定期契約の月額合計(税抜)。契約に写した店舗数による割引(締結時点のもの)で数える */
+export function subscriptionMonthlyOf(
+  plan: Pick<Plan, "amount" | "options">,
+  sub: Pick<Subscription, "optionKeys" | "priceOverride" | "storeCount" | "storeTiers">,
+): number {
+  return subscriptionMonthly(plan, sub.optionKeys ?? [], sub.priceOverride, sub.storeCount ?? 1, sub.storeTiers);
 }
 
 /** 店舗数を1以上の整数にそろえる(未設定・不正値は1店舗) */
@@ -127,19 +207,36 @@ export function subscriptionItems(
   billingPeriod: string,
   priceOverride?: number | null,
   storeCount = 1,
+  storeTiers?: StoreTier[] | null,
 ): Omit<InvoiceItem, "id">[] {
-  const base = priceOverride ?? plan.amount;
   const qty = normalizeStoreCount(storeCount);
   const perStore = qty > 1 ? `・${qty}店舗` : "";
-  const items: Omit<InvoiceItem, "id">[] = [
-    {
-      description: `${plan.name}（${billingPeriod}${perStore}）${priceOverride != null ? "※個別価格" : ""}`,
-      quantity: qty,
-      unitPrice: base,
-      taxRate: plan.taxRate,
-      amount: base * qty,
-    },
-  ];
+  // 個別価格は全店舗同じ金額。店舗数による割引があれば、段ごとに明細を分ける
+  const groups =
+    priceOverride != null
+      ? [{ from: 1, to: qty, unitPrice: priceOverride }]
+      : storePriceGroups(plan.amount, storeTiers, "monthly", qty);
+  const items: Omit<InvoiceItem, "id">[] =
+    groups.length === 1
+      ? [
+          {
+            description: `${plan.name}（${billingPeriod}${perStore}）${priceOverride != null ? "※個別価格" : ""}`,
+            quantity: qty,
+            unitPrice: groups[0].unitPrice,
+            taxRate: plan.taxRate,
+            amount: groups[0].unitPrice * qty,
+          },
+        ]
+      : groups.map((g) => {
+          const q = g.to - g.from + 1;
+          return {
+            description: `${plan.name}（${billingPeriod}・${storeRangeLabel(g)}）`,
+            quantity: q,
+            unitPrice: g.unitPrice,
+            taxRate: plan.taxRate,
+            amount: g.unitPrice * q,
+          };
+        });
   for (const opt of selectedOptions(plan, optionKeys)) {
     items.push({
       description: `オプション: ${opt.name}${perStore ? `（${qty}店舗）` : ""}`,

@@ -12,7 +12,10 @@ import type { Subscription } from "@/lib/domain/types";
 export async function createSubscriptionAction(input: SubscriptionInput) {
   try {
     const repo = await getServiceRepository();
-    await repo.createSubscription(input);
+    // 店舗数による割引は、登録する時点のプランの割引を写す(画面から渡された値は使わない)
+    const { storeTiers: _clientTiers, ...rest } = input;
+    void _clientTiers;
+    await repo.createSubscription(rest);
     revalidatePath("/subscriptions");
     revalidatePath("/dashboard");
     return { ok: true as const };

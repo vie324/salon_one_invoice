@@ -2,7 +2,7 @@ import { daysUntil } from "@/lib/utils";
 import {
   effectiveStatus,
   outstandingAmount,
-  subscriptionMonthly,
+  subscriptionMonthlyOf,
   withTax,
 } from "./calculations";
 import { AGENCY_DEAL_TYPES, type BadgeTone } from "./constants";
@@ -571,7 +571,7 @@ export function computeOrderProgress(input: OrderProgressInput): OrderProgress {
     return (
       sum +
       withTax(
-        subscriptionMonthly(plan, sub.optionKeys ?? [], sub.priceOverride, sub.storeCount ?? 1),
+        subscriptionMonthlyOf(plan, sub),
         plan.taxRate,
       )
     );

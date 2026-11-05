@@ -7,7 +7,13 @@ import {
 } from "@/lib/domain/agency";
 import { computeDueDate, prorateMonthly, subscriptionMonthly } from "@/lib/domain/calculations";
 import { AGENCY_DEAL_TYPES, REFERRAL_FREE_MONTHS, REFERRAL_REWARD_RATE } from "@/lib/domain/constants";
-import { initialFeeFromTerms, subscriptionFromTerms, type InitialFeeCharge } from "@/lib/domain/pricing";
+import {
+  describePriceGroups,
+  initialFeeFromTerms,
+  initialFeeLines,
+  subscriptionFromTerms,
+  type InitialFeeCharge,
+} from "@/lib/domain/pricing";
 import { referralFreePeriodLabel, referralReward } from "@/lib/domain/referral";
 import type { Customer } from "@/lib/domain/types";
 import { formatJPY, toISODate } from "@/lib/utils";
@@ -38,18 +44,12 @@ export function initialInvoiceItems(params: {
   let initialFeeCharged = 0;
   const fee = params.initialFee;
   if (fee.amount > 0) {
-    const perStoreLine = fee.perStore != null && fee.storeCount > 1;
-    const ref = params.initialFeeRef ? `（${params.initialFeeRef}）` : "";
-    items.push({
-      description: `${params.initialFeeLabel}${perStoreLine ? " 1店舗あたり" : ""}${ref}`,
-      quantity: perStoreLine ? fee.storeCount : 1,
-      unitPrice: perStoreLine ? (fee.perStore as number) : fee.amount,
-      taxRate: params.initialFeeTaxRate,
-    });
+    items.push(...initialFeeLines(fee, params.initialFeeLabel, params.initialFeeTaxRate, params.initialFeeRef));
     initialFeeCharged = fee.amount;
+    const groups = fee.storeCount > 1 ? fee.groups : null;
     details.push(
-      perStoreLine
-        ? `初期費用 ${formatJPY(fee.perStore as number)} × ${fee.storeCount}店舗 = ${formatJPY(fee.amount)}(税抜) を初回請求に計上`
+      groups
+        ? `初期費用 ${describePriceGroups(groups)} = ${formatJPY(fee.amount)}(税抜) を初回請求に計上`
         : `初期費用 ${formatJPY(fee.amount)}(税抜) を初回請求に計上`,
     );
   }
@@ -219,20 +219,22 @@ export async function confirmOrder(params: {
       optionKeys: subPlan.optionKeys,
       storeCount: subPlan.storeCount,
       priceOverride: subPlan.priceOverride,
+      // 締結した時点の店舗数による割引(契約書の写し)。無ければ割引なし(締結済みの金額どおり)
+      storeTiers: subPlan.storeTiers,
       // 紹介特典: 初月の日割りに加えて2ヶ月ぶん無料にする
       freeMonths: referred ? REFERRAL_FREE_MONTHS : 0,
     });
     subscriptionId = sub.id;
     details.push(
       `定期契約(${plan.name}・${subPlan.storeCount}店舗)を開始。毎月 ${formatJPY(
-        subscriptionMonthly(plan, subPlan.optionKeys, subPlan.priceOverride, subPlan.storeCount),
+        subscriptionMonthly(plan, subPlan.optionKeys, subPlan.priceOverride, subPlan.storeCount, subPlan.storeTiers),
       )}(税抜)を請求`,
     );
     if (subPlan.adjustment) details.push(subPlan.adjustment);
 
     const monthly =
       terms.monthlyFee ??
-      subscriptionMonthly(plan, subPlan.optionKeys, subPlan.priceOverride, subPlan.storeCount);
+      subscriptionMonthly(plan, subPlan.optionKeys, subPlan.priceOverride, subPlan.storeCount, subPlan.storeTiers);
     addInitial(
       initialInvoiceItems({
         startedOn,

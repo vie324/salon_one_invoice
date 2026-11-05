@@ -20,7 +20,10 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Select } from "@/components/ui/input";
 import { StatCard } from "@/components/ui/stat-card";
+import { priceGroupsTotal } from "@/lib/domain/calculations";
 import { formatFeeRate, marketingBreakEvenAdSpend, marketingStatusLabels } from "@/lib/domain/marketing";
+import { describePriceGroups, flatPriceGroups } from "@/lib/domain/pricing";
+import type { StorePriceGroup } from "@/lib/domain/types";
 import type { SignupRow } from "@/lib/orders/signups";
 import { cn, formatDate, formatJPY, formatMonthKey } from "@/lib/utils";
 
@@ -594,7 +597,9 @@ function InfoLine({ label, children }: { label: string; children: React.ReactNod
 function SystemDetail({ row }: { row: SignupRow }) {
   const tax = row.monthly != null && row.monthlyWithTax != null ? row.monthlyWithTax - row.monthly : null;
   const stores = row.storeCount;
-  const perStore = (amount: number) => (stores > 1 ? `${formatJPY(amount)} × ${stores}店舗` : undefined);
+  // 複数店舗のときだけ「1店舗あたり × 店舗数」(店舗数による割引があれば段ごと)を添える
+  const breakdown = (groups: StorePriceGroup[] | null) =>
+    groups && stores > 1 ? describePriceGroups(groups) : undefined;
   return (
     <div className="grid gap-5 text-sm md:grid-cols-2">
       <div>
@@ -603,24 +608,30 @@ function SystemDetail({ row }: { row: SignupRow }) {
           <p className="text-muted-foreground">料金はまだ決まっていません。</p>
         ) : (
           <dl className="divide-y divide-border/70 rounded-md border border-border bg-card px-3">
-            {row.basePerStore != null && (
+            {row.baseGroups && (
               <DetailLine
                 label={
                   <>
                     基本料金
-                    {row.listBasePerStore != null && row.basePerStore !== row.listBasePerStore && (
+                    {row.baseCustom && row.listBasePerStore != null && (
                       <span className="ml-1.5 text-[11px]">
                         （定価 <span className="line-through">{formatJPY(row.listBasePerStore)}</span>）
                       </span>
                     )}
+                    {row.baseGroups.length > 1 && <span className="ml-1.5 text-[11px]">（店舗数による割引）</span>}
                   </>
                 }
-                sub={perStore(row.basePerStore)}
-                value={formatJPY(row.basePerStore * stores)}
+                sub={breakdown(row.baseGroups)}
+                value={formatJPY(priceGroupsTotal(row.baseGroups))}
               />
             )}
             {row.options.map((o) => (
-              <DetailLine key={o.key} label={o.name} sub={perStore(o.monthly)} value={formatJPY(o.monthly * stores)} />
+              <DetailLine
+                key={o.key}
+                label={o.name}
+                sub={breakdown(flatPriceGroups(o.monthly, stores))}
+                value={formatJPY(o.monthly * stores)}
+              />
             ))}
             <DetailLine label="月額" value={formatJPY(row.monthly)} strong />
             {tax != null && <DetailLine label="消費税" value={formatJPY(tax)} />}
@@ -636,7 +647,7 @@ function SystemDetail({ row }: { row: SignupRow }) {
                   )}
                 </>
               }
-              sub={row.initialFeePerStore != null ? perStore(row.initialFeePerStore) : undefined}
+              sub={breakdown(row.initialFeeGroups)}
               value={row.initialFee == null ? "記録なし" : formatJPY(row.initialFee)}
             />
           </dl>

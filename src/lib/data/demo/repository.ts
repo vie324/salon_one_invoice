@@ -10,6 +10,7 @@ import {
 import {
   billingDateInMonth,
   calcInvoiceTotals,
+  normalizeStoreTiers,
   computeNextBillingDate,
   effectiveStatus,
   nextInvoiceNumber,
@@ -68,6 +69,7 @@ import type {
   DirectDebitMandate,
   Invoice,
   InvoiceItem,
+  InvoiceRevision,
   InvoiceStatus,
   InvoiceType,
   InvoiceWithCustomer,
@@ -181,6 +183,12 @@ function presentReferral(r: Referral): Referral {
 /** 削除(ゴミ箱)に入っていないレコードだけを通す */
 function alive<T extends { deletedAt?: string | null }>(row: T): boolean {
   return !row.deletedAt;
+}
+
+/** 定期契約に写す店舗数による割引(空なら null = 割引なし) */
+function snapshotTiers(tiers: unknown): Subscription["storeTiers"] {
+  const list = normalizeStoreTiers(tiers);
+  return list.length > 0 ? list : null;
 }
 
 export class DemoRepository implements Repository {
@@ -339,6 +347,7 @@ export class DemoRepository implements Repository {
       initialFee: input.initialFee ?? 0,
       term: input.term ?? "monthly",
       options: input.options ?? [],
+      storeTiers: normalizeStoreTiers(input.storeTiers ?? []),
     };
     this.s.plans.push(plan);
     return plan;
@@ -356,6 +365,7 @@ export class DemoRepository implements Repository {
     if (input.initialFee !== undefined) p.initialFee = input.initialFee;
     if (input.term !== undefined) p.term = input.term;
     if (input.options !== undefined) p.options = input.options;
+    if (input.storeTiers !== undefined) p.storeTiers = normalizeStoreTiers(input.storeTiers);
     return p;
   }
 
@@ -382,6 +392,8 @@ export class DemoRepository implements Repository {
       optionKeys: input.optionKeys ?? [],
       priceOverride: input.priceOverride ?? null,
       storeCount: normalizeStoreCount(input.storeCount),
+      // 未指定はプランの今の割引を写す(あとでプランを変えても、この契約の金額は変わらない)
+      storeTiers: snapshotTiers(input.storeTiers === undefined ? plan?.storeTiers : input.storeTiers),
     };
     this.s.subscriptions.push(sub);
     const cus = this.s.customers.find((c) => c.id === input.customerId);
@@ -781,6 +793,29 @@ export class DemoRepository implements Repository {
     const items = normalizeItemInputs(input.items);
     const before = inv.total;
     const totals = calcInvoiceTotals(items);
+    // 直す前の明細・金額を修正履歴に残す(写しを取る。元の配列を書き換えても履歴は変わらない)
+    const strip = (list: InvoiceItem[]) =>
+      list.map(({ description, quantity, unitPrice, taxRate, amount }) => ({
+        description,
+        quantity,
+        unitPrice,
+        taxRate,
+        amount,
+      }));
+    (this.s.invoiceRevisions ??= []).push({
+      id: genId("rev"),
+      invoiceId: inv.id,
+      revisedAt: new Date().toISOString(),
+      actor: input.actor,
+      reason: input.reason,
+      beforeItems: strip(inv.items),
+      beforeSubtotal: inv.subtotal,
+      beforeTaxTotal: inv.taxTotal,
+      beforeTotal: inv.total,
+      beforeNotes: inv.notes ?? "",
+      afterItems: strip(items),
+      afterTotal: totals.total,
+    });
     inv.items = items;
     inv.subtotal = totals.subtotal;
     inv.taxTotal = totals.taxTotal;
@@ -789,12 +824,19 @@ export class DemoRepository implements Repository {
     const cus = this.s.customers.find((c) => c.id === inv.customerId);
     this.addActivity({
       kind: "invoice_updated",
-      message: `${cus?.name ?? ""} 様の請求書 ${inv.invoiceNumber} の明細を修正（${formatJPY(before)} → ${formatJPY(inv.total)}）`,
+      message: `${cus?.name ?? ""} 様の請求書 ${inv.invoiceNumber} の明細を修正（${formatJPY(before)} → ${formatJPY(inv.total)}・理由: ${input.reason}）`,
       actor: input.actor,
       amount: inv.total,
       linkInvoiceId: inv.id,
     });
     return { ...inv };
+  }
+
+  async listInvoiceRevisions(invoiceId: string): Promise<InvoiceRevision[]> {
+    return (this.s.invoiceRevisions ?? [])
+      .filter((r) => r.invoiceId === invoiceId)
+      .sort((a, b) => b.revisedAt.localeCompare(a.revisedAt))
+      .map((r) => structuredClone(r));
   }
 
   async sendInvoice(id: string): Promise<Invoice> {
@@ -1203,6 +1245,7 @@ export class DemoRepository implements Repository {
           period,
           sub.priceOverride,
           sub.storeCount ?? 1,
+          sub.storeTiers,
         ),
         status: customer?.paymentMethod === "direct_debit" ? "awaiting_payment" : "sent",
       });

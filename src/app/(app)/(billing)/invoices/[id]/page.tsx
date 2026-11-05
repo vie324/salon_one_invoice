@@ -7,7 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getServiceRepository } from "@/lib/data";
 import { outstandingAmount } from "@/lib/domain/calculations";
 import { paymentMethodLabels } from "@/lib/domain/constants";
-import { formatDate, formatJPY } from "@/lib/utils";
+import type { InvoiceRevision } from "@/lib/domain/types";
+import { formatDate, formatDateTime, formatJPY } from "@/lib/utils";
 import { DeleteRecordButton } from "@/components/records/delete-record-button";
 import { invoiceEditBlockedReason } from "@/lib/domain/invoice-edit";
 import { EditInvoiceItemsButton } from "./edit-items-dialog";
@@ -30,10 +31,11 @@ export default async function InvoiceDetailPage({
   const invoice = await repo.getInvoice(id);
   if (!invoice) notFound();
 
-  const [org, payments, batches] = await Promise.all([
+  const [org, payments, batches, revisions] = await Promise.all([
     repo.getOrganization(),
     repo.listPayments({ customerId: invoice.customerId }),
     repo.listBatches(),
+    repo.listInvoiceRevisions(id),
   ]);
   // NSS引き落としの一覧に入っている請求書は、明細を修正できない(登録した金額と食い違うため)
   const inDirectDebitList = batches.some((b) => b.items.some((item) => item.invoiceId === id));
@@ -156,8 +158,73 @@ export default async function InvoiceDetailPage({
               )}
             </CardContent>
           </Card>
+
+          {revisions.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>修正履歴（{revisions.length}件）</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-3">
+                  {revisions.map((r) => (
+                    <RevisionEntry key={r.id} revision={r} />
+                  ))}
+                </ul>
+                <p className="mt-3 text-[11px] text-muted-foreground">
+                  直す前の明細・金額はここに残ります（消せません）。
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** 修正履歴の1件(いつ・誰が・なぜ・いくらからいくらへ。直す前と後の明細は開いて見る) */
+function RevisionEntry({ revision: r }: { revision: InvoiceRevision }) {
+  return (
+    <li className="rounded-md border border-border p-3 text-sm">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+        <span className="tabular text-xs text-muted-foreground">{formatDateTime(r.revisedAt)}</span>
+        <span className="text-xs text-muted-foreground">{r.actor || "—"}</span>
+      </div>
+      <div className="mt-1 font-medium">{r.reason || "（理由の記録なし）"}</div>
+      <div className="tabular mt-0.5 text-xs">
+        合計 {formatJPY(r.beforeTotal)} → <span className="font-semibold">{formatJPY(r.afterTotal)}</span>（税込）
+      </div>
+      <details className="mt-2 text-xs">
+        <summary className="cursor-pointer text-primary">明細を見る</summary>
+        <div className="mt-2 space-y-2">
+          <RevisionItems title="直す前" items={r.beforeItems} />
+          <RevisionItems title="直した後" items={r.afterItems} />
+          {r.beforeNotes && (
+            <div>
+              <div className="font-medium text-muted-foreground">直す前の備考</div>
+              <p className="whitespace-pre-wrap">{r.beforeNotes}</p>
+            </div>
+          )}
+        </div>
+      </details>
+    </li>
+  );
+}
+
+function RevisionItems({ title, items }: { title: string; items: InvoiceRevision["beforeItems"] }) {
+  return (
+    <div>
+      <div className="font-medium text-muted-foreground">{title}</div>
+      <ul className="mt-0.5 space-y-0.5">
+        {items.map((it, i) => (
+          <li key={i} className="flex justify-between gap-2">
+            <span className="min-w-0">{it.description}</span>
+            <span className="tabular shrink-0 text-right">
+              {formatJPY(it.unitPrice)} × {it.quantity} = {formatJPY(it.amount)}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

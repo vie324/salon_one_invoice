@@ -18,6 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getServiceRepository } from "@/lib/data";
 import { getEmailStatus } from "@/lib/email";
 import { contractEventLabels } from "@/lib/domain/constants";
+import { describePriceGroups, describeStoreTiers, initialFeeCharge } from "@/lib/domain/pricing";
 import type { ContractEventType } from "@/lib/domain/types";
 import { formatDateTime, formatJPY } from "@/lib/utils";
 import { ContractActions } from "./contract-actions";
@@ -49,6 +50,12 @@ export default async function ContractDetailPage({
   const contract = await repo.getContract(id);
   if (!contract) notFound();
   const events = await repo.listContractEvents(id);
+  const initialCharge =
+    contract.terms.initialFee == null
+      ? null
+      : initialFeeCharge(contract.terms.initialFee, contract.terms.initialFeeGroups ?? null, contract.terms.storeCount);
+  // 契約書に写した店舗数による割引(締結した時点のもの。あとでプランを変えてもこの契約は変わらない)
+  const storeTierNotes = describeStoreTiers(contract.terms.storeTiers);
 
   return (
     <div>
@@ -112,11 +119,11 @@ export default async function ContractDetailPage({
               <Row
                 label="初期費用(税抜)"
                 value={
-                  contract.terms.initialFee == null
+                  initialCharge == null
                     ? "—"
-                    : contract.terms.initialFeePerStore != null && contract.terms.storeCount > 1
-                      ? `${formatJPY(contract.terms.initialFee)}（${formatJPY(contract.terms.initialFeePerStore)} × ${contract.terms.storeCount}店舗）`
-                      : formatJPY(contract.terms.initialFee)
+                    : initialCharge.groups && initialCharge.storeCount > 1
+                      ? `${formatJPY(initialCharge.amount)}（${describePriceGroups(initialCharge.groups)}）`
+                      : formatJPY(initialCharge.amount)
                 }
               />
               <Row
@@ -124,6 +131,9 @@ export default async function ContractDetailPage({
                 value={contract.terms.monthlyFee != null ? formatJPY(contract.terms.monthlyFee) : "—"}
               />
               <Row label="店舗数" value={`${contract.terms.storeCount}店舗`} />
+              {storeTierNotes.length > 0 && (
+                <Row label="店舗数による割引" value={storeTierNotes.join(" / ")} />
+              )}
               <Row label="送付先" value={contract.signerEmail || contract.customerParty.email || "—"} />
               <Row label="送付日時" value={formatDateTime(contract.sentAt)} />
               <Row label="署名期限" value={formatDateTime(contract.expiresAt)} />

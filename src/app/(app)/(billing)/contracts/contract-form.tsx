@@ -29,8 +29,22 @@ import type {
   ContractTerms,
   Customer,
   Plan,
+  StorePriceGroup,
 } from "@/lib/domain/types";
-import { subscriptionMonthly } from "@/lib/domain/calculations";
+import {
+  normalizeStoreCount,
+  normalizeStoreTiers,
+  priceGroupsTotal,
+  storePriceGroups,
+  subscriptionMonthly,
+} from "@/lib/domain/calculations";
+import {
+  describePriceGroups,
+  flatPriceGroups,
+  initialFeeCharge,
+  planInitialFeeGroups,
+  validOptionKeys,
+} from "@/lib/domain/pricing";
 import { formatJPY } from "@/lib/utils";
 
 const emptyParty: ContractParty = {
@@ -47,18 +61,61 @@ const emptyTerms: ContractTerms = {
   optionKeys: [],
   storeCount: 1,
   initialFee: null,
-  initialFeePerStore: null,
   monthlyFee: null,
   startDate: null,
   notes: "",
 };
 
+/** 初期費用(合計)と店舗ごとの内訳。内訳が合計と食い違う・無いときは groups が null */
+function chargeOf(t: ContractTerms) {
+  return t.initialFee == null ? null : initialFeeCharge(t.initialFee, t.initialFeeGroups ?? null, t.storeCount);
+}
+
+function sameGroups(a: StorePriceGroup[], b: StorePriceGroup[]): boolean {
+  return a.length === b.length && a.every((g, i) => g.from === b[i].from && g.to === b[i].to && g.unitPrice === b[i].unitPrice);
+}
+
 /**
- * 初期費用の1店舗あたりの金額。
- * 店舗数で掛ける前の下書きは、初期費用がプランの1店舗分のまま入っているので、それを1店舗あたりとして読む。
+ * 保存済みの下書きから「初期費用の1店舗あたりの個別金額」を読み取る。
+ * プランどおり(店舗数による割引を含む)なら null。全店舗同じ金額ならその金額。
  */
-function initialPerStoreOf(t: Pick<ContractTerms, "initialFee" | "initialFeePerStore">): number | null {
-  return t.initialFeePerStore ?? t.initialFee ?? null;
+function initialOverrideOf(t: ContractTerms, plan: Plan | null): number | null {
+  const charge = chargeOf(t);
+  if (!charge) return null;
+  // 店舗ごとの内訳が無い以前の下書きも、1店舗なら合計 = 1店舗あたり
+  const groups = charge.groups ?? (charge.storeCount === 1 ? flatPriceGroups(charge.amount, 1) : null);
+  if (!groups) return null;
+  if (plan && sameGroups(groups, planInitialFeeGroups(plan, charge.storeCount))) return null;
+  return groups.length === 1 ? groups[0].unitPrice : null;
+}
+
+/**
+ * 初期費用を計算し直す。1店舗あたりの個別金額があれば全店舗その金額、無ければプランどおり
+ * (店舗数による割引を含む)。プラン連携なしで個別金額も無いときは、今の金額をそのまま残す。
+ */
+function withInitialFee(t: ContractTerms, plan: Plan | null, override: number | null): ContractTerms {
+  const storeCount = normalizeStoreCount(t.storeCount);
+  const groups =
+    override != null ? flatPriceGroups(override, storeCount) : plan ? planInitialFeeGroups(plan, storeCount) : null;
+  if (!groups) return { ...t, storeCount };
+  return { ...t, storeCount, initialFee: priceGroupsTotal(groups), initialFeeGroups: groups };
+}
+
+/**
+ * 月額合計を計算し直す(基本料金は店舗数による割引を含む・オプションは全店舗同じ金額)。
+ * 下書きのうちはプランの今の割引を写し直す(送付したあとは契約書の写しが固定される)。
+ */
+function withMonthlyFee(t: ContractTerms, plan: Plan | null): ContractTerms {
+  if (!plan) return t;
+  const tiers = normalizeStoreTiers(plan.storeTiers);
+  const storeTiers = tiers.length > 0 ? tiers : null;
+  const optionKeys = validOptionKeys(plan, t.optionKeys);
+  return {
+    ...t,
+    optionKeys,
+    storeTiers,
+    monthlyFee: subscriptionMonthly(plan, optionKeys, t.priceOverride ?? null, t.storeCount, storeTiers),
+  };
 }
 
 /**
@@ -118,6 +175,13 @@ export function ContractForm({
   const [terms, setTerms] = React.useState<ContractTerms>(initial?.terms ?? emptyTerms);
 
   const selectedPlan = plans.find((p) => p.id === terms.planId) ?? null;
+  /** 初期費用の1店舗あたりの個別金額(null = プランどおり) */
+  const [initialOverride, setInitialOverride] = React.useState<number | null>(() =>
+    initialOverrideOf(
+      initial?.terms ?? emptyTerms,
+      plans.find((p) => p.id === initial?.terms.planId) ?? null,
+    ),
+  );
 
   /* ---- 顧客変更 → 乙欄へ反映 ---- */
   const onCustomerChange = (id: string) => {
@@ -141,11 +205,12 @@ export function ContractForm({
   /* ---- プラン変更 → 申込条件へ反映 ---- */
   const onPlanChange = (planId: string) => {
     if (!planId) {
-      setTerms((t) => ({ ...t, planId: null, planName: "" }));
+      setTerms((t) => ({ ...t, planId: null, planName: "", storeTiers: null }));
       return;
     }
     const plan = plans.find((p) => p.id === planId);
     if (!plan) return;
+    setInitialOverride(null);
     setTerms((t) => ({
       ...termsFromPlan(plan, t.optionKeys.filter((k) => plan.options.some((o) => o.key === k)), t.storeCount, t.startDate),
       notes: t.notes,
@@ -158,39 +223,52 @@ export function ContractForm({
       const optionKeys = t.optionKeys.includes(key)
         ? t.optionKeys.filter((k) => k !== key)
         : [...t.optionKeys, key];
-      return {
-        ...t,
-        optionKeys,
-        monthlyFee: subscriptionMonthly(selectedPlan, optionKeys) * t.storeCount,
-      };
+      return withMonthlyFee({ ...t, optionKeys }, selectedPlan);
     });
   };
 
   const setStoreCount = (n: number) => {
     const count = Math.max(1, Math.round(n) || 1);
-    setTerms((t) => {
-      const perStore = initialPerStoreOf(t);
-      return {
-        ...t,
-        storeCount: count,
-        // 初期費用は1店舗あたり。店舗数を変えたら合計も変える
-        initialFee: perStore == null ? t.initialFee : perStore * count,
-        initialFeePerStore: perStore,
-        monthlyFee: selectedPlan
-          ? subscriptionMonthly(selectedPlan, t.optionKeys) * count
-          : t.monthlyFee,
-      };
-    });
+    // 初期費用・月額とも1店舗あたりなので、店舗数を変えたら合計も変える(店舗数による割引も数え直す)
+    setTerms((t) =>
+      withMonthlyFee(withInitialFee({ ...t, storeCount: count }, selectedPlan, initialOverride), selectedPlan),
+    );
   };
 
   const setInitialPerStore = (value: string) => {
     const perStore = value === "" ? null : Math.max(0, Math.round(Number(value) || 0));
-    setTerms((t) => ({
-      ...t,
-      initialFeePerStore: perStore,
-      initialFee: perStore == null ? null : perStore * t.storeCount,
-    }));
+    setInitialOverride(perStore);
+    setTerms((t) =>
+      // プラン連携なしで空欄にしたら初期費用なし
+      !selectedPlan && perStore == null
+        ? { ...t, initialFee: null, initialFeeGroups: null }
+        : withInitialFee(t, selectedPlan, perStore),
+    );
   };
+
+  const charge = chargeOf(terms);
+  const planInitialGroups = selectedPlan ? planInitialFeeGroups(selectedPlan, terms.storeCount) : null;
+  const initialPlaceholder = !planInitialGroups
+    ? "例）100000"
+    : planInitialGroups.length === 1
+      ? `プランどおり（${formatJPY(planInitialGroups[0].unitPrice)}）`
+      : "プランどおり（店舗数で割引）";
+  const initialHint = !charge
+    ? selectedPlan
+      ? "空欄ならプランどおりの金額です"
+      : "空欄なら初期費用はありません"
+    : !charge.groups
+      ? `合計 ${formatJPY(charge.amount)}（店舗ごとの内訳なし）`
+      : charge.storeCount === 1
+        ? "店舗を増やすと、店舗ごとの金額を足して請求します"
+        : `${describePriceGroups(charge.groups)} ＝ 合計 ${formatJPY(charge.amount)}`;
+  // 月額の基本料金の内訳(割引の段があるときだけ説明する)
+  const baseGroups =
+    selectedPlan && terms.priceOverride == null
+      ? storePriceGroups(selectedPlan.amount, terms.storeTiers, "monthly", terms.storeCount)
+      : null;
+  const monthlyHint =
+    baseGroups && baseGroups.length > 1 ? `基本料金 ${describePriceGroups(baseGroups)}（＋オプション）` : undefined;
 
   const generateFeeTables = () => {
     if (!selectedPlan) return;
@@ -348,22 +426,16 @@ export function ContractForm({
               </div>
             </div>
           )}
-          <Field
-            label="初期費用(税抜・1店舗あたり)"
-            hint={
-              terms.initialFee != null && terms.storeCount > 1
-                ? `合計 ${formatJPY(terms.initialFee)}（${terms.storeCount}店舗分）を請求します`
-                : "店舗数ぶん掛けた金額を請求します"
-            }
-          >
+          <Field label="初期費用(税抜・1店舗あたり)" hint={initialHint}>
             <Input
               type="number"
               min={0}
-              value={initialPerStoreOf(terms) ?? ""}
+              value={initialOverride ?? ""}
+              placeholder={initialPlaceholder}
               onChange={(e) => setInitialPerStore(e.target.value)}
             />
           </Field>
-          <Field label="月額合計(税抜)">
+          <Field label="月額合計(税抜)" hint={monthlyHint}>
             <Input
               type="number"
               value={terms.monthlyFee ?? ""}

@@ -40,7 +40,7 @@ import {
   agencyRateLabel,
   commissionStatus,
 } from "@/lib/domain/agency";
-import { effectiveStatus, normalizeStoreCount, subscriptionMonthly, withTax } from "@/lib/domain/calculations";
+import { effectiveStatus, normalizeStoreCount, subscriptionMonthlyOf, withTax } from "@/lib/domain/calculations";
 import {
   AGENCY_DEAL_TYPES,
   agencyCommissionStatusLabels,
@@ -56,7 +56,7 @@ import {
   type OrderStepItem,
   type OrderTrack,
 } from "@/lib/domain/onboarding";
-import { initialFeeFromTerms, planDisplayName } from "@/lib/domain/pricing";
+import { describePriceGroups, initialFeeFromTerms, planDisplayName } from "@/lib/domain/pricing";
 import { loadOrderBook, type OrderRow } from "@/lib/orders/load";
 import { cn, formatDate, formatDateTime, formatJPY, maskAccount, toISODate } from "@/lib/utils";
 import { BillingSetupButton, type BillingSetupContext } from "./billing-setup";
@@ -115,7 +115,8 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       planName: terms.planName,
       storeCount: normalizeStoreCount(terms.storeCount),
       initialFee,
-      initialFeePerStore: initialCharge.storeCount > 1 ? initialCharge.perStore : null,
+      initialFeeBreakdown:
+        initialCharge.groups && initialCharge.storeCount > 1 ? describePriceGroups(initialCharge.groups) : null,
       monthlyFee: terms.monthlyFee ?? 0,
       taxRate: termsPlan?.taxRate ?? 0.1,
       referred: Boolean(customer.referredByCustomerId),
@@ -139,12 +140,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   const existingSubPlan = existingSub ? book.plans.find((p) => p.id === existingSub.planId) : null;
   const existingSubMonthly =
     existingSub && existingSubPlan
-      ? subscriptionMonthly(
-          existingSubPlan,
-          existingSub.optionKeys ?? [],
-          existingSub.priceOverride,
-          existingSub.storeCount ?? 1,
-        )
+      ? subscriptionMonthlyOf(existingSubPlan, existingSub)
       : 0;
   const billingCtx: BillingSetupContext = {
     customerId: customer.id,
@@ -161,6 +157,8 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             monthly: existingSubMonthly,
             taxRate: existingSubPlan.taxRate,
             storeCount: normalizeStoreCount(existingSub.storeCount),
+            // 契約に写した割引(無ければ割引なし)で「プランどおり」の初期費用を出す
+            feePlan: { initialFee: existingSubPlan.initialFee, storeTiers: existingSub.storeTiers ?? [] },
           }
         : null,
     candidates: row.invoices

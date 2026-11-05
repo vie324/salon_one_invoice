@@ -15,7 +15,13 @@ import {
   AGENCY_LINK_EXPIRY_DAYS,
   APPLICATION_LINK_EXPIRY_DAYS,
 } from "@/lib/domain/constants";
-import { computeOrderQuote, planDisplayName, validOptionKeys } from "@/lib/domain/pricing";
+import {
+  computeOrderQuote,
+  describePriceGroups,
+  describeStoreTiers,
+  planDisplayName,
+  validOptionKeys,
+} from "@/lib/domain/pricing";
 import type { Agency, AgencyDealType, AgencyMember, Plan } from "@/lib/domain/types";
 import { cn, formatJPY } from "@/lib/utils";
 
@@ -101,6 +107,9 @@ export function IssueLinkDialog({
         monthlyPriceOverride: form.useCustomPrice ? toNumber(form.monthlyPriceOverride) : null,
       })
     : null;
+  // お客様が店舗数を入れるときに使われる、プランの店舗数による割引(個別価格を入れた項目には使わない)
+  const tierNotes =
+    plan && !(quote?.initialFeeOverridden && quote?.monthlyOverridden) ? describeStoreTiers(plan.storeTiers) : [];
 
   const reset = () => {
     setResult(null);
@@ -360,7 +369,7 @@ export function IssueLinkDialog({
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       <Field
                         label="初期費用（税抜・1店舗）"
-                        hint={`空欄 = プラン通り（${formatJPY(plan.initialFee)}）。店舗数ぶん掛けて請求します`}
+                        hint={`空欄 = プラン通り（${formatJPY(plan.initialFee)}${plan.storeTiers.length > 0 ? "・店舗数による割引あり" : ""}）。入れると全店舗この金額です`}
                       >
                         <Input
                           type="number"
@@ -371,7 +380,7 @@ export function IssueLinkDialog({
                       </Field>
                       <Field
                         label="月額 基本料金（税抜・1店舗）"
-                        hint={`空欄 = プラン通り（${formatJPY(plan.amount)}）`}
+                        hint={`空欄 = プラン通り（${formatJPY(plan.amount)}${plan.storeTiers.length > 0 ? "・店舗数による割引あり" : ""}）。入れると全店舗この金額です`}
                       >
                         <Input
                           type="number"
@@ -391,7 +400,7 @@ export function IssueLinkDialog({
                         初期費用
                         {form.storeMode === "fixed"
                           ? quote.storeCount > 1
-                            ? `（${formatJPY(quote.initialFeePerStore)} × ${quote.storeCount}店舗）`
+                            ? `（${describePriceGroups(quote.initialFeeGroups)}）`
                             : ""
                           : "（1店舗あたり）"}
                       </span>
@@ -407,6 +416,16 @@ export function IssueLinkDialog({
                         {formatJPY(quote.monthlyTotal)}（税込 {formatJPY(quote.monthlyTotalWithTax)}）
                       </span>
                     </div>
+                    {form.storeMode === "fixed" && quote.baseGroups.length > 1 && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        基本料金 {describePriceGroups(quote.baseGroups)}（店舗数による割引）
+                      </p>
+                    )}
+                    {form.storeMode === "customer" && plan && tierNotes.length > 0 && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        店舗数による割引: {tierNotes.join(" / ")}（お客様の画面で店舗数に合わせて計算されます）
+                      </p>
+                    )}
                   </div>
                 )}
               </>

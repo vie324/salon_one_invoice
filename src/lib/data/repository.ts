@@ -41,6 +41,7 @@ import type {
   DirectDebitBatch,
   DirectDebitMandate,
   Invoice,
+  InvoiceRevision,
   InvoiceStatus,
   InvoiceType,
   InvoiceWithCustomer,
@@ -207,8 +208,10 @@ export interface InvoiceItemsUpdateInput {
   items: InvoiceItemInput[];
   /** 備考(未指定は変えない) */
   notes?: string;
-  /** 誰が直したか(最近の動きに残す) */
+  /** 誰が直したか(修正履歴・最近の動きに残す) */
   actor: string;
+  /** 修正の理由(修正履歴に残す) */
+  reason: string;
 }
 
 export interface InvoiceInput {
@@ -246,6 +249,8 @@ export interface PlanInput {
   initialFee?: number;
   term?: import("@/lib/domain/types").PlanTerm;
   options?: import("@/lib/domain/types").PlanOption[];
+  /** 店舗数による割引(ボリューム割引)。空 = 割引なし */
+  storeTiers?: import("@/lib/domain/types").StoreTier[];
 }
 
 export interface SubscriptionInput {
@@ -258,6 +263,11 @@ export interface SubscriptionInput {
   priceOverride?: number | null;
   /** 契約店舗数(未指定は1店舗) */
   storeCount?: number;
+  /**
+   * 店舗数による割引(締結した時点の写し)。null = 割引なし。
+   * 未指定(undefined)は、プランの今の割引を写す(定期請求の画面から登録するとき)。
+   */
+  storeTiers?: import("@/lib/domain/types").StoreTier[] | null;
   /**
    * 無料にする月数。次回請求日をこの月数ぶん先送りする(0 または未指定で通常どおり)。
    * 紹介制度の「2ヶ月無料」に使う。
@@ -687,7 +697,13 @@ export interface Repository {
    * 明細の修正(入金前・NSS引き落としの一覧に入っていない請求書だけ)。
    * 合計を計算し直す。ステータス・番号・発行日は変えない。
    */
+  /**
+   * 入金前の請求書の明細を直す。直す前の明細・金額は修正履歴として残す(消さない)。
+   * 履歴を残せないとき(DB の更新が未適用など)は直さずにエラーにする。
+   */
   updateInvoiceItems(id: string, input: InvoiceItemsUpdateInput): Promise<Invoice>;
+  /** 請求書の修正履歴(新しい順) */
+  listInvoiceRevisions(invoiceId: string): Promise<InvoiceRevision[]>;
 
   // --- 入金 ---
   listPayments(filter?: { customerId?: string }): Promise<Payment[]>;

@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { getServiceRepository } from "@/lib/data";
-import { subscriptionMonthly, withTax } from "@/lib/domain/calculations";
+import { subscriptionMonthlyOf, withTax } from "@/lib/domain/calculations";
 import { computeCustomerLtv, type CustomerLtv } from "@/lib/domain/ltv";
 import { formatJPY } from "@/lib/utils";
 
@@ -41,7 +41,7 @@ export default async function LtvPage() {
           return (
             sum +
             withTax(
-              subscriptionMonthly(plan, sub.optionKeys ?? [], sub.priceOverride, sub.storeCount ?? 1),
+              subscriptionMonthlyOf(plan, sub),
               plan.taxRate,
             )
           );

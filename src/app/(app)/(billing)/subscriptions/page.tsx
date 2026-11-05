@@ -6,7 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { getServiceRepository } from "@/lib/data";
-import { subscriptionMonthly, withTax } from "@/lib/domain/calculations";
+import { subscriptionMonthly, subscriptionMonthlyOf, withTax } from "@/lib/domain/calculations";
+import { describeStoreTiers } from "@/lib/domain/pricing";
 import type { Plan } from "@/lib/domain/types";
 import { formatJPY } from "@/lib/utils";
 import { SubscriptionsClient } from "./subscriptions-client";
@@ -31,7 +32,7 @@ export default async function SubscriptionsPage() {
   const rows = subscriptions
     .map((s) => {
       const plan = planById.get(s.planId);
-      const monthlyExcl = plan ? subscriptionMonthly(plan, s.optionKeys, s.priceOverride, s.storeCount ?? 1) : 0;
+      const monthlyExcl = plan ? subscriptionMonthlyOf(plan, s) : 0;
       return {
         ...s,
         customerName: customerName(s.customerId),
@@ -125,6 +126,13 @@ function PlanGrid({
               <div className="mt-1 text-xs text-muted-foreground">
                 初期費用 {formatJPY(p.initialFee)}（税抜・1店舗あたり）
               </div>
+              {p.storeTiers.length > 0 && (
+                <ul className="mt-2 space-y-0.5 rounded-md bg-primary/5 px-2 py-1.5 text-[11px] text-primary">
+                  {describeStoreTiers(p.storeTiers).map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              )}
               <div className="mt-3 space-y-1 border-t border-border pt-3 text-xs">
                 {p.options.map((o) => (
                   <div key={o.key} className="flex justify-between text-muted-foreground">
