@@ -89,7 +89,7 @@ export function PlanFormDialog({
       open={open}
       onClose={onClose}
       title={plan ? "プランを編集" : "新規プラン"}
-      description="基本料金・初期費用・オプションを設定します。金額は税抜で入力してください。"
+      description="基本料金・初期費用・オプションを設定します。金額は税抜・1店舗あたりで入力してください（請求は店舗数ぶん掛けた金額）。"
     >
       <div className="space-y-4">
         <Field label="プラン名">
@@ -113,7 +113,7 @@ export function PlanFormDialog({
           </Field>
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="初期費用（税抜）">
+          <Field label="初期費用（税抜・1店舗あたり）">
             <Input type="number" value={initialFee} onChange={(e) => setInitialFee(Number(e.target.value))} />
           </Field>
           <Field label="基本料金 月額（税抜）">

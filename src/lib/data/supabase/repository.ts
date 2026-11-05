@@ -119,6 +119,7 @@ import type {
   DevScheduleItemUpdateInput,
   InvoiceFilter,
   InvoiceInput,
+  InvoiceItemsUpdateInput,
   MandateInput,
   MarketingServiceInput,
   OnboardingUpdateInput,
@@ -136,6 +137,8 @@ import type {
 import { applicationLinkSettings, type ApplicationLinkSettings } from "../application-link";
 import { mergeMandate } from "../mandate";
 import { mergeMarketingService } from "../marketing";
+import { normalizeItemInputs } from "../invoice-items";
+import { invoiceEditBlockedReason } from "@/lib/domain/invoice-edit";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -1327,6 +1330,27 @@ export class SupabaseRepository implements Repository {
     return mapAgencyCommission(data);
   }
 
+  async updateAgencyCommissionBase(id: string, baseAmount: number): Promise<AgencyCommission> {
+    const { data: row, error: readError } = await this.db
+      .from("agency_commissions")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (readError) throw readError;
+    if (!row) throw new Error("代理店報酬が見つかりません");
+    if (row.paid_at) throw new Error("支払済みの代理店報酬は変更できません");
+    const base = Math.max(0, Math.round(baseAmount));
+    const { data, error } = await this.db
+      .from("agency_commissions")
+      .update({ base_amount: base, amount: Math.round(base * Number(row.rate ?? 0)) })
+      .eq("id", id)
+      .is("paid_at", null)
+      .select("*")
+      .single();
+    if (error) throw error;
+    return mapAgencyCommission(data);
+  }
+
   async setAgencyCommissionsPaid(ids: string[], paidAt: string | null, actor: string): Promise<void> {
     if (ids.length === 0) return;
     const { data, error } = await this.db
@@ -1617,6 +1641,76 @@ export class SupabaseRepository implements Repository {
       linkInvoiceId: invRow.id,
     });
     return { ...mapInvoice(invRow), items };
+  }
+
+  async updateInvoiceItems(id: string, input: InvoiceItemsUpdateInput): Promise<Invoice> {
+    const inv = await this.getInvoice(id);
+    if (!inv) throw new Error("請求書が見つかりません");
+    const { data: listed, error: listedError } = await this.db
+      .from("direct_debit_batch_items")
+      .select("id, direct_debit_batches!inner(deleted_at)")
+      .eq("invoice_id", id)
+      .is("direct_debit_batches.deleted_at", null)
+      .limit(1);
+    if (listedError) throw listedError;
+    const blocked = invoiceEditBlockedReason(inv, (listed ?? []).length > 0);
+    if (blocked) throw new Error(blocked);
+
+    const items = normalizeItemInputs(input.items);
+    const totals = calcInvoiceTotals(items);
+    const toRows = (list: InvoiceItem[]) =>
+      list.map((it, idx) => ({
+        invoice_id: id,
+        description: it.description,
+        quantity: it.quantity,
+        unit_price: it.unitPrice,
+        tax_rate: it.taxRate,
+        amount: it.amount,
+        position: idx,
+      }));
+
+    // 明細の入れ替えは「新しい明細を入れる → 古い明細を消す → 合計を直す」の順。
+    // 途中で失敗したら、入れた明細を消して元の状態に戻す(明細が消えたままにならないように)。
+    const { data: inserted, error: insError } = await this.db
+      .from("invoice_items")
+      .insert(toRows(items))
+      .select("id");
+    if (insError) throw insError;
+    const newIds = (inserted ?? []).map((r: any) => r.id as string);
+    const rollback = async () => {
+      if (newIds.length > 0) await this.db.from("invoice_items").delete().in("id", newIds);
+    };
+    const oldIds = inv.items.map((it) => it.id);
+    if (oldIds.length > 0) {
+      const { error: delError } = await this.db.from("invoice_items").delete().in("id", oldIds);
+      if (delError) {
+        await rollback();
+        throw delError;
+      }
+    }
+    const patch: Record<string, unknown> = {
+      subtotal: totals.subtotal,
+      tax_total: totals.taxTotal,
+      total: totals.total,
+    };
+    if (input.notes !== undefined) patch.notes = input.notes;
+    const { error: updError } = await this.db.from("invoices").update(patch).eq("id", id);
+    if (updError) {
+      // 合計を直せなかった: 元の明細に戻す
+      await this.db.from("invoice_items").insert(toRows(inv.items));
+      await rollback();
+      throw updError;
+    }
+    await this.logActivity({
+      kind: "invoice_updated",
+      message: `${inv.customer?.name ?? ""} 様の請求書 ${inv.invoiceNumber} の明細を修正（${formatJPY(inv.total)} → ${formatJPY(totals.total)}）`,
+      actor: input.actor,
+      amount: totals.total,
+      linkInvoiceId: id,
+    });
+    const updated = await this.getInvoice(id);
+    if (!updated) throw new Error("請求書が見つかりません");
+    return updated;
   }
 
   async updateInvoiceStatus(id: string, status: InvoiceStatus): Promise<Invoice> {

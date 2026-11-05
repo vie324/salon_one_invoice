@@ -35,7 +35,9 @@ export function termsFromPlan(
     planName: `${plan.name}（${plan.term === "annual" ? "年間" : "月額"}）`,
     optionKeys,
     storeCount,
-    initialFee: plan.initialFee,
+    // 初期費用は1店舗あたり。店舗数ぶん掛ける
+    initialFee: plan.initialFee * storeCount,
+    initialFeePerStore: plan.initialFee,
     monthlyFee: subscriptionMonthly(plan, optionKeys) * storeCount,
     startDate,
     notes: "",
@@ -49,7 +51,7 @@ export function feeTablesFromPlan(
   storeCount: number,
 ): ContractFeeTable[] {
   const rows = [
-    { item: "初期構築費用", amount: `${formatNumber(plan.initialFee)}円` },
+    { item: "初期構築費用", amount: `${formatNumber(plan.initialFee)}円（1店舗あたり）` },
     {
       item: "月額利用料",
       amount: `${formatNumber(plan.amount)}円（1店舗あたり）`,
@@ -59,6 +61,9 @@ export function feeTablesFromPlan(
       amount: `${formatNumber(o.monthly)}円（月額・1店舗あたり）`,
     })),
     { item: "契約店舗数", amount: `${storeCount}店舗` },
+    ...(storeCount > 1
+      ? [{ item: "初期費用合計（税別）", amount: `${formatNumber(plan.initialFee * storeCount)}円` }]
+      : []),
     {
       item: "月額合計（税別）",
       amount: `${formatNumber(subscriptionMonthly(plan, optionKeys) * storeCount)}円`,

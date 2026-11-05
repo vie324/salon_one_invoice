@@ -9,6 +9,8 @@ import { outstandingAmount } from "@/lib/domain/calculations";
 import { paymentMethodLabels } from "@/lib/domain/constants";
 import { formatDate, formatJPY } from "@/lib/utils";
 import { DeleteRecordButton } from "@/components/records/delete-record-button";
+import { invoiceEditBlockedReason } from "@/lib/domain/invoice-edit";
+import { EditInvoiceItemsButton } from "./edit-items-dialog";
 import { InvoiceActions } from "./invoice-actions";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
@@ -28,10 +30,14 @@ export default async function InvoiceDetailPage({
   const invoice = await repo.getInvoice(id);
   if (!invoice) notFound();
 
-  const [org, payments] = await Promise.all([
+  const [org, payments, batches] = await Promise.all([
     repo.getOrganization(),
     repo.listPayments({ customerId: invoice.customerId }),
+    repo.listBatches(),
   ]);
+  // NSS引き落としの一覧に入っている請求書は、明細を修正できない(登録した金額と食い違うため)
+  const inDirectDebitList = batches.some((b) => b.items.some((item) => item.invoiceId === id));
+  const editBlocked = invoiceEditBlockedReason(invoice, inDirectDebitList);
   const invoicePayments = payments.filter((p) => p.invoiceId === id);
   const outstanding = outstandingAmount(invoice);
 
@@ -69,6 +75,16 @@ export default async function InvoiceDetailPage({
               <CardTitle>操作</CardTitle>
             </CardHeader>
             <CardContent>
+              <div className="mb-2">
+                <EditInvoiceItemsButton
+                  invoiceId={invoice.id}
+                  invoiceNumber={invoice.invoiceNumber}
+                  type={invoice.type}
+                  items={invoice.items}
+                  notes={invoice.notes}
+                  blockedReason={editBlocked}
+                />
+              </div>
               <InvoiceActions
                 id={invoice.id}
                 customerId={invoice.customerId}

@@ -2,7 +2,7 @@ import type { Repository } from "@/lib/data/repository";
 import { billingDateInMonth, computeDueDate, normalizeStoreCount, subscriptionMonthly } from "@/lib/domain/calculations";
 import { paymentMethodLabels } from "@/lib/domain/constants";
 import type { ManualChecklistKey } from "@/lib/domain/onboarding";
-import { normalizeOverride, planDisplayName, validOptionKeys } from "@/lib/domain/pricing";
+import { initialFeeCharge, normalizeOverride, planDisplayName, validOptionKeys } from "@/lib/domain/pricing";
 import type { Invoice, PaymentMethod } from "@/lib/domain/types";
 import { formatJPY, isMonthKey, toISODate } from "@/lib/utils";
 import { initialInvoiceItems, recordAgencyCommission, recordReferralReward } from "./confirm";
@@ -19,7 +19,14 @@ export interface BillingSetupInput {
   /** 初回請求書(初期費用＋初月日割り)。keep = 今回は決めない・変えない */
   initial:
     | { mode: "keep" }
-    | { mode: "create"; initialFee: number; includeProration: boolean }
+    | {
+        mode: "create";
+        /** 初期費用(税抜・1店舗あたり)。請求するのは × 店舗数 */
+        initialFeePerStore: number;
+        /** 初期費用の店舗数 */
+        storeCount: number;
+        includeProration: boolean;
+      }
     | { mode: "existing"; invoiceId: string }
     | { mode: "outside"; sent: boolean; paid: boolean }
     | { mode: "none" };
@@ -169,9 +176,12 @@ export async function setupBilling(params: {
       }
     }
     const feeTaxRate = newSub?.taxRate ?? monthly?.taxRate ?? 0.1;
+    // 初期費用は1店舗あたりの金額 × 店舗数
+    const perStore = Math.max(0, Math.round(Number(initial.initialFeePerStore) || 0));
+    const stores = normalizeStoreCount(initial.storeCount);
     built = initialInvoiceItems({
       startedOn: input.startedOn,
-      initialFee: Math.max(0, Math.round(Number(initial.initialFee) || 0)),
+      initialFee: initialFeeCharge(perStore * stores, perStore, stores),
       initialFeeLabel: "初期構築費用",
       initialFeeTaxRate: feeTaxRate,
       monthly,

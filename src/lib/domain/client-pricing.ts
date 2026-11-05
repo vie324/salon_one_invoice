@@ -6,8 +6,13 @@ import type { Contract, Invoice } from "./types";
  */
 
 /** 初回請求書の明細のうち、初期費用の行か(受注確定・請求を開始は「初期構築費用」で作る) */
-function isInitialFeeLine(description: string): boolean {
+export function isInitialFeeLine(description: string): boolean {
   return description.startsWith("初期");
+}
+
+/** 初回請求書の初期費用(税抜) = 初期費用の行の合計(「1店舗あたり × 店舗数」の行もそのまま合計する) */
+export function initialFeeOfItems(items: Pick<Invoice["items"][number], "description" | "quantity" | "unitPrice">[]): number {
+  return items.filter((item) => isInitialFeeLine(item.description)).reduce((s, item) => s + lineAmount(item), 0);
 }
 
 /**
@@ -30,9 +35,8 @@ export function initialFeesByCustomer(
     .filter((i) => i.type === "initial" && i.status !== "canceled")
     .sort((a, b) => a.issueDate.localeCompare(b.issueDate));
   for (const inv of initialInvoices) {
-    const lines = inv.items.filter((item) => isInitialFeeLine(item.description));
-    if (lines.length === 0) continue;
-    fees.set(inv.customerId, lines.reduce((s, item) => s + lineAmount(item), 0));
+    if (!inv.items.some((item) => isInitialFeeLine(item.description))) continue;
+    fees.set(inv.customerId, initialFeeOfItems(inv.items));
   }
   return fees;
 }

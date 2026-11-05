@@ -457,7 +457,7 @@ export function OrderForm({
             hint={
               storeFixed
                 ? "担当者とお打ち合わせ済みの店舗数です。変更がある場合は担当者へご連絡ください。"
-                : "月額料金は1店舗あたりの金額です。屋号・所在地ごとに1店舗と数えます。"
+                : "初期費用・月額料金は1店舗あたりの金額です。屋号・所在地ごとに1店舗と数えます。"
             }
           >
             {storeFixed ? (
@@ -562,7 +562,9 @@ export function OrderForm({
               />
               <Summary
                 label="初期費用"
-                value={`${formatJPY(quote.initialFee)}（税込 ${formatJPY(quote.initialFeeWithTax)}）`}
+                value={`${formatJPY(quote.initialFee)}（税込 ${formatJPY(quote.initialFeeWithTax)}）${
+                  quote.storeCount > 1 ? `・${formatJPY(quote.initialFeePerStore)} × ${quote.storeCount}店舗` : ""
+                }`}
               />
               <Summary
                 label="月額"
@@ -733,6 +735,11 @@ function PriceSummary({ quote }: { quote: ReturnType<typeof computeOrderQuote> }
           <tr>
             <td className="px-3 py-2.5 text-muted-foreground">
               初期費用{quote.initialFeeOverridden && <span className="ml-1 text-xs">（個別価格）</span>}
+              {quote.storeCount > 1 && (
+                <span className="block text-xs">
+                  {formatJPY(quote.initialFeePerStore)}/店舗 × {quote.storeCount}店舗
+                </span>
+              )}
             </td>
             <td className="tabular px-3 py-2.5 text-right font-medium">
               {formatJPY(quote.initialFee)}

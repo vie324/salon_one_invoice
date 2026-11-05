@@ -87,8 +87,10 @@ export interface SignupRow {
   listBasePerStore: number | null;
   /** 初期費用(税抜)。記録が無ければ null */
   initialFee: number | null;
-  /** プランの初期費用(定価・税抜) */
+  /** プランの初期費用(定価・税抜・店舗数ぶん) */
   listInitialFee: number | null;
+  /** 初期費用の1店舗あたり(税抜)。複数店舗で 合計 = 1店舗あたり × 店舗数 のときだけ */
+  initialFeePerStore: number | null;
   /** 毎月の請求額(税抜・全店舗)。マーケティング代行は月額運用費の最低額 */
   monthly: number | null;
   monthlyWithTax: number | null;
@@ -200,11 +202,15 @@ function systemRow(
   const initialFee = initialFees.get(row.customer.id) ?? null;
   const taxRate = plan?.taxRate ?? 0.1;
   const signupMonthly = terms?.monthlyFee ?? null;
+  // 初期費用の定価は 1店舗あたり × 店舗数
+  const listInitialFee = plan ? plan.initialFee * storeCount : null;
   const customPrice = Boolean(
     plan &&
       ((basePerStore != null && basePerStore !== plan.amount) ||
-        (initialFee != null && initialFee !== plan.initialFee)),
+        (initialFee != null && initialFee !== listInitialFee)),
   );
+  const initialFeePerStore =
+    initialFee != null && storeCount > 1 && initialFee % storeCount === 0 ? initialFee / storeCount : null;
 
   const canceled =
     row.subscriptions.length > 0 && row.subscriptions.every((s) => s.status === "canceled");
@@ -236,7 +242,8 @@ function systemRow(
     basePerStore,
     listBasePerStore: plan?.amount ?? null,
     initialFee,
-    listInitialFee: plan?.initialFee ?? null,
+    listInitialFee,
+    initialFeePerStore,
     monthly,
     monthlyWithTax: monthly == null ? null : withTax(monthly, taxRate),
     signupMonthly,
@@ -277,6 +284,7 @@ function pendingApplicationRow(app: Application, agency: Pick<Agency, "name"> | 
     listBasePerStore: null,
     initialFee: null,
     listInitialFee: null,
+    initialFeePerStore: null,
     monthly: null,
     monthlyWithTax: null,
     signupMonthly: null,
@@ -314,6 +322,7 @@ function marketingRow(service: MarketingService, row: OrderRow): SignupRow {
     listBasePerStore: null,
     initialFee: service.initialFee,
     listInitialFee: null,
+    initialFeePerStore: null,
     monthly: service.monthlyMinimum,
     monthlyWithTax: withTax(service.monthlyMinimum, 0.1),
     signupMonthly: null,

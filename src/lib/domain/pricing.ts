@@ -22,7 +22,7 @@ export interface OrderSelection {
   plan: Plan;
   optionKeys: string[];
   storeCount: number;
-  /** 初期費用の個別価格(税抜)。null/未設定 = プラン通り */
+  /** 初期費用の個別価格(税抜・1店舗あたり)。null/未設定 = プラン通り */
   initialFeeOverride?: number | null;
   /** 月額基本料金の個別価格(税抜・1店舗あたり)。null/未設定 = プラン通り */
   monthlyPriceOverride?: number | null;
@@ -34,7 +34,9 @@ export interface OrderQuote {
   planName: string;
   taxRate: number;
   storeCount: number;
-  /** 初期費用(税抜) */
+  /** 初期費用(税抜・1店舗あたり。個別価格を反映) */
+  initialFeePerStore: number;
+  /** 初期費用(税抜・全店舗) = 1店舗あたり × 店舗数 */
   initialFee: number;
   initialFeeTax: number;
   initialFeeWithTax: number;
@@ -74,7 +76,9 @@ export function computeOrderQuote(sel: OrderSelection): OrderQuote {
   const optionKeys = validOptionKeys(plan, sel.optionKeys);
   const initialOverride = normalizeOverride(sel.initialFeeOverride);
   const monthlyOverride = normalizeOverride(sel.monthlyPriceOverride);
-  const initialFee = initialOverride ?? plan.initialFee;
+  // 初期費用も月額と同じく1店舗あたりの金額。店舗数ぶん掛ける
+  const initialFeePerStore = initialOverride ?? plan.initialFee;
+  const initialFee = initialFeePerStore * storeCount;
   const basePerStore = monthlyOverride ?? plan.amount;
   const monthlyPerStore = subscriptionMonthly(plan, optionKeys, monthlyOverride, 1);
   const monthlyTotal = monthlyPerStore * storeCount;
@@ -84,6 +88,7 @@ export function computeOrderQuote(sel: OrderSelection): OrderQuote {
     planName: planDisplayName(plan),
     taxRate: plan.taxRate,
     storeCount,
+    initialFeePerStore,
     initialFee,
     initialFeeTax,
     initialFeeWithTax: initialFee + initialFeeTax,
@@ -98,6 +103,46 @@ export function computeOrderQuote(sel: OrderSelection): OrderQuote {
   };
 }
 
+/** 請求する初期費用(税抜)。初回請求書の明細の作り方も決める */
+export interface InitialFeeCharge {
+  /** 合計(税抜・全店舗) */
+  amount: number;
+  /**
+   * 1店舗あたり(税抜)。合計 = 1店舗あたり × 店舗数 のときだけ入る。
+   * null なら1件の金額として明細に載せる(店舗数で掛ける前に締結した契約など)。
+   */
+  perStore: number | null;
+  storeCount: number;
+}
+
+/** 合計・1店舗あたり・店舗数から、請求する初期費用をそろえる */
+export function initialFeeCharge(
+  amount: number,
+  perStore: number | null | undefined,
+  storeCount: number | null | undefined,
+): InitialFeeCharge {
+  const stores = normalizeStoreCount(storeCount);
+  const total = Math.max(0, Math.round(Number(amount) || 0));
+  const unit = perStore == null ? null : Math.max(0, Math.round(Number(perStore) || 0));
+  return { amount: total, perStore: unit != null && unit * stores === total ? unit : null, storeCount: stores };
+}
+
+/**
+ * 契約の申込条件から、請求する初期費用を決める。
+ * - 契約書に初期費用(合計)があれば、その金額どおり(締結した金額は変えない)
+ * - 無ければ プランの初期費用(1店舗あたり) × 店舗数
+ */
+export function initialFeeFromTerms(
+  terms: Pick<ContractTerms, "initialFee" | "initialFeePerStore" | "storeCount">,
+  plan: Pick<Plan, "initialFee"> | null | undefined,
+): InitialFeeCharge {
+  if (terms.initialFee != null) {
+    return initialFeeCharge(terms.initialFee, terms.initialFeePerStore ?? null, terms.storeCount);
+  }
+  const perStore = plan?.initialFee ?? 0;
+  return initialFeeCharge(perStore * normalizeStoreCount(terms.storeCount), perStore, terms.storeCount);
+}
+
 /** 申込の内容から契約書の申込条件(構造化)を作る */
 export function termsFromSelection(sel: OrderSelection, startDate: string | null = null): ContractTerms {
   const quote = computeOrderQuote(sel);
@@ -107,6 +152,7 @@ export function termsFromSelection(sel: OrderSelection, startDate: string | null
     optionKeys: quote.options.map((o) => o.key),
     storeCount: quote.storeCount,
     initialFee: quote.initialFee,
+    initialFeePerStore: quote.initialFeePerStore,
     monthlyFee: quote.monthlyTotal,
     priceOverride: normalizeOverride(sel.monthlyPriceOverride),
     startDate,
@@ -119,7 +165,7 @@ export function feeTablesFromSelection(sel: OrderSelection): ContractFeeTable[] 
   const q = computeOrderQuote(sel);
   const initialRow: ContractFeeRow = {
     item: "初期構築費用",
-    amount: `${formatNumber(q.initialFee)}円`,
+    amount: `${formatNumber(q.initialFeePerStore)}円（1店舗あたり）`,
   };
   if (q.initialFeeOverridden) initialRow.note = "個別価格";
   const monthlyRow: ContractFeeRow = {
@@ -138,6 +184,9 @@ export function feeTablesFromSelection(sel: OrderSelection): ContractFeeTable[] 
           amount: `${formatNumber(o.monthly)}円（月額・1店舗あたり）`,
         })),
         { item: "契約店舗数", amount: `${q.storeCount}店舗` },
+        ...(q.storeCount > 1
+          ? [{ item: "初期費用合計（税別）", amount: `${formatNumber(q.initialFee)}円` }]
+          : []),
         { item: "月額合計（税別）", amount: `${formatNumber(q.monthlyTotal)}円` },
       ],
     },

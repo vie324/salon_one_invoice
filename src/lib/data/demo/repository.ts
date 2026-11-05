@@ -114,6 +114,7 @@ import type {
   DevScheduleItemUpdateInput,
   InvoiceFilter,
   InvoiceInput,
+  InvoiceItemsUpdateInput,
   MandateInput,
   MarketingServiceInput,
   OnboardingUpdateInput,
@@ -130,6 +131,8 @@ import type {
 } from "../repository";
 import { applicationLinkSettings } from "../application-link";
 import { mergeMarketingService } from "../marketing";
+import { normalizeItemInputs } from "../invoice-items";
+import { invoiceEditBlockedReason } from "@/lib/domain/invoice-edit";
 import { mergeMandate } from "../mandate";
 import { getStore } from "./store";
 
@@ -547,6 +550,16 @@ export class DemoRepository implements Repository {
     }
   }
 
+  async updateAgencyCommissionBase(id: string, baseAmount: number): Promise<AgencyCommission> {
+    const c = this.commissions.find((x) => x.id === id);
+    if (!c) throw new Error("代理店報酬が見つかりません");
+    if (c.paidAt) throw new Error("支払済みの代理店報酬は変更できません");
+    const base = Math.max(0, Math.round(baseAmount));
+    c.baseAmount = base;
+    c.amount = Math.round(base * c.rate);
+    return { ...c };
+  }
+
   // ---- 顧客ステータス管理(カンバン) ----
 
   /** 旧デモストア(HMRで保持)に onboardings が無い場合の後方互換 */
@@ -755,6 +768,33 @@ export class DemoRepository implements Repository {
     // 定期請求の対象月は「定期」の請求書だけが持つ
     if (type !== "recurring") inv.billingPeriod = null;
     return decorate(inv);
+  }
+
+  async updateInvoiceItems(id: string, input: InvoiceItemsUpdateInput): Promise<Invoice> {
+    const inv = this.s.invoices.find((i) => i.id === id && !i.deletedAt);
+    if (!inv) throw new Error("請求書が見つかりません");
+    const inList = this.s.batches.some(
+      (b) => !b.deletedAt && b.items.some((item) => item.invoiceId === id),
+    );
+    const blocked = invoiceEditBlockedReason(inv, inList);
+    if (blocked) throw new Error(blocked);
+    const items = normalizeItemInputs(input.items);
+    const before = inv.total;
+    const totals = calcInvoiceTotals(items);
+    inv.items = items;
+    inv.subtotal = totals.subtotal;
+    inv.taxTotal = totals.taxTotal;
+    inv.total = totals.total;
+    if (input.notes !== undefined) inv.notes = input.notes;
+    const cus = this.s.customers.find((c) => c.id === inv.customerId);
+    this.addActivity({
+      kind: "invoice_updated",
+      message: `${cus?.name ?? ""} 様の請求書 ${inv.invoiceNumber} の明細を修正（${formatJPY(before)} → ${formatJPY(inv.total)}）`,
+      actor: input.actor,
+      amount: inv.total,
+      linkInvoiceId: inv.id,
+    });
+    return { ...inv };
   }
 
   async sendInvoice(id: string): Promise<Invoice> {

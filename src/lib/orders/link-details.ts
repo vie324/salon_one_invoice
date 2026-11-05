@@ -40,7 +40,7 @@ export function linkDetails(
       planName: plan ? planDisplayName(plan) : null,
       priceLabel: quote
         ? `初期 ${formatJPY(quote.initialFee)}・月 ${formatJPY(quote.monthlyTotal)}${
-            link.storeCount ? `（${quote.storeCount}店舗）` : "〜（店舗数はお客様が入力）"
+            link.storeCount ? `（${quote.storeCount}店舗）` : "（1店舗あたり・店舗数はお客様が入力）"
           }${quote.initialFeeOverridden || quote.monthlyOverridden ? "・個別価格" : ""}`
         : null,
       agencyName: link.agencyId

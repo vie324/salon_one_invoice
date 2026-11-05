@@ -111,7 +111,13 @@ export default async function ContractDetailPage({
               <Row label="プラン" value={contract.terms.planName || "カスタム"} />
               <Row
                 label="初期費用(税抜)"
-                value={contract.terms.initialFee != null ? formatJPY(contract.terms.initialFee) : "—"}
+                value={
+                  contract.terms.initialFee == null
+                    ? "—"
+                    : contract.terms.initialFeePerStore != null && contract.terms.storeCount > 1
+                      ? `${formatJPY(contract.terms.initialFee)}（${formatJPY(contract.terms.initialFeePerStore)} × ${contract.terms.storeCount}店舗）`
+                      : formatJPY(contract.terms.initialFee)
+                }
               />
               <Row
                 label="月額(税抜)"

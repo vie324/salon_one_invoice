@@ -3,8 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { requireActionUser } from "@/lib/auth";
 import { getServiceRepository } from "@/lib/data";
-import type { InvoiceInput } from "@/lib/data/repository";
-import { paymentMethodLabels } from "@/lib/domain/constants";
+import type { InvoiceInput, InvoiceItemInput } from "@/lib/data/repository";
+import { canAccessBilling, paymentMethodLabels } from "@/lib/domain/constants";
+import { syncPayoutsWithInitialInvoice } from "@/lib/orders/initial-fee-sync";
 import type { InvoiceStatus, PaymentMethod } from "@/lib/domain/types";
 
 function revalidateInvoiceViews() {
@@ -20,6 +21,33 @@ export async function createInvoiceAction(input: InvoiceInput) {
     const inv = await repo.createInvoice(input);
     revalidateInvoiceViews();
     return { ok: true as const, id: inv.id };
+  } catch (e) {
+    return { ok: false as const, error: (e as Error).message };
+  }
+}
+
+/**
+ * 明細の修正(入金前・NSS引き落としの一覧に入っていない請求書だけ)。
+ * 初回請求書なら、その初期費用から計算した代理店報酬・紹介謝礼も新しい金額に合わせる(支払済みは除く)。
+ */
+export async function updateInvoiceItemsAction(
+  id: string,
+  input: { items: InvoiceItemInput[]; notes?: string },
+) {
+  try {
+    const user = await requireActionUser();
+    if (!canAccessBilling(user.roles)) throw new Error("請求管理の権限がありません");
+    const repo = await getServiceRepository();
+    const updated = await repo.updateInvoiceItems(id, { ...input, actor: user.name });
+    const notes = await syncPayoutsWithInitialInvoice(repo, updated);
+    revalidateInvoiceViews();
+    revalidatePath(`/invoices/${id}`);
+    revalidatePath(`/orders/${updated.customerId}`);
+    revalidatePath(`/customers/${updated.customerId}`);
+    revalidatePath("/signups");
+    revalidatePath("/agencies");
+    revalidatePath("/referrals");
+    return { ok: true as const, notes };
   } catch (e) {
     return { ok: false as const, error: (e as Error).message };
   }

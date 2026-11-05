@@ -275,7 +275,7 @@ export function IssueLinkDialog({
                   <Select value={form.planId} onChange={(e) => onPlanChange(e.target.value)}>
                     {activePlans.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {planDisplayName(p)} 初期 {formatJPY(p.initialFee)} / 月 {formatJPY(p.amount)}
+                        {planDisplayName(p)} 初期 {formatJPY(p.initialFee)} / 月 {formatJPY(p.amount)}（1店舗あたり）
                       </option>
                     ))}
                   </Select>
@@ -358,7 +358,10 @@ export function IssueLinkDialog({
                   </label>
                   {form.useCustomPrice && plan && (
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      <Field label="初期費用（税抜）" hint={`空欄 = プラン通り（${formatJPY(plan.initialFee)}）`}>
+                      <Field
+                        label="初期費用（税抜・1店舗）"
+                        hint={`空欄 = プラン通り（${formatJPY(plan.initialFee)}）。店舗数ぶん掛けて請求します`}
+                      >
                         <Input
                           type="number"
                           min={0}
@@ -384,7 +387,14 @@ export function IssueLinkDialog({
                 {quote && (
                   <div className="rounded-md bg-muted/50 px-3 py-2.5 text-sm">
                     <div className="flex justify-between gap-2">
-                      <span className="text-muted-foreground">初期費用</span>
+                      <span className="text-muted-foreground">
+                        初期費用
+                        {form.storeMode === "fixed"
+                          ? quote.storeCount > 1
+                            ? `（${formatJPY(quote.initialFeePerStore)} × ${quote.storeCount}店舗）`
+                            : ""
+                          : "（1店舗あたり）"}
+                      </span>
                       <span className="tabular font-medium">
                         {formatJPY(quote.initialFee)}（税込 {formatJPY(quote.initialFeeWithTax)}）
                       </span>

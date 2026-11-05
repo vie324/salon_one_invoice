@@ -47,10 +47,19 @@ const emptyTerms: ContractTerms = {
   optionKeys: [],
   storeCount: 1,
   initialFee: null,
+  initialFeePerStore: null,
   monthlyFee: null,
   startDate: null,
   notes: "",
 };
+
+/**
+ * 初期費用の1店舗あたりの金額。
+ * 店舗数で掛ける前の下書きは、初期費用がプランの1店舗分のまま入っているので、それを1店舗あたりとして読む。
+ */
+function initialPerStoreOf(t: Pick<ContractTerms, "initialFee" | "initialFeePerStore">): number | null {
+  return t.initialFeePerStore ?? t.initialFee ?? null;
+}
 
 /**
  * 契約書の作成・編集フォーム(下書きのみ編集可)。
@@ -159,12 +168,27 @@ export function ContractForm({
 
   const setStoreCount = (n: number) => {
     const count = Math.max(1, Math.round(n) || 1);
+    setTerms((t) => {
+      const perStore = initialPerStoreOf(t);
+      return {
+        ...t,
+        storeCount: count,
+        // 初期費用は1店舗あたり。店舗数を変えたら合計も変える
+        initialFee: perStore == null ? t.initialFee : perStore * count,
+        initialFeePerStore: perStore,
+        monthlyFee: selectedPlan
+          ? subscriptionMonthly(selectedPlan, t.optionKeys) * count
+          : t.monthlyFee,
+      };
+    });
+  };
+
+  const setInitialPerStore = (value: string) => {
+    const perStore = value === "" ? null : Math.max(0, Math.round(Number(value) || 0));
     setTerms((t) => ({
       ...t,
-      storeCount: count,
-      monthlyFee: selectedPlan
-        ? subscriptionMonthly(selectedPlan, t.optionKeys) * count
-        : t.monthlyFee,
+      initialFeePerStore: perStore,
+      initialFee: perStore == null ? null : perStore * t.storeCount,
     }));
   };
 
@@ -324,16 +348,19 @@ export function ContractForm({
               </div>
             </div>
           )}
-          <Field label="初期費用(税抜)" hint="検索・請求連携用">
+          <Field
+            label="初期費用(税抜・1店舗あたり)"
+            hint={
+              terms.initialFee != null && terms.storeCount > 1
+                ? `合計 ${formatJPY(terms.initialFee)}（${terms.storeCount}店舗分）を請求します`
+                : "店舗数ぶん掛けた金額を請求します"
+            }
+          >
             <Input
               type="number"
-              value={terms.initialFee ?? ""}
-              onChange={(e) =>
-                setTerms((t) => ({
-                  ...t,
-                  initialFee: e.target.value === "" ? null : Number(e.target.value),
-                }))
-              }
+              min={0}
+              value={initialPerStoreOf(terms) ?? ""}
+              onChange={(e) => setInitialPerStore(e.target.value)}
             />
           </Field>
           <Field label="月額合計(税抜)">

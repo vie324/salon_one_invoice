@@ -176,7 +176,7 @@ export interface Plan {
   /** 毎月の請求日 (1-28) */
   billingDay: number;
   active: boolean;
-  /** 初期費用(単発) */
+  /** 初期費用(単発・税抜・1店舗あたり)。請求するのは この金額 × 契約店舗数 */
   initialFee: number;
   /** 契約区分(月額/年間) */
   term: PlanTerm;
@@ -426,8 +426,14 @@ export interface ContractTerms {
   planName: string; // スナップショット(プラン削除後も表示可能に)
   optionKeys: string[];
   storeCount: number;
-  /** 初期費用(税抜)。null = 契約書上の記載に従う */
+  /** 初期費用(税抜・全店舗の合計)。null = 契約書上の記載に従う */
   initialFee: number | null;
+  /**
+   * 初期費用の1店舗あたりの金額(税抜)。initialFee = この金額 × 店舗数。
+   * 初回請求書の明細を「1店舗あたり × 店舗数」で載せるのに使う。
+   * null/未設定 = 1件の金額として扱う(店舗数で掛ける前に締結した契約は、契約書の金額どおり請求する)。
+   */
+  initialFeePerStore?: number | null;
   /** 月額合計(税抜・オプション込み・全店舗分) */
   monthlyFee: number | null;
   /**
@@ -561,7 +567,8 @@ export type ActivityKind =
   | "referral_submitted"
   | "reminder_sent"
   | "commission_paid"
-  | "debit_registered";
+  | "debit_registered"
+  | "invoice_updated";
 
 export interface Activity {
   id: string;

@@ -636,6 +636,7 @@ function SystemDetail({ row }: { row: SignupRow }) {
                   )}
                 </>
               }
+              sub={row.initialFeePerStore != null ? perStore(row.initialFeePerStore) : undefined}
               value={row.initialFee == null ? "記録なし" : formatJPY(row.initialFee)}
             />
           </dl>

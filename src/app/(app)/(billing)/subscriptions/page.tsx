@@ -123,7 +123,7 @@ function PlanGrid({
                 <span className="text-xs text-muted-foreground">/ 月（基本・税抜）</span>
               </div>
               <div className="mt-1 text-xs text-muted-foreground">
-                初期費用 {formatJPY(p.initialFee)}（税抜）
+                初期費用 {formatJPY(p.initialFee)}（税抜・1店舗あたり）
               </div>
               <div className="mt-3 space-y-1 border-t border-border pt-3 text-xs">
                 {p.options.map((o) => (

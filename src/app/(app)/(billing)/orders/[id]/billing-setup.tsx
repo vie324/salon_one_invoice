@@ -31,7 +31,7 @@ export interface BillingSetupContext {
   /** このシステムの初回請求書(区分「初期費用」)が無く、今回決められる */
   canSetInitial: boolean;
   /** 登録済みの毎月の請求(定期契約)。無ければ null */
-  subscription: { label: string; monthly: number; taxRate: number } | null;
+  subscription: { label: string; monthly: number; taxRate: number; storeCount: number } | null;
   /** 初回請求書にできる請求書(この案件の、定期請求で作られたもの・取消を除く) */
   candidates: { id: string; invoiceNumber: string; issueDate: string; total: number; statusLabel: string }[];
   paymentMethod: PaymentMethod;
@@ -75,8 +75,11 @@ export function BillingSetupButton({
   const [startedOn, setStartedOn] = React.useState(ctx.defaultStartDate);
   // 初回請求書
   const [initialChoice, setInitialChoice] = React.useState<InitialChoice>("create");
+  // 初期費用は1店舗あたりの金額 × 店舗数
   const [initialFee, setInitialFee] = React.useState("");
   const [feeTouched, setFeeTouched] = React.useState(false);
+  const [initialStores, setInitialStores] = React.useState(1);
+  const [storesTouched, setStoresTouched] = React.useState(false);
   const [includeProration, setIncludeProration] = React.useState(true);
   const [prorationTouched, setProrationTouched] = React.useState(false);
   const [invoiceId, setInvoiceId] = React.useState("");
@@ -102,6 +105,8 @@ export function BillingSetupButton({
     setPlanId(firstPlan?.id ?? "");
     setInitialFee(firstPlan ? String(firstPlan.initialFee) : "0");
     setFeeTouched(false);
+    setInitialStores(ctx.subscription?.storeCount ?? 1);
+    setStoresTouched(false);
     // 利用開始が先月以前(過去のお客様)なら、初月日割りは通常システムの外で請求済み
     setIncludeProration(ctx.defaultStartDate.slice(0, 7) >= currentMonth());
     setProrationTouched(false);
@@ -122,6 +127,11 @@ export function BillingSetupButton({
     const p = ctx.plans.find((x) => x.id === id);
     setOptionKeys((keys) => (p ? keys.filter((k) => p.options.some((o) => o.key === k)) : []));
     if (p && !feeTouched) setInitialFee(String(p.initialFee));
+  };
+
+  const onSubStoresChange = (n: number) => {
+    setStoreCount(n);
+    if (!storesTouched) setInitialStores(Math.max(1, Math.round(n) || 1));
   };
 
   const onStartChange = (value: string) => {
@@ -146,7 +156,9 @@ export function BillingSetupButton({
     initialChoice === "create" && includeProration && monthlyBase && validStart
       ? prorateMonthly(monthlyBase.amount, startedOn)
       : null;
-  const fee = Math.max(0, Math.round(Number(initialFee) || 0));
+  const feePerStore = Math.max(0, Math.round(Number(initialFee) || 0));
+  const feeStores = Math.max(1, Math.round(initialStores) || 1);
+  const fee = feePerStore * feeStores;
   const feeTaxRate = monthlyBase?.taxRate ?? plan?.taxRate ?? 0.1;
   const prorationCharged = ctx.referred ? 0 : (proration?.amount ?? 0);
   const initialTotal =
@@ -171,7 +183,7 @@ export function BillingSetupButton({
         startedOn,
         initial:
           initialChoice === "create"
-            ? { mode: "create", initialFee: fee, includeProration }
+            ? { mode: "create", initialFeePerStore: feePerStore, storeCount: feeStores, includeProration }
             : initialChoice === "existing"
               ? { mode: "existing", invoiceId }
               : initialChoice === "outside"
@@ -280,17 +292,39 @@ export function BillingSetupButton({
 
               {initialChoice === "create" && (
                 <div className="space-y-3 rounded-md border border-border p-3">
-                  <Field label="初期費用（税抜）" hint="選んだプランの初期費用が入っています。個別価格なら書き換えてください。0円も可。">
-                    <Input
-                      type="number"
-                      min={0}
-                      value={initialFee}
-                      onChange={(e) => {
-                        setInitialFee(e.target.value);
-                        setFeeTouched(true);
-                      }}
-                    />
-                  </Field>
+                  <div className="grid grid-cols-[1fr_7rem] gap-3">
+                    <Field
+                      label="初期費用（1店舗あたり・税抜）"
+                      hint="選んだプランの初期費用が入っています。個別価格なら書き換えてください。0円も可。"
+                    >
+                      <Input
+                        type="number"
+                        min={0}
+                        value={initialFee}
+                        onChange={(e) => {
+                          setInitialFee(e.target.value);
+                          setFeeTouched(true);
+                        }}
+                      />
+                    </Field>
+                    <Field label="店舗数">
+                      <Input
+                        type="number"
+                        min={1}
+                        value={initialStores}
+                        onChange={(e) => {
+                          setInitialStores(Number(e.target.value));
+                          setStoresTouched(true);
+                        }}
+                      />
+                    </Field>
+                  </div>
+                  <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2 text-sm">
+                    <span className="text-muted-foreground">
+                      初期費用の合計（税抜）{feeStores > 1 ? `＝ ${formatJPY(feePerStore)} × ${feeStores}店舗` : ""}
+                    </span>
+                    <span className="tabular font-semibold">{formatJPY(fee)}</span>
+                  </div>
                   <label className="flex cursor-pointer items-start gap-2 text-sm">
                     <input
                       type="checkbox"
@@ -439,7 +473,7 @@ export function BillingSetupButton({
                         min={1}
                         max={99}
                         value={storeCount}
-                        onChange={(e) => setStoreCount(Math.max(1, Math.round(Number(e.target.value)) || 1))}
+                        onChange={(e) => onSubStoresChange(Math.max(1, Math.round(Number(e.target.value)) || 1))}
                       />
                     </Field>
                     <Field label="月額 基本料金の個別価格（税抜・1店舗）" hint="空欄 = プラン通り">

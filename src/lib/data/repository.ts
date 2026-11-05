@@ -202,6 +202,15 @@ export interface InvoiceItemInput {
   taxRate: number;
 }
 
+/** 請求書の明細の修正(入金前の請求書だけ)。合計は明細から計算し直す。 */
+export interface InvoiceItemsUpdateInput {
+  items: InvoiceItemInput[];
+  /** 備考(未指定は変えない) */
+  notes?: string;
+  /** 誰が直したか(最近の動きに残す) */
+  actor: string;
+}
+
 export interface InvoiceInput {
   customerId: string;
   type: InvoiceType;
@@ -639,6 +648,11 @@ export interface Repository {
   createAgencyCommission(input: AgencyCommissionInput): Promise<AgencyCommission>;
   /** 支払済みにする(paidAt=null で未払いに戻す)。 */
   setAgencyCommissionsPaid(ids: string[], paidAt: string | null, actor: string): Promise<void>;
+  /**
+   * 報酬の対象額(初期費用)を直す(初回請求書の初期費用を修正したとき)。
+   * 報酬額は記録している率で計算し直す。支払済みの報酬は変えない(エラー)。
+   */
+  updateAgencyCommissionBase(id: string, baseAmount: number): Promise<AgencyCommission>;
 
   // --- 顧客ステータス管理(カンバン) ---
   /**
@@ -669,6 +683,11 @@ export interface Repository {
    */
   updateInvoiceType(id: string, type: InvoiceType): Promise<Invoice>;
   sendInvoice(id: string): Promise<Invoice>;
+  /**
+   * 明細の修正(入金前・NSS引き落としの一覧に入っていない請求書だけ)。
+   * 合計を計算し直す。ステータス・番号・発行日は変えない。
+   */
+  updateInvoiceItems(id: string, input: InvoiceItemsUpdateInput): Promise<Invoice>;
 
   // --- 入金 ---
   listPayments(filter?: { customerId?: string }): Promise<Payment[]>;
