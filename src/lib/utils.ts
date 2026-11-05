@@ -77,6 +77,36 @@ export function formatYearMonth(input: string | Date): string {
   }).format(d);
 }
 
+/**
+ * 日時(ISO)を日本時間の日付 (YYYY-MM-DD) にする。
+ * 申込日のように「日本時間の何日か」で数えたいもの用(toISODate は UTC の日付になる)。
+ * すでに YYYY-MM-DD の値はそのまま返す。
+ */
+export function toJstDateKey(input: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) return input;
+  const d = new Date(input);
+  if (Number.isNaN(d.getTime())) return input.slice(0, 10);
+  // en-CA は YYYY-MM-DD の順で出力される
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: DISPLAY_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+/** 日付キー (YYYY-MM-DD) を「10/30(木)」の形で表示する */
+export function formatDayWithWeekday(dateKey: string): string {
+  const d = new Date(`${dateKey}T12:00:00+09:00`);
+  if (Number.isNaN(d.getTime())) return dateKey;
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: DISPLAY_TIME_ZONE,
+    month: "numeric",
+    day: "numeric",
+    weekday: "short",
+  }).format(d);
+}
+
 /** ISO 日付 (YYYY-MM-DD) を返す (時刻切り捨て) */
 export function toISODate(d: Date): string {
   return d.toISOString().slice(0, 10);

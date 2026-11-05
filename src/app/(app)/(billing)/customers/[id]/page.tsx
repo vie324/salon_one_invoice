@@ -1,4 +1,4 @@
-import { ArrowLeft, FileSignature, Mail, MapPin, Phone, Plus, SquareKanban } from "lucide-react";
+import { ArrowLeft, FileSignature, Mail, MapPin, Megaphone, Phone, Plus, SquareKanban } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { LtvChart } from "@/components/charts/ltv-chart";
@@ -14,11 +14,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getServiceRepository } from "@/lib/data";
 import {
   selectedOptions,
-  subscriptionMonthly,
+  storePriceGroups,
+  subscriptionMonthlyOf,
   taxAmount,
   withTax,
 } from "@/lib/domain/calculations";
 import { paymentMethodLabels } from "@/lib/domain/constants";
+import { describePriceGroups } from "@/lib/domain/pricing";
 import { computeCustomerLtv } from "@/lib/domain/ltv";
 import { formatDate, formatJPY, formatMonthKey, maskAccount } from "@/lib/utils";
 import { DeleteRecordButton } from "@/components/records/delete-record-button";
@@ -27,6 +29,13 @@ import { DealTypeBadge } from "@/components/orders/order-ui";
 import { hasLegacyBankInfo } from "@/lib/data/mandate";
 import { resolveDealType } from "@/lib/domain/agency";
 import { nssStage, nssStageLabels } from "@/lib/domain/nss";
+import { MarketingServiceButton } from "@/components/marketing/marketing-service-dialog";
+import {
+  formatFeeRate,
+  marketingBreakEvenAdSpend,
+  marketingStatusLabels,
+  marketingStatusTone,
+} from "@/lib/domain/marketing";
 import { EditCustomerButton } from "./edit-customer-button";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
@@ -46,7 +55,7 @@ export default async function CustomerDetailPage({
   const customer = await repo.getCustomer(id);
   if (!customer) notFound();
 
-  const [mandate, subscriptions, plans, invoices, payments, contracts, agencies, agencyMembers] =
+  const [mandate, subscriptions, plans, invoices, payments, contracts, agencies, agencyMembers, marketing] =
     await Promise.all([
       repo.getMandateByCustomer(id),
       repo.listSubscriptions(),
@@ -56,6 +65,7 @@ export default async function CustomerDetailPage({
       repo.listContracts({ customerId: id }),
       repo.listAgencies(),
       repo.listAgencyMembers(),
+      repo.getMarketingServiceByCustomer(id),
     ]);
   const agency = customer.agencyId ? agencies.find((a) => a.id === customer.agencyId) : null;
   const agencyMember = customer.agencyMemberId
@@ -63,6 +73,11 @@ export default async function CustomerDetailPage({
     : null;
   const subscription = subscriptions.find((s) => s.customerId === id);
   const plan = subscription ? plans.find((p) => p.id === subscription.planId) : null;
+  // 基本料金の店舗ごとの内訳(契約に写した店舗数による割引。個別価格なら全店舗その金額)
+  const subscriptionBaseGroups =
+    subscription && plan && subscription.priceOverride == null
+      ? storePriceGroups(plan.amount, subscription.storeTiers, "monthly", subscription.storeCount)
+      : null;
   const outstanding = invoices
     .filter((i) => !["paid", "canceled", "draft"].includes(i.status))
     .reduce((s, i) => s + (i.total - i.amountPaid), 0);
@@ -354,10 +369,12 @@ export default async function CustomerDetailPage({
                     </span>
                   </div>
                   <div className="space-y-0.5 text-xs text-muted-foreground">
-                    <div className="flex justify-between">
-                      <span>基本料金{subscription.priceOverride != null ? "（個別）" : ""}</span>
-                      <span className="tabular">
-                        {formatJPY(subscription.priceOverride ?? plan.amount)}
+                    <div className="flex justify-between gap-2">
+                      <span className="shrink-0">基本料金{subscription.priceOverride != null ? "（個別）" : ""}</span>
+                      <span className="tabular text-right">
+                        {subscriptionBaseGroups && subscriptionBaseGroups.length > 1
+                          ? describePriceGroups(subscriptionBaseGroups)
+                          : formatJPY(subscription.priceOverride ?? plan.amount)}
                       </span>
                     </div>
                     {selectedOptions(plan, subscription.optionKeys).map((o) => (
@@ -370,19 +387,19 @@ export default async function CustomerDetailPage({
                   <div className="flex justify-between border-t border-border pt-1.5 text-xs text-muted-foreground">
                     <span>小計（税抜）</span>
                     <span className="tabular">
-                      {formatJPY(subscriptionMonthly(plan, subscription.optionKeys, subscription.priceOverride, subscription.storeCount ?? 1))}
+                      {formatJPY(subscriptionMonthlyOf(plan, subscription))}
                     </span>
                   </div>
                   <div className="flex justify-between text-xs text-muted-foreground">
                     <span>消費税（{Math.round(plan.taxRate * 100)}%）</span>
                     <span className="tabular">
-                      {formatJPY(taxAmount(subscriptionMonthly(plan, subscription.optionKeys, subscription.priceOverride, subscription.storeCount ?? 1), plan.taxRate))}
+                      {formatJPY(taxAmount(subscriptionMonthlyOf(plan, subscription), plan.taxRate))}
                     </span>
                   </div>
                   <div className="flex justify-between border-t border-border pt-1.5 font-semibold">
                     <span>月額合計（税込）</span>
                     <span className="tabular">
-                      {formatJPY(withTax(subscriptionMonthly(plan, subscription.optionKeys, subscription.priceOverride, subscription.storeCount ?? 1), plan.taxRate))}
+                      {formatJPY(withTax(subscriptionMonthlyOf(plan, subscription), plan.taxRate))}
                     </span>
                   </div>
                   <div className="text-xs text-muted-foreground">
@@ -393,6 +410,61 @@ export default async function CustomerDetailPage({
               ) : (
                 <p className="text-muted-foreground">定期契約はありません。</p>
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex-row items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Megaphone className="h-4 w-4 text-[hsl(38_55%_38%)] dark:text-accent" />
+                マーケティング代行
+              </CardTitle>
+              {marketing && (
+                <Badge tone={marketingStatusTone[marketing.status]} dot>
+                  {marketingStatusLabels[marketing.status]}
+                </Badge>
+              )}
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {marketing ? (
+                <>
+                  <dl className="space-y-1 text-xs text-muted-foreground">
+                    <NssRow label="申込日" value={marketing.appliedOn} />
+                    <NssRow label="運用の開始日" value={marketing.startedOn} />
+                    {marketing.endedOn && <NssRow label="停止日" value={marketing.endedOn} />}
+                    <div className="flex justify-between border-t border-border pt-1.5">
+                      <dt>初期構築費用（税抜）</dt>
+                      <dd className="tabular text-foreground">{formatJPY(marketing.initialFee)}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt>月額運用費（税抜）</dt>
+                      <dd className="tabular font-semibold text-foreground">
+                        {formatJPY(marketing.monthlyMinimum)}
+                        {marketing.feeRate > 0 ? "〜" : ""}
+                      </dd>
+                    </div>
+                    {marketingBreakEvenAdSpend(marketing) != null && (
+                      <p className="text-[11px]">
+                        広告費が{formatJPY(marketingBreakEvenAdSpend(marketing) as number)}を超える月は、広告費の
+                        {formatFeeRate(marketing.feeRate)}
+                      </p>
+                    )}
+                  </dl>
+                  {marketing.note && (
+                    <p className="whitespace-pre-wrap rounded-md bg-muted px-3 py-2 text-xs">{marketing.note}</p>
+                  )}
+                </>
+              ) : (
+                <p className="text-muted-foreground">
+                  利用していません。お申込みがあったら登録すると、申込一覧に申込日と金額が並びます。
+                </p>
+              )}
+              <MarketingServiceButton
+                customerId={customer.id}
+                customerName={customer.name}
+                service={marketing}
+                className="w-full"
+              />
             </CardContent>
           </Card>
         </div>

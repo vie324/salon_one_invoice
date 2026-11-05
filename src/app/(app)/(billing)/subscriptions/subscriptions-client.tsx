@@ -17,6 +17,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Label, Select } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { subscriptionMonthly } from "@/lib/domain/calculations";
+import { describeStoreTiers } from "@/lib/domain/pricing";
 import type { Customer, Plan, PlanOption, Subscription } from "@/lib/domain/types";
 import { formatDate, formatJPY, toISODate } from "@/lib/utils";
 import { NewPlanButton } from "./plan-dialog";
@@ -208,6 +210,7 @@ function EditSubscriptionButton({ row, pending }: { row: Row; pending: boolean }
   );
   const [optKeys, setOptKeys] = React.useState<string[]>(row.optionKeys);
   const [stores, setStores] = React.useState<number>(row.storeCount ?? 1);
+  const tierNotes = describeStoreTiers(row.storeTiers, "monthly");
 
   const toggle = (k: string) =>
     setOptKeys((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]));
@@ -286,13 +289,21 @@ function EditSubscriptionButton({ row, pending }: { row: Row; pending: boolean }
             変更後の月額（税抜）:{" "}
             <strong className="tabular">
               {formatJPY(
-                ((override === "" ? row.planAmount : Number(override) || 0) +
-                  row.planOptions
-                    .filter((o) => optKeys.includes(o.key))
-                    .reduce((s, o) => s + o.monthly, 0)) *
+                // 契約したときの店舗数による割引(契約に写したもの)で数える。個別価格なら全店舗その金額
+                subscriptionMonthly(
+                  { amount: row.planAmount, options: row.planOptions },
+                  optKeys,
+                  override === "" ? null : Number(override) || 0,
                   Math.max(1, Math.round(stores) || 1),
+                  row.storeTiers,
+                ),
               )}
             </strong>
+            {tierNotes.length > 0 && (
+              <span className="mt-1 block text-[11px] opacity-80">
+                店舗数による割引（契約時）: {tierNotes.join(" / ")}
+              </span>
+            )}
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex gap-2 [&>*]:flex-1 sm:justify-end sm:[&>*]:flex-none">

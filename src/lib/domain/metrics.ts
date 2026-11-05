@@ -1,5 +1,5 @@
 import { addMonths, currentMonth, isMonthKey } from "@/lib/utils";
-import { effectiveStatus, outstandingAmount, subscriptionMonthly } from "./calculations";
+import { effectiveStatus, outstandingAmount, subscriptionMonthlyOf } from "./calculations";
 import { OUTSTANDING_STATUSES } from "./constants";
 import type {
   Customer,
@@ -66,7 +66,7 @@ export function computeDashboardMetrics(input: {
     .reduce((s, sub) => {
       const plan = input.plans.find((p) => p.id === sub.planId);
       if (!plan) return s;
-      const monthly = subscriptionMonthly(plan, sub.optionKeys ?? [], sub.priceOverride, sub.storeCount ?? 1);
+      const monthly = subscriptionMonthlyOf(plan, sub);
       // 年間プランは月換算(=月額合計)でMRRに計上
       return s + Math.round(monthly * (1 + plan.taxRate));
     }, 0);

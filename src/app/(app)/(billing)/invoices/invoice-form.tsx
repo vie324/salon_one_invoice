@@ -8,7 +8,8 @@ import { createInvoiceAction } from "@/app/actions/invoices";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Label, Select, Textarea } from "@/components/ui/input";
-import { calcInvoiceTotals, computeDueDate } from "@/lib/domain/calculations";
+import { calcInvoiceTotals, computeDueDate, priceGroupsTotal } from "@/lib/domain/calculations";
+import { initialFeeCharge, initialFeeLines, planInitialFeeGroups } from "@/lib/domain/pricing";
 import {
   invoiceTypeLabels,
   paymentMethodLabels,
@@ -70,6 +71,9 @@ export function InvoiceForm({
   const [customerId, setCustomerId] = React.useState(initialCustomer);
   const [type, setType] = React.useState<InvoiceType>(initialType);
   const [planId, setPlanId] = React.useState<string>("");
+  // 区分「初期費用」: プランの初期費用(1店舗あたり) × 店舗数 で明細を作る
+  const [initialPlanId, setInitialPlanId] = React.useState<string>("");
+  const [initialStores, setInitialStores] = React.useState(1);
   const [issueDate, setIssueDate] = React.useState(today);
   const [dueDate, setDueDate] = React.useState(computeDueDate(today));
   const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>(
@@ -104,6 +108,26 @@ export function InvoiceForm({
       const period = issueDate.slice(0, 7);
       setRows([{ description: `${plan.name}（${period}）`, quantity: 1, unitPrice: plan.amount, taxRate: plan.taxRate }]);
     }
+  };
+
+  /** 初期費用の明細(1店舗あたり × 店舗数)を1行目に入れる。ほかの行(初月日割りなど)は残す */
+  const applyInitialFee = (id: string, stores: number) => {
+    setInitialPlanId(id);
+    const count = Math.max(1, Math.round(stores) || 1);
+    setInitialStores(count);
+    const plan = plans.find((p) => p.id === id);
+    if (!plan) return;
+    // 店舗数による割引があれば段ごとの明細になる(受注確定で作る初回請求書と同じ書き方)
+    const groups = planInitialFeeGroups(plan, count);
+    const lines: Row[] = initialFeeLines(
+      initialFeeCharge(priceGroupsTotal(groups), groups, count),
+      "初期構築費用",
+      plan.taxRate,
+    );
+    setRows((rs) => {
+      const rest = rs.filter((r) => !r.description.startsWith("初期") && r.description.trim() !== "");
+      return [...lines, ...rest];
+    });
   };
 
   const items: InvoiceItem[] = rows.map((r, i) => ({
@@ -212,6 +236,36 @@ export function InvoiceForm({
                 ))}
               </Select>
             </Field>
+            {type === "initial" && plans.length > 0 && (
+              <div className="grid grid-cols-[1fr_6.5rem] gap-3 sm:col-span-2">
+                <Field
+                  label="プランの初期費用から明細を作成"
+                  hint="初期費用は1店舗あたりの金額です。店舗数を入れると「1店舗あたり × 店舗数」の明細になります（店舗数による割引があれば段ごとの明細）。"
+                >
+                  <Select value={initialPlanId} onChange={(e) => applyInitialFee(e.target.value, initialStores)}>
+                    <option value="">選択してください</option>
+                    {plans.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}（{p.term === "annual" ? "年間" : "月額"}・初期 {formatJPY(p.initialFee)}/店舗
+                        {p.storeTiers.some((t) => t.initialFee != null) ? "・店舗数で割引" : ""}）
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="店舗数">
+                  <Input
+                    type="number"
+                    min={1}
+                    value={initialStores}
+                    onChange={(e) => {
+                      const n = Number(e.target.value);
+                      if (initialPlanId) applyInitialFee(initialPlanId, n);
+                      else setInitialStores(Math.max(1, Math.round(n) || 1));
+                    }}
+                  />
+                </Field>
+              </div>
+            )}
             {type === "recurring" && plans.length > 0 && (
               <Field label="プランから明細を作成" className="sm:col-span-2">
                 <Select value={planId} onChange={(e) => applyPlan(e.target.value)}>

@@ -18,7 +18,8 @@ import { ContractDocument } from "@/components/contracts/contract-document";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
 import { REFERRAL_FREE_MONTHS } from "@/lib/domain/constants";
-import { computeOrderQuote, validOptionKeys } from "@/lib/domain/pricing";
+import { priceGroupsTotal } from "@/lib/domain/calculations";
+import { computeOrderQuote, describePriceGroups, validOptionKeys } from "@/lib/domain/pricing";
 import type { Organization, Plan } from "@/lib/domain/types";
 import {
   buildOrderContract,
@@ -457,7 +458,7 @@ export function OrderForm({
             hint={
               storeFixed
                 ? "担当者とお打ち合わせ済みの店舗数です。変更がある場合は担当者へご連絡ください。"
-                : "月額料金は1店舗あたりの金額です。屋号・所在地ごとに1店舗と数えます。"
+                : "初期費用・月額料金は1店舗あたりの金額です。屋号・所在地ごとに1店舗と数えます。"
             }
           >
             {storeFixed ? (
@@ -562,7 +563,9 @@ export function OrderForm({
               />
               <Summary
                 label="初期費用"
-                value={`${formatJPY(quote.initialFee)}（税込 ${formatJPY(quote.initialFeeWithTax)}）`}
+                value={`${formatJPY(quote.initialFee)}（税込 ${formatJPY(quote.initialFeeWithTax)}）${
+                  quote.storeCount > 1 ? `・${describePriceGroups(quote.initialFeeGroups)}` : ""
+                }`}
               />
               <Summary
                 label="月額"
@@ -733,6 +736,9 @@ function PriceSummary({ quote }: { quote: ReturnType<typeof computeOrderQuote> }
           <tr>
             <td className="px-3 py-2.5 text-muted-foreground">
               初期費用{quote.initialFeeOverridden && <span className="ml-1 text-xs">（個別価格）</span>}
+              {quote.storeCount > 1 && (
+                <span className="block text-xs">{describePriceGroups(quote.initialFeeGroups)}</span>
+              )}
             </td>
             <td className="tabular px-3 py-2.5 text-right font-medium">
               {formatJPY(quote.initialFee)}
@@ -744,8 +750,15 @@ function PriceSummary({ quote }: { quote: ReturnType<typeof computeOrderQuote> }
           <tr>
             <td className="px-3 py-2.5 text-muted-foreground">
               月額 基本料金{quote.monthlyOverridden && <span className="ml-1 text-xs">（個別価格）</span>}
+              {quote.baseGroups.length > 1 && (
+                <span className="block text-xs">{describePriceGroups(quote.baseGroups)}</span>
+              )}
             </td>
-            <td className="tabular px-3 py-2.5 text-right">{formatJPY(quote.basePerStore)}/店舗</td>
+            <td className="tabular px-3 py-2.5 text-right">
+              {quote.baseGroups.length > 1
+                ? formatJPY(priceGroupsTotal(quote.baseGroups))
+                : `${formatJPY(quote.basePerStore)}/店舗`}
+            </td>
           </tr>
           {quote.options.map((o) => (
             <tr key={o.key}>

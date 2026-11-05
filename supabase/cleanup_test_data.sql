@@ -1,13 +1,13 @@
 -- =========================================================================
 -- テストデータの全削除(業務データを空にする)
 --
--- 対象: 顧客・口座振替(NSSの手続き)・定期契約・請求書・入金・NSS引き落としの一覧・
---       銀行明細・活動ログ・契約書・契約書の監査証跡・代理店報酬
+-- 対象: 顧客・口座振替(NSSの手続き)・定期契約・請求書・請求書の修正履歴・入金・
+--       NSS引き落としの一覧・銀行明細・活動ログ・契約書・契約書の監査証跡・代理店報酬
 -- 残す: 自社情報(organizations)・料金プラン(plans)・
 --       契約書テンプレート(contract_templates)・ユーザー(profiles)
 --
 -- ※ この操作は取り消せません。実行前に必要ならバックアップを取得してください。
--- ※ 契約書の監査証跡は通常 UPDATE/DELETE がトリガーで禁止されているため、
+-- ※ 契約書の監査証跡・請求書の修正履歴は通常 UPDATE/DELETE がトリガーで禁止されているため、
 --    テストデータ削除のためにトリガーを一時的に無効化して削除します。
 --    (本番運用開始後の実データにはこのスクリプトを使わないこと)
 -- =========================================================================
@@ -24,6 +24,16 @@ do $$
 begin
   if to_regclass('public.agency_commissions') is not null then
     delete from agency_commissions;
+  end if;
+end $$;
+
+-- 請求書の修正履歴(0025 適用後のみ存在する。追記専用のトリガーを一時無効化して削除)
+do $$
+begin
+  if to_regclass('public.invoice_revisions') is not null then
+    alter table invoice_revisions disable trigger invoice_revisions_immutable;
+    delete from invoice_revisions;
+    alter table invoice_revisions enable trigger invoice_revisions_immutable;
   end if;
 end $$;
 

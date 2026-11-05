@@ -9,14 +9,22 @@ import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/input";
 import {
   billingDateInMonth,
+  priceGroupsTotal,
   prorateMonthly,
+  storePriceGroups,
   subscriptionMonthly,
   taxAmount,
 } from "@/lib/domain/calculations";
 import { paymentMethodLabels, paymentMethodOptions } from "@/lib/domain/constants";
 import type { InitialInvoiceMode } from "@/lib/domain/onboarding";
-import { defaultFirstBillingMonth, planDisplayName } from "@/lib/domain/pricing";
-import type { PaymentMethod, Plan } from "@/lib/domain/types";
+import {
+  defaultFirstBillingMonth,
+  describePriceGroups,
+  flatPriceGroups,
+  planDisplayName,
+  planInitialFeeGroups,
+} from "@/lib/domain/pricing";
+import type { PaymentMethod, Plan, StoreTier } from "@/lib/domain/types";
 import type { BillingSetupInput } from "@/lib/orders/billing-setup";
 import { cn, currentMonth, formatJPY } from "@/lib/utils";
 import { announceOrderResult } from "./order-actions";
@@ -30,8 +38,17 @@ export interface BillingSetupContext {
   initialMode: InitialInvoiceMode;
   /** このシステムの初回請求書(区分「初期費用」)が無く、今回決められる */
   canSetInitial: boolean;
-  /** 登録済みの毎月の請求(定期契約)。無ければ null */
-  subscription: { label: string; monthly: number; taxRate: number } | null;
+  /**
+   * 登録済みの毎月の請求(定期契約)。無ければ null。
+   * feePlan は初期費用の「プランどおり」に使う金額(契約のプランの初期費用と、契約に写した店舗数による割引)
+   */
+  subscription: {
+    label: string;
+    monthly: number;
+    taxRate: number;
+    storeCount: number;
+    feePlan: { initialFee: number; storeTiers: StoreTier[] } | null;
+  } | null;
   /** 初回請求書にできる請求書(この案件の、定期請求で作られたもの・取消を除く) */
   candidates: { id: string; invoiceNumber: string; issueDate: string; total: number; statusLabel: string }[];
   paymentMethod: PaymentMethod;
@@ -75,8 +92,10 @@ export function BillingSetupButton({
   const [startedOn, setStartedOn] = React.useState(ctx.defaultStartDate);
   // 初回請求書
   const [initialChoice, setInitialChoice] = React.useState<InitialChoice>("create");
+  // 初期費用は1店舗あたり。空欄 = プランどおり(店舗数による割引を含む)、金額を入れたら全店舗その金額
   const [initialFee, setInitialFee] = React.useState("");
-  const [feeTouched, setFeeTouched] = React.useState(false);
+  const [initialStores, setInitialStores] = React.useState(1);
+  const [storesTouched, setStoresTouched] = React.useState(false);
   const [includeProration, setIncludeProration] = React.useState(true);
   const [prorationTouched, setProrationTouched] = React.useState(false);
   const [invoiceId, setInvoiceId] = React.useState("");
@@ -100,8 +119,9 @@ export function BillingSetupButton({
     setInitialChoice(initialDefault(ctx, focus));
     const firstPlan = ctx.plans[0] ?? null;
     setPlanId(firstPlan?.id ?? "");
-    setInitialFee(firstPlan ? String(firstPlan.initialFee) : "0");
-    setFeeTouched(false);
+    setInitialFee("");
+    setInitialStores(ctx.subscription?.storeCount ?? 1);
+    setStoresTouched(false);
     // 利用開始が先月以前(過去のお客様)なら、初月日割りは通常システムの外で請求済み
     setIncludeProration(ctx.defaultStartDate.slice(0, 7) >= currentMonth());
     setProrationTouched(false);
@@ -121,7 +141,11 @@ export function BillingSetupButton({
     setPlanId(id);
     const p = ctx.plans.find((x) => x.id === id);
     setOptionKeys((keys) => (p ? keys.filter((k) => p.options.some((o) => o.key === k)) : []));
-    if (p && !feeTouched) setInitialFee(String(p.initialFee));
+  };
+
+  const onSubStoresChange = (n: number) => {
+    setStoreCount(n);
+    if (!storesTouched) setInitialStores(Math.max(1, Math.round(n) || 1));
   };
 
   const onStartChange = (value: string) => {
@@ -134,8 +158,13 @@ export function BillingSetupButton({
   /* ---- 見込み ---- */
   const validStart = /^\d{4}-\d{2}-\d{2}$/.test(startedOn);
   const override = priceOverride.trim() === "" ? null : Math.max(0, Math.round(Number(priceOverride) || 0));
+  // 新しく登録する定期契約には、今のプランの店舗数による割引が写される
   const newMonthly =
-    subChoice === "create" && plan ? subscriptionMonthly(plan, optionKeys, override, storeCount) : null;
+    subChoice === "create" && plan ? subscriptionMonthly(plan, optionKeys, override, storeCount, plan.storeTiers) : null;
+  const newBaseGroups =
+    subChoice === "create" && plan && override == null
+      ? storePriceGroups(plan.amount, plan.storeTiers, "monthly", storeCount)
+      : null;
   const monthlyBase =
     newMonthly != null && plan
       ? { amount: newMonthly, taxRate: plan.taxRate }
@@ -146,7 +175,18 @@ export function BillingSetupButton({
     initialChoice === "create" && includeProration && monthlyBase && validStart
       ? prorateMonthly(monthlyBase.amount, startedOn)
       : null;
-  const fee = Math.max(0, Math.round(Number(initialFee) || 0));
+  const feeStores = Math.max(1, Math.round(initialStores) || 1);
+  // 「プランどおり」に使うプラン: 今回登録する定期契約のプラン、無ければ登録済みの契約のもの
+  // (どちらも無ければ、選択中のプラン。金額は入力欄の薄い文字で見える)
+  const feePlan = subChoice === "create" && plan ? plan : (ctx.subscription?.feePlan ?? plan);
+  const feeGroups =
+    initialFee.trim() === ""
+      ? feePlan
+        ? planInitialFeeGroups(feePlan, feeStores)
+        : flatPriceGroups(0, feeStores)
+      : flatPriceGroups(Math.max(0, Math.round(Number(initialFee) || 0)), feeStores);
+  const fee = priceGroupsTotal(feeGroups);
+  const planFeeGroups = feePlan ? planInitialFeeGroups(feePlan, feeStores) : null;
   const feeTaxRate = monthlyBase?.taxRate ?? plan?.taxRate ?? 0.1;
   const prorationCharged = ctx.referred ? 0 : (proration?.amount ?? 0);
   const initialTotal =
@@ -171,7 +211,7 @@ export function BillingSetupButton({
         startedOn,
         initial:
           initialChoice === "create"
-            ? { mode: "create", initialFee: fee, includeProration }
+            ? { mode: "create", initialFeeGroups: feeGroups, includeProration }
             : initialChoice === "existing"
               ? { mode: "existing", invoiceId }
               : initialChoice === "outside"
@@ -280,17 +320,47 @@ export function BillingSetupButton({
 
               {initialChoice === "create" && (
                 <div className="space-y-3 rounded-md border border-border p-3">
-                  <Field label="初期費用（税抜）" hint="選んだプランの初期費用が入っています。個別価格なら書き換えてください。0円も可。">
-                    <Input
-                      type="number"
-                      min={0}
-                      value={initialFee}
-                      onChange={(e) => {
-                        setInitialFee(e.target.value);
-                        setFeeTouched(true);
-                      }}
-                    />
-                  </Field>
+                  <div className="grid grid-cols-[1fr_7rem] gap-3">
+                    <Field
+                      label="初期費用（1店舗あたり・税抜）"
+                      hint={
+                        feePlan
+                          ? "空欄ならプランどおり（店舗数による割引も含む）。個別価格なら1店舗あたりの金額を入れてください。0円も可。"
+                          : "1店舗あたりの金額を入れてください。0円も可。"
+                      }
+                    >
+                      <Input
+                        type="number"
+                        min={0}
+                        value={initialFee}
+                        placeholder={
+                          !planFeeGroups
+                            ? "0"
+                            : planFeeGroups.length === 1
+                              ? `プランどおり（${formatJPY(planFeeGroups[0].unitPrice)}）`
+                              : "プランどおり（店舗数で割引）"
+                        }
+                        onChange={(e) => setInitialFee(e.target.value)}
+                      />
+                    </Field>
+                    <Field label="店舗数">
+                      <Input
+                        type="number"
+                        min={1}
+                        value={initialStores}
+                        onChange={(e) => {
+                          setInitialStores(Number(e.target.value));
+                          setStoresTouched(true);
+                        }}
+                      />
+                    </Field>
+                  </div>
+                  <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2 text-sm">
+                    <span className="text-muted-foreground">
+                      初期費用の合計（税抜）{feeStores > 1 ? `＝ ${describePriceGroups(feeGroups)}` : ""}
+                    </span>
+                    <span className="tabular font-semibold">{formatJPY(fee)}</span>
+                  </div>
                   <label className="flex cursor-pointer items-start gap-2 text-sm">
                     <input
                       type="checkbox"
@@ -439,10 +509,17 @@ export function BillingSetupButton({
                         min={1}
                         max={99}
                         value={storeCount}
-                        onChange={(e) => setStoreCount(Math.max(1, Math.round(Number(e.target.value)) || 1))}
+                        onChange={(e) => onSubStoresChange(Math.max(1, Math.round(Number(e.target.value)) || 1))}
                       />
                     </Field>
-                    <Field label="月額 基本料金の個別価格（税抜・1店舗）" hint="空欄 = プラン通り">
+                    <Field
+                      label="月額 基本料金の個別価格（税抜・1店舗）"
+                      hint={
+                        plan && plan.storeTiers.some((t) => t.monthly != null)
+                          ? "空欄 = プラン通り（店舗数による割引を含む）"
+                          : "空欄 = プラン通り"
+                      }
+                    >
                       <Input
                         type="number"
                         min={0}
@@ -489,6 +566,11 @@ export function BillingSetupButton({
                           {formatJPY(newMonthly + taxAmount(newMonthly, plan.taxRate))}（税込）
                         </span>
                       </div>
+                      {newBaseGroups && newBaseGroups.length > 1 && (
+                        <p className="text-xs text-muted-foreground">
+                          基本料金 {describePriceGroups(newBaseGroups)}（店舗数による割引）
+                        </p>
+                      )}
                       {firstBillingDate && (
                         <p className="text-xs text-muted-foreground">
                           最初の請求: {firstMonth.replace("-", "年")}月分（請求書は{firstMonth.replace("-", "年")}月1日に作成・

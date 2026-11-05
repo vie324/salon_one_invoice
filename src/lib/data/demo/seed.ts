@@ -19,6 +19,8 @@ import type {
   DirectDebitBatch,
   DirectDebitMandate,
   Invoice,
+  InvoiceRevision,
+  MarketingService,
   Organization,
   Payment,
   Plan,
@@ -38,6 +40,8 @@ export interface DataStore {
   plans: Plan[];
   subscriptions: Subscription[];
   invoices: Invoice[];
+  /** 請求書の修正履歴(追記のみ。直す前の明細・金額を残す) */
+  invoiceRevisions: InvoiceRevision[];
   payments: Payment[];
   batches: DirectDebitBatch[];
   bankTransactions: BankTransaction[];
@@ -49,6 +53,8 @@ export interface DataStore {
   agencyMembers: AgencyMember[];
   /** 代理店報酬(受注確定時に1件ずつ記録) */
   agencyCommissions: AgencyCommission[];
+  /** マーケティング代行(お客様ごとに1件) */
+  marketingServices: MarketingService[];
   profiles: UserProfile[];
   devIssues: DevIssue[];
   devIssueAttachments: DevIssueAttachment[];
@@ -214,6 +220,7 @@ export function buildSeed(): DataStore {
     initialFee,
     term,
     options,
+    storeTiers: [],
   });
 
   const plans: Plan[] = [
@@ -247,6 +254,8 @@ export function buildSeed(): DataStore {
     agencies: [],
     agencyMembers: [],
     agencyCommissions: [],
+    marketingServices: [],
+    invoiceRevisions: [],
     // デモアカウントはマスタ扱いで投入(開発依頼・通知は空から開始)
     profiles: DEMO_PROFILES.map((p) => ({ ...p })),
     devIssues: [],

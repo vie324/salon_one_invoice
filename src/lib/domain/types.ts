@@ -47,6 +47,30 @@ export interface PlanOption {
   monthly: number;
 }
 
+/**
+ * 店舗数による割引(ボリューム割引)の1段。
+ * fromStore 店舗目から(次の段の手前まで)の1店舗あたりの金額(税抜)。
+ * 例: { fromStore: 2, initialFee: 100000, monthly: 25000 } = 2店舗目以降は 初期 10万円・月額 2.5万円 / 店舗
+ */
+export interface StoreTier {
+  /** 何店舗目から(2以上) */
+  fromStore: number;
+  /** 初期費用(税抜・1店舗あたり)。null = 割引なし(プランの初期費用のまま) */
+  initialFee: number | null;
+  /** 月額 基本料金(税抜・1店舗あたり)。null = 割引なし(プランの基本料金のまま) */
+  monthly: number | null;
+}
+
+/** 同じ1店舗あたりの金額になる店舗のまとまり(例: 1店舗目 / 2〜3店舗目) */
+export interface StorePriceGroup {
+  /** 何店舗目から */
+  from: number;
+  /** 何店舗目まで */
+  to: number;
+  /** 1店舗あたりの金額(税抜) */
+  unitPrice: number;
+}
+
 export type SubscriptionStatus = "active" | "paused" | "canceled";
 
 export type InvoiceType = "one_time" | "recurring" | "initial";
@@ -176,12 +200,14 @@ export interface Plan {
   /** 毎月の請求日 (1-28) */
   billingDay: number;
   active: boolean;
-  /** 初期費用(単発) */
+  /** 初期費用(単発・税抜・1店舗あたり)。請求するのは この金額 × 契約店舗数 */
   initialFee: number;
   /** 契約区分(月額/年間) */
   term: PlanTerm;
   /** 選択可能なオプション */
   options: PlanOption[];
+  /** 店舗数による割引(ボリューム割引)。空 = 割引なし(全店舗 同じ金額) */
+  storeTiers: StoreTier[];
 }
 
 export interface Subscription {
@@ -206,6 +232,11 @@ export interface Subscription {
    * 毎月の請求はこの店舗数を掛けて計算する。未設定は1店舗。
    */
   storeCount?: number;
+  /**
+   * 契約した時点の店舗数による割引(プランの割引の写し)。null/未設定 = 割引なし。
+   * あとでプランの割引を変えても、締結済みの契約の金額は変わらない。
+   */
+  storeTiers?: StoreTier[] | null;
   /** 削除(ゴミ箱)に入れた日時。null/未設定 = 有効なデータ。 */
   deletedAt?: string | null;
 }
@@ -246,6 +277,25 @@ export interface Invoice {
   lastReminderAt?: string | null;
   /** 削除(ゴミ箱)に入れた日時。null/未設定 = 有効なデータ。 */
   deletedAt?: string | null;
+}
+
+/**
+ * 請求書の修正履歴(追記のみ・変更や削除はできない)。
+ * 「明細を修正」のたびに、修正前の明細・合計と、誰が・いつ・なぜ直したかを残す。
+ */
+export interface InvoiceRevision {
+  id: string;
+  invoiceId: string;
+  revisedAt: string;
+  actor: string;
+  reason: string;
+  beforeItems: Omit<InvoiceItem, "id">[];
+  beforeSubtotal: number;
+  beforeTaxTotal: number;
+  beforeTotal: number;
+  beforeNotes: string;
+  afterItems: Omit<InvoiceItem, "id">[];
+  afterTotal: number;
 }
 
 export interface Payment {
@@ -426,8 +476,19 @@ export interface ContractTerms {
   planName: string; // スナップショット(プラン削除後も表示可能に)
   optionKeys: string[];
   storeCount: number;
-  /** 初期費用(税抜)。null = 契約書上の記載に従う */
+  /** 初期費用(税抜・全店舗の合計)。null = 契約書上の記載に従う */
   initialFee: number | null;
+  /**
+   * 初期費用の内訳(店舗ごとの1店舗あたりの金額のまとまり)。合計が initialFee と一致する。
+   * 初回請求書の明細を「1店舗あたり × 店舗数」(割引があれば段ごと)で載せるのに使う。
+   * null/未設定 = 1件の金額として扱う(店舗数で掛ける前に締結した契約は、契約書の金額どおり請求する)。
+   */
+  initialFeeGroups?: StorePriceGroup[] | null;
+  /**
+   * 締結した時点の店舗数による割引(プランの割引の写し)。受注確定で作る定期契約に引き継ぐ。
+   * null/未設定 = 割引なし。
+   */
+  storeTiers?: StoreTier[] | null;
   /** 月額合計(税抜・オプション込み・全店舗分) */
   monthlyFee: number | null;
   /**
@@ -561,7 +622,8 @@ export type ActivityKind =
   | "referral_submitted"
   | "reminder_sent"
   | "commission_paid"
-  | "debit_registered";
+  | "debit_registered"
+  | "invoice_updated";
 
 export interface Activity {
   id: string;
@@ -810,6 +872,44 @@ export interface AppNotification {
   issueId: string | null;
   read: boolean;
   createdAt: string;
+}
+
+/* ---- マーケティング代行 ---- */
+
+/**
+ * マーケティング代行の状況。
+ * planned(申込済み・開始前) → active(運用中) → stopped(停止)
+ */
+export type MarketingServiceStatus = "planned" | "active" | "stopped";
+
+/**
+ * マーケティング代行(お客様ごとに1件)。
+ *
+ * 契約書の料金表【マーケティング代行費用】のとおり、システム利用料とは別建てで
+ * 「初期構築費用」と「月額運用費 = 最低額 または 広告費等 × 料率 のいずれか高い方」がかかる。
+ * 月額は広告費で毎月変わるため、ここでは契約条件(最低額・料率)を記録し、
+ * 請求書は自動では作らない(広告費が確定してから請求書を作成する)。
+ */
+export interface MarketingService {
+  id: string;
+  customerId: string;
+  status: MarketingServiceStatus;
+  /** 申し込んだ日(YYYY-MM-DD) */
+  appliedOn: string | null;
+  /** 運用を始めた日(YYYY-MM-DD) */
+  startedOn: string | null;
+  /** 停止した日(YYYY-MM-DD) */
+  endedOn: string | null;
+  /** 初期構築費用(税抜) */
+  initialFee: number;
+  /** 月額運用費の最低額(税抜) */
+  monthlyMinimum: number;
+  /** 広告費等に対する料率(0.2 = 20%)。0 = 最低額のみ(固定額) */
+  feeRate: number;
+  /** メモ(運用する媒体・広告予算の目安など) */
+  note: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /* ---- 申込(お客様に渡す申込・契約URLからの入力) ---- */

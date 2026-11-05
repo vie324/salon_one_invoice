@@ -16,9 +16,9 @@ import {
   Menu,
   MoreHorizontal,
   Repeat,
+  ScrollText,
   Settings,
   SquareKanban,
-  Tags,
   Trash2,
   TrendingUp,
   Users,
@@ -42,27 +42,54 @@ type NavItem = { href: string; label: string; icon: React.ElementType };
 /** 役割に関係なく全員に出す入口。売上・開発の進捗を1画面にまとめたホーム。 */
 const homeNav: NavItem = { href: "/home", label: "進捗ホーム", icon: Home };
 
+type NavSection = { label: string; items: NavItem[] };
+
+/** 請求管理の入口。全体の数字を見るダッシュボードは、まとまりの外(ホームの下)に置く。 */
+const billingTopNav: NavItem[] = [{ href: "/dashboard", label: "ダッシュボード", icon: LayoutDashboard }];
+
 /**
- * 請求管理のメニュー。上から「申込 → 受注 → 請求 → 入金」の業務の流れの順に並べる。
+ * 請求管理のメニュー。業務の流れ「申込・受注 → お客様・契約 → 請求・入金」の順に
+ * まとまりごとに分けて並べる(15項目が1列に並ぶと、目的の画面を探しにくいため)。
  * 受注管理が申込・契約から運用開始までの入口(旧: 顧客ステータス・申込)。
  */
-const billingNav = [
-  { href: "/dashboard", label: "ダッシュボード", icon: LayoutDashboard },
-  { href: "/orders", label: "受注管理", icon: SquareKanban },
-  { href: "/applications", label: "申込・契約URL", icon: Inbox },
-  { href: "/referrals", label: "紹介・問い合わせ", icon: Gift },
-  { href: "/agencies", label: "代理店", icon: Handshake },
-  { href: "/customers", label: "顧客", icon: Users },
-  { href: "/contracts", label: "契約書", icon: FileSignature },
-  { href: "/invoices", label: "請求書", icon: FileText },
-  { href: "/subscriptions", label: "定期請求", icon: Repeat },
-  { href: "/pricing", label: "顧客別料金", icon: Tags },
-  { href: "/direct-debit", label: "NSS引き落とし", icon: Landmark },
-  { href: "/payments", label: "入金確認", icon: Wallet },
-  { href: "/ltv", label: "LTV分析", icon: TrendingUp },
-  { href: "/trash", label: "ゴミ箱", icon: Trash2 },
-  { href: "/help", label: "ヘルプ", icon: LifeBuoy },
-] as const;
+const billingSections: NavSection[] = [
+  {
+    label: "申込・受注",
+    items: [
+      { href: "/signups", label: "申込一覧", icon: ScrollText },
+      { href: "/orders", label: "受注管理", icon: SquareKanban },
+      { href: "/applications", label: "申込・契約URL", icon: Inbox },
+      { href: "/referrals", label: "紹介・問い合わせ", icon: Gift },
+      { href: "/agencies", label: "代理店", icon: Handshake },
+    ],
+  },
+  {
+    label: "お客様・契約",
+    items: [
+      { href: "/customers", label: "顧客", icon: Users },
+      { href: "/contracts", label: "契約書", icon: FileSignature },
+      { href: "/subscriptions", label: "定期請求", icon: Repeat },
+    ],
+  },
+  {
+    label: "請求・入金",
+    items: [
+      { href: "/invoices", label: "請求書", icon: FileText },
+      { href: "/direct-debit", label: "NSS引き落とし", icon: Landmark },
+      { href: "/payments", label: "入金確認", icon: Wallet },
+    ],
+  },
+  {
+    label: "分析・その他",
+    items: [
+      { href: "/ltv", label: "LTV分析", icon: TrendingUp },
+      { href: "/trash", label: "ゴミ箱", icon: Trash2 },
+      { href: "/help", label: "ヘルプ", icon: LifeBuoy },
+    ],
+  },
+];
+
+const billingNav: NavItem[] = [...billingTopNav, ...billingSections.flatMap((s) => s.items)];
 
 /**
  * 開発セクション。開発スケジュールは閲覧を許可されたメンバーにだけ出す
@@ -211,8 +238,13 @@ export function AppShell({
         {renderItem(homeNav)}
         {showBilling && (
           <>
-            {showDev && sectionLabel("請求管理")}
-            {billingNav.map(renderItem)}
+            {billingTopNav.map(renderItem)}
+            {billingSections.map((section) => (
+              <React.Fragment key={section.label}>
+                {sectionLabel(section.label)}
+                {section.items.map(renderItem)}
+              </React.Fragment>
+            ))}
           </>
         )}
         {showDev && (

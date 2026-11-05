@@ -10,6 +10,7 @@ import {
 import {
   billingDateInMonth,
   calcInvoiceTotals,
+  normalizeStoreTiers,
   computeNextBillingDate,
   effectiveStatus,
   nextInvoiceNumber,
@@ -68,9 +69,11 @@ import type {
   DirectDebitMandate,
   Invoice,
   InvoiceItem,
+  InvoiceRevision,
   InvoiceStatus,
   InvoiceType,
   InvoiceWithCustomer,
+  MarketingService,
   NotificationType,
   Organization,
   Payment,
@@ -113,7 +116,9 @@ import type {
   DevScheduleItemUpdateInput,
   InvoiceFilter,
   InvoiceInput,
+  InvoiceItemsUpdateInput,
   MandateInput,
+  MarketingServiceInput,
   OnboardingUpdateInput,
   OrganizationInput,
   PaymentInput,
@@ -127,6 +132,9 @@ import type {
   SubscriptionUpdateInput,
 } from "../repository";
 import { applicationLinkSettings } from "../application-link";
+import { mergeMarketingService } from "../marketing";
+import { normalizeItemInputs } from "../invoice-items";
+import { invoiceEditBlockedReason } from "@/lib/domain/invoice-edit";
 import { mergeMandate } from "../mandate";
 import { getStore } from "./store";
 
@@ -175,6 +183,12 @@ function presentReferral(r: Referral): Referral {
 /** 削除(ゴミ箱)に入っていないレコードだけを通す */
 function alive<T extends { deletedAt?: string | null }>(row: T): boolean {
   return !row.deletedAt;
+}
+
+/** 定期契約に写す店舗数による割引(空なら null = 割引なし) */
+function snapshotTiers(tiers: unknown): Subscription["storeTiers"] {
+  const list = normalizeStoreTiers(tiers);
+  return list.length > 0 ? list : null;
 }
 
 export class DemoRepository implements Repository {
@@ -273,6 +287,45 @@ export class DemoRepository implements Repository {
     return mandate;
   }
 
+  // ---- マーケティング代行 ----
+
+  /** 旧デモストア(HMRで保持)に marketingServices が無い場合の後方互換 */
+  private get marketing(): MarketingService[] {
+    if (!this.s.marketingServices) this.s.marketingServices = [];
+    return this.s.marketingServices;
+  }
+
+  async listMarketingServices(): Promise<MarketingService[]> {
+    const live = new Set(this.s.customers.filter((c) => !c.deletedAt).map((c) => c.id));
+    return this.marketing.filter((m) => live.has(m.customerId)).map((m) => ({ ...m }));
+  }
+
+  async getMarketingServiceByCustomer(customerId: string): Promise<MarketingService | null> {
+    const found = this.marketing.find((m) => m.customerId === customerId);
+    return found ? { ...found } : null;
+  }
+
+  async upsertMarketingService(
+    customerId: string,
+    input: MarketingServiceInput,
+  ): Promise<MarketingService> {
+    if (!this.s.customers.some((c) => c.id === customerId)) throw new Error("顧客が見つかりません");
+    const existing = this.marketing.find((m) => m.customerId === customerId) ?? null;
+    const merged = mergeMarketingService(existing, customerId, input);
+    const now = new Date().toISOString();
+    if (existing) {
+      Object.assign(existing, merged, { updatedAt: now });
+      return { ...existing };
+    }
+    const created: MarketingService = { id: genId("mkt"), ...merged, createdAt: now, updatedAt: now };
+    this.marketing.push(created);
+    return { ...created };
+  }
+
+  async deleteMarketingService(customerId: string): Promise<void> {
+    this.s.marketingServices = this.marketing.filter((m) => m.customerId !== customerId);
+  }
+
   async listPlans(): Promise<Plan[]> {
     return [...this.s.plans];
   }
@@ -294,6 +347,7 @@ export class DemoRepository implements Repository {
       initialFee: input.initialFee ?? 0,
       term: input.term ?? "monthly",
       options: input.options ?? [],
+      storeTiers: normalizeStoreTiers(input.storeTiers ?? []),
     };
     this.s.plans.push(plan);
     return plan;
@@ -311,6 +365,7 @@ export class DemoRepository implements Repository {
     if (input.initialFee !== undefined) p.initialFee = input.initialFee;
     if (input.term !== undefined) p.term = input.term;
     if (input.options !== undefined) p.options = input.options;
+    if (input.storeTiers !== undefined) p.storeTiers = normalizeStoreTiers(input.storeTiers);
     return p;
   }
 
@@ -337,6 +392,8 @@ export class DemoRepository implements Repository {
       optionKeys: input.optionKeys ?? [],
       priceOverride: input.priceOverride ?? null,
       storeCount: normalizeStoreCount(input.storeCount),
+      // 未指定はプランの今の割引を写す(あとでプランを変えても、この契約の金額は変わらない)
+      storeTiers: snapshotTiers(input.storeTiers === undefined ? plan?.storeTiers : input.storeTiers),
     };
     this.s.subscriptions.push(sub);
     const cus = this.s.customers.find((c) => c.id === input.customerId);
@@ -503,6 +560,16 @@ export class DemoRepository implements Repository {
         amount: targets.reduce((s, c) => s + c.amount, 0),
       });
     }
+  }
+
+  async updateAgencyCommissionBase(id: string, baseAmount: number): Promise<AgencyCommission> {
+    const c = this.commissions.find((x) => x.id === id);
+    if (!c) throw new Error("代理店報酬が見つかりません");
+    if (c.paidAt) throw new Error("支払済みの代理店報酬は変更できません");
+    const base = Math.max(0, Math.round(baseAmount));
+    c.baseAmount = base;
+    c.amount = Math.round(base * c.rate);
+    return { ...c };
   }
 
   // ---- 顧客ステータス管理(カンバン) ----
@@ -713,6 +780,63 @@ export class DemoRepository implements Repository {
     // 定期請求の対象月は「定期」の請求書だけが持つ
     if (type !== "recurring") inv.billingPeriod = null;
     return decorate(inv);
+  }
+
+  async updateInvoiceItems(id: string, input: InvoiceItemsUpdateInput): Promise<Invoice> {
+    const inv = this.s.invoices.find((i) => i.id === id && !i.deletedAt);
+    if (!inv) throw new Error("請求書が見つかりません");
+    const inList = this.s.batches.some(
+      (b) => !b.deletedAt && b.items.some((item) => item.invoiceId === id),
+    );
+    const blocked = invoiceEditBlockedReason(inv, inList);
+    if (blocked) throw new Error(blocked);
+    const items = normalizeItemInputs(input.items);
+    const before = inv.total;
+    const totals = calcInvoiceTotals(items);
+    // 直す前の明細・金額を修正履歴に残す(写しを取る。元の配列を書き換えても履歴は変わらない)
+    const strip = (list: InvoiceItem[]) =>
+      list.map(({ description, quantity, unitPrice, taxRate, amount }) => ({
+        description,
+        quantity,
+        unitPrice,
+        taxRate,
+        amount,
+      }));
+    (this.s.invoiceRevisions ??= []).push({
+      id: genId("rev"),
+      invoiceId: inv.id,
+      revisedAt: new Date().toISOString(),
+      actor: input.actor,
+      reason: input.reason,
+      beforeItems: strip(inv.items),
+      beforeSubtotal: inv.subtotal,
+      beforeTaxTotal: inv.taxTotal,
+      beforeTotal: inv.total,
+      beforeNotes: inv.notes ?? "",
+      afterItems: strip(items),
+      afterTotal: totals.total,
+    });
+    inv.items = items;
+    inv.subtotal = totals.subtotal;
+    inv.taxTotal = totals.taxTotal;
+    inv.total = totals.total;
+    if (input.notes !== undefined) inv.notes = input.notes;
+    const cus = this.s.customers.find((c) => c.id === inv.customerId);
+    this.addActivity({
+      kind: "invoice_updated",
+      message: `${cus?.name ?? ""} 様の請求書 ${inv.invoiceNumber} の明細を修正（${formatJPY(before)} → ${formatJPY(inv.total)}・理由: ${input.reason}）`,
+      actor: input.actor,
+      amount: inv.total,
+      linkInvoiceId: inv.id,
+    });
+    return { ...inv };
+  }
+
+  async listInvoiceRevisions(invoiceId: string): Promise<InvoiceRevision[]> {
+    return (this.s.invoiceRevisions ?? [])
+      .filter((r) => r.invoiceId === invoiceId)
+      .sort((a, b) => b.revisedAt.localeCompare(a.revisedAt))
+      .map((r) => structuredClone(r));
   }
 
   async sendInvoice(id: string): Promise<Invoice> {
@@ -1121,6 +1245,7 @@ export class DemoRepository implements Repository {
           period,
           sub.priceOverride,
           sub.storeCount ?? 1,
+          sub.storeTiers,
         ),
         status: customer?.paymentMethod === "direct_debit" ? "awaiting_payment" : "sent",
       });

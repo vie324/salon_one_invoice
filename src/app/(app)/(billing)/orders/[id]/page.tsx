@@ -40,7 +40,7 @@ import {
   agencyRateLabel,
   commissionStatus,
 } from "@/lib/domain/agency";
-import { effectiveStatus, normalizeStoreCount, subscriptionMonthly, withTax } from "@/lib/domain/calculations";
+import { effectiveStatus, normalizeStoreCount, subscriptionMonthlyOf, withTax } from "@/lib/domain/calculations";
 import {
   AGENCY_DEAL_TYPES,
   agencyCommissionStatusLabels,
@@ -56,7 +56,7 @@ import {
   type OrderStepItem,
   type OrderTrack,
 } from "@/lib/domain/onboarding";
-import { planDisplayName } from "@/lib/domain/pricing";
+import { describePriceGroups, initialFeeFromTerms, planDisplayName } from "@/lib/domain/pricing";
 import { loadOrderBook, type OrderRow } from "@/lib/orders/load";
 import { cn, formatDate, formatDateTime, formatJPY, maskAccount, toISODate } from "@/lib/utils";
 import { BillingSetupButton, type BillingSetupContext } from "./billing-setup";
@@ -105,7 +105,9 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   let confirmPreview: ConfirmPreview | null = null;
   if (signedContract && !progress.billingStarted) {
     const terms = signedContract.terms;
-    const initialFee = terms.initialFee ?? termsPlan?.initialFee ?? 0;
+    // 契約書の初期費用(合計)どおり。書いていなければ プランの初期費用(1店舗あたり) × 店舗数
+    const initialCharge = initialFeeFromTerms(terms, termsPlan);
+    const initialFee = initialCharge.amount;
     const dealType = row.dealType;
     confirmPreview = {
       contractId: signedContract.id,
@@ -113,6 +115,8 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       planName: terms.planName,
       storeCount: normalizeStoreCount(terms.storeCount),
       initialFee,
+      initialFeeBreakdown:
+        initialCharge.groups && initialCharge.storeCount > 1 ? describePriceGroups(initialCharge.groups) : null,
       monthlyFee: terms.monthlyFee ?? 0,
       taxRate: termsPlan?.taxRate ?? 0.1,
       referred: Boolean(customer.referredByCustomerId),
@@ -136,12 +140,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   const existingSubPlan = existingSub ? book.plans.find((p) => p.id === existingSub.planId) : null;
   const existingSubMonthly =
     existingSub && existingSubPlan
-      ? subscriptionMonthly(
-          existingSubPlan,
-          existingSub.optionKeys ?? [],
-          existingSub.priceOverride,
-          existingSub.storeCount ?? 1,
-        )
+      ? subscriptionMonthlyOf(existingSubPlan, existingSub)
       : 0;
   const billingCtx: BillingSetupContext = {
     customerId: customer.id,
@@ -157,6 +156,9 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             )}（税込）`,
             monthly: existingSubMonthly,
             taxRate: existingSubPlan.taxRate,
+            storeCount: normalizeStoreCount(existingSub.storeCount),
+            // 契約に写した割引(無ければ割引なし)で「プランどおり」の初期費用を出す
+            feePlan: { initialFee: existingSubPlan.initialFee, storeTiers: existingSub.storeTiers ?? [] },
           }
         : null,
     candidates: row.invoices

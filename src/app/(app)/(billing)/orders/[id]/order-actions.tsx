@@ -26,8 +26,13 @@ export interface ConfirmPreview {
   contractNumber: string;
   planName: string;
   storeCount: number;
-  /** 初期費用(税抜) */
+  /** 初期費用(税抜・全店舗) */
   initialFee: number;
+  /**
+   * 初期費用の内訳の説明(例: 「100,000円 × 3店舗」「1店舗目 200,000円 ＋ 2〜3店舗目 100,000円 × 2」)。
+   * 複数店舗で店舗ごとの明細になるときだけ
+   */
+  initialFeeBreakdown: string | null;
   /** 月額合計(税抜・全店舗) */
   monthlyFee: number;
   taxRate: number;
@@ -141,7 +146,14 @@ export function ConfirmOrderButton({ preview }: { preview: ConfirmPreview }) {
           <div className="space-y-1.5 rounded-md border border-border p-3 text-sm">
             <div className="font-semibold">作られるもの</div>
             <Line label={`初回請求書（銀行振込）`} value={`${formatJPY(firstTotal)}（税込）`} strong />
-            <Line label={`　初期費用`} value={formatJPY(preview.initialFee)} />
+            <Line
+              label={
+                preview.initialFeeBreakdown
+                  ? `　初期費用（${preview.initialFeeBreakdown}）`
+                  : `　初期費用`
+              }
+              value={formatJPY(preview.initialFee)}
+            />
             <Line
               label={`　初月日割り${proration ? `（${proration.label}）` : ""}`}
               value={

@@ -7,7 +7,13 @@ import {
 } from "@/lib/domain/agency";
 import { computeDueDate, prorateMonthly, subscriptionMonthly } from "@/lib/domain/calculations";
 import { AGENCY_DEAL_TYPES, REFERRAL_FREE_MONTHS, REFERRAL_REWARD_RATE } from "@/lib/domain/constants";
-import { subscriptionFromTerms } from "@/lib/domain/pricing";
+import {
+  describePriceGroups,
+  initialFeeFromTerms,
+  initialFeeLines,
+  subscriptionFromTerms,
+  type InitialFeeCharge,
+} from "@/lib/domain/pricing";
 import { referralFreePeriodLabel, referralReward } from "@/lib/domain/referral";
 import type { Customer } from "@/lib/domain/types";
 import { formatJPY, toISODate } from "@/lib/utils";
@@ -18,13 +24,16 @@ import { formatJPY, toISODate } from "@/lib/utils";
 
 /**
  * 初回請求書(初期費用＋初月日割り)の明細を組み立てる。
+ * 初期費用は1店舗あたりの金額なので、複数店舗は「1店舗あたりの単価 × 店舗数」の明細にする。
  * 紹介制度で登録された顧客は、初月の端数日数を0円の明細として残す(何が無料かを示す)。
  */
 export function initialInvoiceItems(params: {
   startedOn: string;
-  initialFee: number;
-  /** 初期費用の明細名(例: 初期構築費用（CTR-202610-0001）) */
+  initialFee: InitialFeeCharge;
+  /** 初期費用の明細名(例: 初期構築費用) */
   initialFeeLabel: string;
+  /** 明細名に添える根拠(例: 契約書番号 CTR-202610-0001) */
+  initialFeeRef?: string | null;
   initialFeeTaxRate: number;
   /** 初月日割りの元にする月額(税抜・全店舗)。null なら日割りを載せない */
   monthly: { amount: number; taxRate: number } | null;
@@ -33,15 +42,16 @@ export function initialInvoiceItems(params: {
   const items: InvoiceItemInput[] = [];
   const details: string[] = [];
   let initialFeeCharged = 0;
-  if (params.initialFee > 0) {
-    items.push({
-      description: params.initialFeeLabel,
-      quantity: 1,
-      unitPrice: params.initialFee,
-      taxRate: params.initialFeeTaxRate,
-    });
-    initialFeeCharged = params.initialFee;
-    details.push(`初期費用 ${formatJPY(params.initialFee)}(税抜) を初回請求に計上`);
+  const fee = params.initialFee;
+  if (fee.amount > 0) {
+    items.push(...initialFeeLines(fee, params.initialFeeLabel, params.initialFeeTaxRate, params.initialFeeRef));
+    initialFeeCharged = fee.amount;
+    const groups = fee.storeCount > 1 ? fee.groups : null;
+    details.push(
+      groups
+        ? `初期費用 ${describePriceGroups(groups)} = ${formatJPY(fee.amount)}(税抜) を初回請求に計上`
+        : `初期費用 ${formatJPY(fee.amount)}(税抜) を初回請求に計上`,
+    );
   }
   if (params.monthly && params.monthly.amount > 0) {
     // 初月日割り: 利用開始日〜月末を暦日按分。翌月分からは定期請求(引き落とし)。
@@ -209,25 +219,29 @@ export async function confirmOrder(params: {
       optionKeys: subPlan.optionKeys,
       storeCount: subPlan.storeCount,
       priceOverride: subPlan.priceOverride,
+      // 締結した時点の店舗数による割引(契約書の写し)。無ければ割引なし(締結済みの金額どおり)
+      storeTiers: subPlan.storeTiers,
       // 紹介特典: 初月の日割りに加えて2ヶ月ぶん無料にする
       freeMonths: referred ? REFERRAL_FREE_MONTHS : 0,
     });
     subscriptionId = sub.id;
     details.push(
       `定期契約(${plan.name}・${subPlan.storeCount}店舗)を開始。毎月 ${formatJPY(
-        subscriptionMonthly(plan, subPlan.optionKeys, subPlan.priceOverride, subPlan.storeCount),
+        subscriptionMonthly(plan, subPlan.optionKeys, subPlan.priceOverride, subPlan.storeCount, subPlan.storeTiers),
       )}(税抜)を請求`,
     );
     if (subPlan.adjustment) details.push(subPlan.adjustment);
 
     const monthly =
       terms.monthlyFee ??
-      subscriptionMonthly(plan, subPlan.optionKeys, subPlan.priceOverride, subPlan.storeCount);
+      subscriptionMonthly(plan, subPlan.optionKeys, subPlan.priceOverride, subPlan.storeCount, subPlan.storeTiers);
     addInitial(
       initialInvoiceItems({
         startedOn,
-        initialFee: terms.initialFee ?? plan.initialFee,
-        initialFeeLabel: `初期構築費用（${contract.contractNumber}）`,
+        // 契約書の初期費用(合計)どおり。書いていなければ プランの初期費用 × 店舗数
+        initialFee: initialFeeFromTerms(terms, plan),
+        initialFeeLabel: "初期構築費用",
+        initialFeeRef: contract.contractNumber,
         initialFeeTaxRate: plan.taxRate,
         monthly: { amount: monthly, taxRate: plan.taxRate },
         referred,
@@ -238,8 +252,9 @@ export async function confirmOrder(params: {
     addInitial(
       initialInvoiceItems({
         startedOn,
-        initialFee: terms.initialFee ?? 0,
-        initialFeeLabel: `初期構築費用（${contract.contractNumber}）`,
+        initialFee: initialFeeFromTerms(terms, null),
+        initialFeeLabel: "初期構築費用",
+        initialFeeRef: contract.contractNumber,
         initialFeeTaxRate: 0.1,
         monthly: terms.monthlyFee ? { amount: terms.monthlyFee, taxRate: 0.1 } : null,
         referred,

@@ -41,9 +41,12 @@ import type {
   DirectDebitBatch,
   DirectDebitMandate,
   Invoice,
+  InvoiceRevision,
   InvoiceStatus,
   InvoiceType,
   InvoiceWithCustomer,
+  MarketingService,
+  MarketingServiceStatus,
   OnboardingStage,
   Organization,
   PaymentMethod,
@@ -155,6 +158,24 @@ export interface MandateInput {
 }
 
 /**
+ * マーケティング代行の登録・更新(お客様ごとに1件)。undefined の項目は変更しない。
+ * 新規登録で省略した金額は契約書の料金表(通常料金)の値になる。
+ */
+export interface MarketingServiceInput {
+  status?: MarketingServiceStatus;
+  appliedOn?: string | null;
+  startedOn?: string | null;
+  endedOn?: string | null;
+  /** 初期構築費用(税抜) */
+  initialFee?: number;
+  /** 月額運用費の最低額(税抜) */
+  monthlyMinimum?: number;
+  /** 広告費等に対する料率(0.2 = 20%) */
+  feeRate?: number;
+  note?: string;
+}
+
+/**
  * 自社情報(請求書の発行元)の更新入力。設定画面から編集する。
  * インボイス登録番号・電話番号・振込先は請求書/メールにそのまま記載される。
  */
@@ -180,6 +201,17 @@ export interface InvoiceItemInput {
   quantity: number;
   unitPrice: number;
   taxRate: number;
+}
+
+/** 請求書の明細の修正(入金前の請求書だけ)。合計は明細から計算し直す。 */
+export interface InvoiceItemsUpdateInput {
+  items: InvoiceItemInput[];
+  /** 備考(未指定は変えない) */
+  notes?: string;
+  /** 誰が直したか(修正履歴・最近の動きに残す) */
+  actor: string;
+  /** 修正の理由(修正履歴に残す) */
+  reason: string;
 }
 
 export interface InvoiceInput {
@@ -217,6 +249,8 @@ export interface PlanInput {
   initialFee?: number;
   term?: import("@/lib/domain/types").PlanTerm;
   options?: import("@/lib/domain/types").PlanOption[];
+  /** 店舗数による割引(ボリューム割引)。空 = 割引なし */
+  storeTiers?: import("@/lib/domain/types").StoreTier[];
 }
 
 export interface SubscriptionInput {
@@ -229,6 +263,11 @@ export interface SubscriptionInput {
   priceOverride?: number | null;
   /** 契約店舗数(未指定は1店舗) */
   storeCount?: number;
+  /**
+   * 店舗数による割引(締結した時点の写し)。null = 割引なし。
+   * 未指定(undefined)は、プランの今の割引を写す(定期請求の画面から登録するとき)。
+   */
+  storeTiers?: import("@/lib/domain/types").StoreTier[] | null;
   /**
    * 無料にする月数。次回請求日をこの月数ぶん先送りする(0 または未指定で通常どおり)。
    * 紹介制度の「2ヶ月無料」に使う。
@@ -573,6 +612,15 @@ export interface Repository {
   /** 口座振替の登録・更新(顧客ごとに1件)。 */
   upsertMandate(customerId: string, input: MandateInput): Promise<DirectDebitMandate>;
 
+  // --- マーケティング代行 ---
+  /** 全件(申込一覧・顧客の画面用)。DB の更新(0024)が未適用なら空で返す。 */
+  listMarketingServices(): Promise<MarketingService[]>;
+  getMarketingServiceByCustomer(customerId: string): Promise<MarketingService | null>;
+  /** 登録・更新(お客様ごとに1件)。 */
+  upsertMarketingService(customerId: string, input: MarketingServiceInput): Promise<MarketingService>;
+  /** 間違えて登録した記録の取り消し(停止ではなく記録ごと消す)。 */
+  deleteMarketingService(customerId: string): Promise<void>;
+
   // --- プラン / 定期契約 ---
   listPlans(): Promise<Plan[]>;
   getPlan(id: string): Promise<Plan | null>;
@@ -610,6 +658,11 @@ export interface Repository {
   createAgencyCommission(input: AgencyCommissionInput): Promise<AgencyCommission>;
   /** 支払済みにする(paidAt=null で未払いに戻す)。 */
   setAgencyCommissionsPaid(ids: string[], paidAt: string | null, actor: string): Promise<void>;
+  /**
+   * 報酬の対象額(初期費用)を直す(初回請求書の初期費用を修正したとき)。
+   * 報酬額は記録している率で計算し直す。支払済みの報酬は変えない(エラー)。
+   */
+  updateAgencyCommissionBase(id: string, baseAmount: number): Promise<AgencyCommission>;
 
   // --- 顧客ステータス管理(カンバン) ---
   /**
@@ -640,6 +693,17 @@ export interface Repository {
    */
   updateInvoiceType(id: string, type: InvoiceType): Promise<Invoice>;
   sendInvoice(id: string): Promise<Invoice>;
+  /**
+   * 明細の修正(入金前・NSS引き落としの一覧に入っていない請求書だけ)。
+   * 合計を計算し直す。ステータス・番号・発行日は変えない。
+   */
+  /**
+   * 入金前の請求書の明細を直す。直す前の明細・金額は修正履歴として残す(消さない)。
+   * 履歴を残せないとき(DB の更新が未適用など)は直さずにエラーにする。
+   */
+  updateInvoiceItems(id: string, input: InvoiceItemsUpdateInput): Promise<Invoice>;
+  /** 請求書の修正履歴(新しい順) */
+  listInvoiceRevisions(invoiceId: string): Promise<InvoiceRevision[]>;
 
   // --- 入金 ---
   listPayments(filter?: { customerId?: string }): Promise<Payment[]>;
