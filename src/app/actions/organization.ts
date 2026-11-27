@@ -6,6 +6,7 @@ import { getServiceRepository } from "@/lib/data";
 import type { OrganizationInput } from "@/lib/data/repository";
 import { isProductAdmin } from "@/lib/domain/constants";
 import type { AccountType } from "@/lib/domain/types";
+import { normalizeFiscalYearEndMonth } from "@/lib/domain/revenue";
 
 /** 適格請求書発行事業者の登録番号(T + 13桁)。空 = 未設定。 */
 const REGISTRATION_NUMBER = /^T\d{13}$/;
@@ -61,6 +62,9 @@ function validate(input: OrganizationInput): OrganizationInput {
     bankAccountHolder: trim(input.bankAccountHolder),
     invoicePrefix,
     defaultTaxRate,
+    ...(input.fiscalYearEndMonth === undefined
+      ? {}
+      : { fiscalYearEndMonth: normalizeFiscalYearEndMonth(input.fiscalYearEndMonth) }),
   };
 }
 
@@ -81,6 +85,7 @@ export async function updateOrganizationAction(input: OrganizationInput) {
     revalidatePath("/invoices");
     revalidatePath("/dashboard");
     revalidatePath("/agencies");
+    revalidatePath("/accounting");
     return { ok: true as const };
   } catch (e) {
     return { ok: false as const, error: (e as Error).message };

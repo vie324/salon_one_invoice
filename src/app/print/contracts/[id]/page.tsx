@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 import { ContractCertificate } from "@/components/contracts/contract-certificate";
 import { ContractDocument } from "@/components/contracts/contract-document";
+import { requirePageAccess } from "@/lib/access";
 import { getServiceRepository } from "@/lib/data";
+import { canAccessBilling } from "@/lib/domain/constants";
 import { PrintButton } from "@/app/print/invoices/[id]/print-button";
 
 export const metadata = { title: "契約書（印刷）" };
@@ -14,6 +16,7 @@ export default async function PrintContractPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  await requirePageAccess(canAccessBilling);
   const repo = await getServiceRepository();
   const contract = await repo.getContract(id);
   if (!contract) notFound();

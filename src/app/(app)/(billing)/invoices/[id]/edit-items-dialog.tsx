@@ -12,7 +12,8 @@ import { TAX_RATE_OPTIONS } from "@/lib/domain/constants";
 import type { InvoiceItem, InvoiceType } from "@/lib/domain/types";
 import { formatJPY } from "@/lib/utils";
 
-type Row = { description: string; quantity: number; unitPrice: number; taxRate: number };
+/** serviceMonth: 計上月 'YYYY-MM'(空 = 定期請求は対象月、それ以外は発行月で数える) */
+type Row = { description: string; quantity: number; unitPrice: number; taxRate: number; serviceMonth: string };
 
 /**
  * 請求書の明細の修正(入金前・NSS引き落としの一覧に入っていない請求書だけ)。
@@ -44,7 +45,15 @@ export function EditInvoiceItemsButton({
   const [done, setDone] = React.useState<string[] | null>(null);
 
   const openDialog = () => {
-    setRows(items.map((i) => ({ description: i.description, quantity: i.quantity, unitPrice: i.unitPrice, taxRate: i.taxRate })));
+    setRows(
+      items.map((i) => ({
+        description: i.description,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        taxRate: i.taxRate,
+        serviceMonth: i.serviceMonth ?? "",
+      })),
+    );
     setMemo(notes);
     setReason("");
     setError(null);
@@ -73,7 +82,11 @@ export function EditInvoiceItemsButton({
         setError("修正の理由を入れてください（修正履歴に残ります）");
         return;
       }
-      const res = await updateInvoiceItemsAction(invoiceId, { items: rows, notes: memo, reason });
+      const res = await updateInvoiceItemsAction(invoiceId, {
+        items: rows.map((r) => ({ ...r, serviceMonth: r.serviceMonth || null })),
+        notes: memo,
+        reason,
+      });
       if (!res.ok) {
         setError(res.error);
         return;
@@ -113,7 +126,7 @@ export function EditInvoiceItemsButton({
         onClose={() => setOpen(false)}
         title={`明細を修正 — ${invoiceNumber}`}
         description="金額は税抜で入力します。請求書番号・発行日・ステータスは変わりません。直す前の明細は「修正履歴」に残ります。"
-        className="max-w-2xl"
+        className="max-w-3xl"
       >
         <div className="space-y-4">
           {type === "initial" && (
@@ -124,17 +137,18 @@ export function EditInvoiceItemsButton({
           )}
 
           <div className="space-y-2">
-            <div className="hidden grid-cols-[1fr_4.5rem_7rem_6.5rem_2rem] gap-2 text-xs font-medium text-muted-foreground sm:grid">
+            <div className="hidden grid-cols-[1fr_4.5rem_7rem_6.5rem_8.5rem_2rem] gap-2 text-xs font-medium text-muted-foreground sm:grid">
               <span>品目</span>
               <span>数量</span>
               <span>単価（税抜）</span>
               <span>税率</span>
+              <span title="売上台帳で数える月（サービスを提供した月）">計上月</span>
               <span />
             </div>
             {rows.map((row, i) => (
               <div
                 key={i}
-                className="grid grid-cols-[1fr_1fr_2.5rem] gap-2 border-b border-border/60 pb-2 sm:grid-cols-[1fr_4.5rem_7rem_6.5rem_2rem] sm:border-0 sm:pb-0"
+                className="grid grid-cols-[1fr_1fr_2.5rem] gap-2 border-b border-border/60 pb-2 sm:grid-cols-[1fr_4.5rem_7rem_6.5rem_8.5rem_2rem] sm:border-0 sm:pb-0"
               >
                 <Input
                   value={row.description}
@@ -169,6 +183,13 @@ export function EditInvoiceItemsButton({
                     </option>
                   ))}
                 </Select>
+                <Input
+                  type="month"
+                  value={row.serviceMonth}
+                  onChange={(e) => update(i, { serviceMonth: e.target.value })}
+                  aria-label="計上月"
+                  className="hidden px-2 sm:flex"
+                />
                 <button
                   type="button"
                   onClick={() => setRows((rs) => rs.filter((_, idx) => idx !== i))}
@@ -184,7 +205,18 @@ export function EditInvoiceItemsButton({
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => setRows((rs) => [...rs, { description: "", quantity: 1, unitPrice: 0, taxRate: 0.1 }])}
+              onClick={() =>
+                setRows((rs) => [
+                  ...rs,
+                  {
+                    description: "",
+                    quantity: 1,
+                    unitPrice: 0,
+                    taxRate: 0.1,
+                    serviceMonth: rs[rs.length - 1]?.serviceMonth ?? "",
+                  },
+                ])
+              }
             >
               <Plus className="h-3.5 w-3.5" />
               行を追加

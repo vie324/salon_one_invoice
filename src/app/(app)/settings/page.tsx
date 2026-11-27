@@ -10,11 +10,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
-import { requireUser } from "@/lib/auth";
+import { requireUser, type CurrentUser } from "@/lib/auth";
 import { isDemoMode } from "@/lib/config";
 import { getServiceRepository } from "@/lib/data";
 import { getEmailStatus } from "@/lib/email";
-import { isProductAdmin, roleLabels, roleTone } from "@/lib/domain/constants";
+import { isProductAdmin, isReadOnlyAccount, roleLabels, roleTone } from "@/lib/domain/constants";
 import type { UserProfile } from "@/lib/domain/types";
 import { AccountManager } from "./account-manager";
 import { ClaimAdminCard } from "./claim-admin-card";
@@ -31,6 +31,17 @@ export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
   const [user, repo] = await Promise.all([requireUser(), getServiceRepository()]);
+  // 税理士さん(閲覧のみ)のアカウントには、自分のアカウントの欄だけを出す
+  if (isReadOnlyAccount(user.roles)) {
+    return (
+      <div>
+        <PageHeader title="設定" description="ログイン中のアカウントです。表示名とパスワードを変えられます。" />
+        <div className="max-w-xl">
+          <AccountCard user={user} />
+        </div>
+      </div>
+    );
+  }
   const org = await repo.getOrganization();
   const email = getEmailStatus();
 
@@ -124,36 +135,7 @@ export default async function SettingsPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>アカウント</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Row label="名前" value={user.name} />
-              <Row label="メール" value={user.email || "—"} />
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="shrink-0 text-muted-foreground">役割</span>
-                <span className="flex flex-wrap justify-end gap-1">
-                  {user.roles.map((r) => (
-                    <Badge key={r} tone={roleTone[r]}>
-                      {roleLabels[r]}
-                    </Badge>
-                  ))}
-                </span>
-              </div>
-              <div className="pt-1">
-                <SelfAccountActions userId={user.id} userName={user.name} demo={isDemoMode} />
-              </div>
-              {isDemoMode && (
-                <p className="text-xs text-muted-foreground">
-                  デモモードでは、右上の「デモ」セレクトでログイン中のアカウントを切り替えられます。
-                </p>
-              )}
-              <div className="pt-1">
-                <SignOutButton />
-              </div>
-            </CardContent>
-          </Card>
+          <AccountCard user={user} />
         </div>
       </div>
 
@@ -285,5 +267,41 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="shrink-0 text-muted-foreground">{label}</span>
       <span className="break-words text-right font-medium">{value}</span>
     </div>
+  );
+}
+
+/** ログイン中のアカウント(名前・メール・役割・名前とパスワードの変更・ログアウト) */
+function AccountCard({ user }: { user: CurrentUser }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>アカウント</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Row label="名前" value={user.name} />
+        <Row label="メール" value={user.email || "—"} />
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span className="shrink-0 text-muted-foreground">役割</span>
+          <span className="flex flex-wrap justify-end gap-1">
+            {user.roles.map((r) => (
+              <Badge key={r} tone={roleTone[r]}>
+                {roleLabels[r]}
+              </Badge>
+            ))}
+          </span>
+        </div>
+        <div className="pt-1">
+          <SelfAccountActions userId={user.id} userName={user.name} demo={isDemoMode} />
+        </div>
+        {isDemoMode && (
+          <p className="text-xs text-muted-foreground">
+            デモモードでは、右上の「デモ」セレクトでログイン中のアカウントを切り替えられます。
+          </p>
+        )}
+        <div className="pt-1">
+          <SignOutButton />
+        </div>
+      </CardContent>
+    </Card>
   );
 }

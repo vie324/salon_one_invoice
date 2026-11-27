@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import { getServiceRepository } from "@/lib/data";
 import { computeAgencyStatement } from "@/lib/domain/agency";
-import { AGENCY_DEAL_TYPES } from "@/lib/domain/constants";
+import { requirePageAccess } from "@/lib/access";
+import { AGENCY_DEAL_TYPES, canAccessBilling } from "@/lib/domain/constants";
 import { currentMonth, formatDate, formatJPY, formatPercent } from "@/lib/utils";
 import { PrintButton } from "@/app/print/invoices/[id]/print-button";
 import { LogoMark } from "@/components/brand/logo";
@@ -21,6 +22,7 @@ export default async function PrintAgencyStatementPage({
   const sp = await searchParams;
   const month = /^\d{4}-\d{2}$/.test(sp.month ?? "") ? sp.month! : currentMonth();
 
+  await requirePageAccess(canAccessBilling);
   const repo = await getServiceRepository();
   const agency = await repo.getAgency(id);
   if (!agency) notFound();

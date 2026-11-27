@@ -194,6 +194,8 @@ export interface OrganizationInput {
   bankAccountHolder: string;
   invoicePrefix: string;
   defaultTaxRate: number;
+  /** 決算月(1〜12)。未指定は変えない */
+  fiscalYearEndMonth?: number;
 }
 
 export interface InvoiceItemInput {
@@ -201,6 +203,8 @@ export interface InvoiceItemInput {
   quantity: number;
   unitPrice: number;
   taxRate: number;
+  /** 計上月 'YYYY-MM'(未設定は定期請求なら対象月、それ以外は発行月) */
+  serviceMonth?: string | null;
 }
 
 /** 請求書の明細の修正(入金前の請求書だけ)。合計は明細から計算し直す。 */

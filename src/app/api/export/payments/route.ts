@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
+import { forbiddenUnless } from "@/lib/access";
 import { getServiceRepository } from "@/lib/data";
-import { paymentMethodLabels, paymentStatusLabels } from "@/lib/domain/constants";
+import {
+  canViewAccounting,
+  paymentMethodLabels,
+  paymentStatusLabels,
+} from "@/lib/domain/constants";
 import type { PaymentMethod } from "@/lib/domain/types";
 import { isMonthKey, toISODate } from "@/lib/utils";
 
@@ -25,6 +30,8 @@ const matchedByLabels: Record<string, string> = {
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const month = url.searchParams.get("month");
+  const denied = await forbiddenUnless(canViewAccounting);
+  if (denied) return denied;
   const repo = await getServiceRepository();
   const [payments, customers, invoices] = await Promise.all([
     repo.listPayments(),

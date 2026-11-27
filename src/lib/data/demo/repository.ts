@@ -135,6 +135,7 @@ import { applicationLinkSettings } from "../application-link";
 import { mergeMarketingService } from "../marketing";
 import { normalizeItemInputs } from "../invoice-items";
 import { invoiceEditBlockedReason } from "@/lib/domain/invoice-edit";
+import { normalizeFiscalYearEndMonth, normalizeServiceMonth } from "@/lib/domain/revenue";
 import { mergeMandate } from "../mandate";
 import { getStore } from "./store";
 
@@ -201,7 +202,14 @@ export class DemoRepository implements Repository {
   }
 
   async updateOrganization(input: OrganizationInput): Promise<Organization> {
-    this.s.organization = { ...this.s.organization, ...input };
+    const { fiscalYearEndMonth, ...rest } = input;
+    this.s.organization = {
+      ...this.s.organization,
+      ...rest,
+      ...(fiscalYearEndMonth !== undefined
+        ? { fiscalYearEndMonth: normalizeFiscalYearEndMonth(fiscalYearEndMonth) }
+        : {}),
+    };
     return this.s.organization;
   }
 
@@ -708,6 +716,7 @@ export class DemoRepository implements Repository {
       unitPrice: it.unitPrice,
       taxRate: it.taxRate,
       amount: Math.round(it.quantity * it.unitPrice),
+      serviceMonth: normalizeServiceMonth(it.serviceMonth),
     }));
     const totals = calcInvoiceTotals(items);
     const number = nextInvoiceNumber(
@@ -795,12 +804,13 @@ export class DemoRepository implements Repository {
     const totals = calcInvoiceTotals(items);
     // 直す前の明細・金額を修正履歴に残す(写しを取る。元の配列を書き換えても履歴は変わらない)
     const strip = (list: InvoiceItem[]) =>
-      list.map(({ description, quantity, unitPrice, taxRate, amount }) => ({
+      list.map(({ description, quantity, unitPrice, taxRate, amount, serviceMonth }) => ({
         description,
         quantity,
         unitPrice,
         taxRate,
         amount,
+        serviceMonth: serviceMonth ?? null,
       }));
     (this.s.invoiceRevisions ??= []).push({
       id: genId("rev"),

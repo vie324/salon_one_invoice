@@ -19,6 +19,7 @@ const DEMO_ACCOUNTS = [
   { value: "billing", label: "田中 美咲（請求管理者＋開発・修正管理者）" },
   { value: "dev", label: "山田 健（エンジニア）" },
   { value: "dev_manager", label: "小林 直樹（開発・修正管理者）" },
+  { value: "accountant", label: "森 会計事務所（税理士・閲覧のみ）" },
 ];
 
 export function DemoLoginForm() {
