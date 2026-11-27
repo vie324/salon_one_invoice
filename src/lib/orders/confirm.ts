@@ -43,8 +43,12 @@ export function initialInvoiceItems(params: {
   const details: string[] = [];
   let initialFeeCharged = 0;
   const fee = params.initialFee;
+  // 売上は利用を始めた月に計上する(請求書の発行日が後になっても動かさない)
+  const startMonth = /^\d{4}-\d{2}/.test(params.startedOn) ? params.startedOn.slice(0, 7) : null;
   if (fee.amount > 0) {
-    items.push(...initialFeeLines(fee, params.initialFeeLabel, params.initialFeeTaxRate, params.initialFeeRef));
+    items.push(
+      ...initialFeeLines(fee, params.initialFeeLabel, params.initialFeeTaxRate, params.initialFeeRef, startMonth),
+    );
     initialFeeCharged = fee.amount;
     const groups = fee.storeCount > 1 ? fee.groups : null;
     details.push(
@@ -64,6 +68,7 @@ export function initialInvoiceItems(params: {
         quantity: 1,
         unitPrice: params.referred ? 0 : proration.amount,
         taxRate: params.monthly.taxRate,
+        serviceMonth: startMonth,
       });
       details.push(
         params.referred

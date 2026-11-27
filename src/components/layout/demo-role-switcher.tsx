@@ -18,6 +18,7 @@ const personas: { value: string; profileId: string; label: string }[] = [
   // スケジュール表の閲覧をオンにしてある2名(管理者以外の見え方を確認できる)
   { value: "sakai", profileId: "demo-sakai", label: "スケジュール閲覧可（酒井）" },
   { value: "wakabayashi", profileId: "demo-wakabayashi", label: "スケジュール閲覧可（若林）" },
+  { value: "accountant", profileId: "demo-accountant", label: "税理士（閲覧のみ）" },
 ];
 
 export function DemoRoleSwitcher({ currentId }: { currentId: string }) {

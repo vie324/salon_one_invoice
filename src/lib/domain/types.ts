@@ -9,6 +9,7 @@
  * - engineer    エンジニア。開発対応(完了日・対応内容)の実務担当
  * - billing     請求管理者。請求書・顧客・入金などの請求業務
  * - dev_manager 開発・修正管理者。開発依頼・不具合報告の起票と進捗管理
+ * - accountant  税理士(閲覧のみ)。売上台帳だけを見られる社外のアカウント
  *
  * owner / staff / dev は旧アカウント種別(移行用)。新規付与はしない。
  */
@@ -17,6 +18,7 @@ export type Role =
   | "engineer"
   | "billing"
   | "dev_manager"
+  | "accountant"
   // --- 旧種別(移行用) ---
   | "owner"
   | "staff"
@@ -114,6 +116,8 @@ export interface Organization {
   /** 既定税率 (0.10 = 10%) */
   defaultTaxRate: number;
   logoText: string;
+  /** 決算月(1〜12)。売上台帳の1期は、決算月の翌月から決算月まで */
+  fiscalYearEndMonth: number;
 }
 
 export interface Customer {
@@ -248,6 +252,11 @@ export interface InvoiceItem {
   unitPrice: number;
   taxRate: number; // 0.10 / 0.08 / 0
   amount: number; // quantity * unitPrice (税抜)
+  /**
+   * 計上月 'YYYY-MM'(売上を計上する月 = サービスを提供した月)。
+   * null/未設定なら、定期請求は対象月(billingPeriod)、それ以外は発行月として扱う。
+   */
+  serviceMonth?: string | null;
 }
 
 export interface Invoice {

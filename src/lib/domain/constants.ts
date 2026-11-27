@@ -38,6 +38,7 @@ export const roleLabels: Record<Role, string> = {
   engineer: "エンジニア",
   billing: "請求管理者",
   dev_manager: "開発・修正管理者",
+  accountant: "税理士（閲覧のみ）",
   owner: "経営者（管理者）",
   staff: "担当者（請求管理者）",
   dev: "開発（エンジニア）",
@@ -49,6 +50,7 @@ export const roleTone: Record<Role, BadgeTone> = {
   engineer: "info",
   billing: "success",
   dev_manager: "warning",
+  accountant: "neutral",
   owner: "primary",
   staff: "success",
   dev: "info",
@@ -76,6 +78,11 @@ export const ASSIGNABLE_ROLES: { value: Role; label: string; description: string
     label: "開発・修正管理者",
     description: "不具合報告・要望の起票と進捗管理（請求管理者との兼務が可能）",
   },
+  {
+    value: "accountant",
+    label: "税理士（閲覧のみ）",
+    description: "社外の税理士さん向け。売上台帳だけを見られ、データの変更はできません",
+  },
 ];
 
 /** 旧種別 → 新しい役割の読み替え */
@@ -98,6 +105,31 @@ export function normalizeRoles(profile: { role: Role; roles?: Role[] | null }): 
 /** 請求管理(請求書・顧客・入金など)へアクセスできるか */
 export function canAccessBilling(roles: Role[]): boolean {
   return roles.some((r) => r === "admin" || r === "billing" || r === "owner" || r === "staff");
+}
+
+/** 社内の役割(税理士以外)を1つでも持っているか */
+function hasStaffRole(roles: Role[]): boolean {
+  return roles.some((r) => r !== "accountant");
+}
+
+/**
+ * 閲覧専用のアカウントか(税理士の役割だけを持つ社外のアカウント)。
+ * 画面は売上台帳だけを出し、データの変更はすべて断る。
+ */
+export function isReadOnlyAccount(roles: Role[]): boolean {
+  return roles.includes("accountant") && !hasStaffRole(roles);
+}
+
+/** 売上台帳(税理士さん向けのページ)を見られるか */
+export function canViewAccounting(roles: Role[]): boolean {
+  return canAccessBilling(roles) || roles.includes("accountant");
+}
+
+/** 役割ごとの最初の画面(見られない画面から送り返す先) */
+export function homePathFor(roles: Role[]): string {
+  if (isReadOnlyAccount(roles)) return "/accounting";
+  if (canAccessBilling(roles) || canAccessDev(roles)) return "/home";
+  return "/settings";
 }
 
 /** 開発進捗(開発依頼・エラー報告)へアクセスできるか */

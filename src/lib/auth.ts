@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { cache } from "react";
 import { isDemoMode } from "@/lib/config";
 import type { Role } from "@/lib/domain/types";
 
@@ -31,7 +32,10 @@ const DEMO_ROLE_COOKIE = "demo_role";
  * デモモードでは cookie に記録したデモアカウントでログイン状態を表す。
  * 本番では Supabase Auth のユーザー + profiles.role を用いる。
  */
-export async function getCurrentUser(): Promise<CurrentUser | null> {
+export const getCurrentUser = cache(loadCurrentUser);
+
+/** getCurrentUser の中身(1リクエストの中では cache で1回だけ読む) */
+async function loadCurrentUser(): Promise<CurrentUser | null> {
   if (isDemoMode) {
     const { cookies } = await import("next/headers");
     const { getDemoProfile } = await import("@/lib/data/demo/store");

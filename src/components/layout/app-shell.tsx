@@ -2,6 +2,7 @@
 
 import {
   Banknote,
+  BookText,
   CalendarRange,
   ClipboardList,
   FileSignature,
@@ -33,7 +34,13 @@ import { DemoRoleSwitcher } from "@/components/layout/demo-role-switcher";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { CurrentUser } from "@/lib/auth";
-import { canAccessBilling, canAccessDev, canViewDevSchedule, roleLabels } from "@/lib/domain/constants";
+import {
+  canAccessBilling,
+  canAccessDev,
+  canViewDevSchedule,
+  isReadOnlyAccount,
+  roleLabels,
+} from "@/lib/domain/constants";
 import type { AppNotification } from "@/lib/domain/types";
 import { cn } from "@/lib/utils";
 
@@ -82,6 +89,7 @@ const billingSections: NavSection[] = [
   {
     label: "分析・その他",
     items: [
+      { href: "/accounting", label: "売上台帳（税理士）", icon: BookText },
       { href: "/ltv", label: "LTV分析", icon: TrendingUp },
       { href: "/trash", label: "ゴミ箱", icon: Trash2 },
       { href: "/help", label: "ヘルプ", icon: LifeBuoy },
@@ -102,6 +110,9 @@ function devNavFor(showSchedule: boolean): NavItem[] {
 }
 
 const settingsNav = { href: "/settings", label: "設定", icon: Settings } as const;
+
+/** 税理士さん(閲覧のみ)のアカウントのメニュー。売上台帳と自分のアカウントだけ */
+const accountingNav: NavItem = { href: "/accounting", label: "売上台帳", icon: BookText };
 
 /**
  * スマホ下部タブに出す 4件。役割ごとに「毎日使うもの」を選ぶ。
@@ -133,7 +144,7 @@ function bottomTabsFor(showBilling: boolean, showDev: boolean): NavItem[] {
 }
 
 /** 入れ子の判定に使う、ナビに存在する全パス(権限に関わらず列挙する) */
-const NAV_PATHS = [homeNav, ...billingNav, ...devNavFor(true), settingsNav].map(
+const NAV_PATHS = [homeNav, ...billingNav, ...devNavFor(true), settingsNav, accountingNav].map(
   (n) => n.href.split("?")[0],
 );
 
@@ -185,18 +196,23 @@ export function AppShell({
 
   const showBilling = canAccessBilling(user.roles);
   const showDev = canAccessDev(user.roles);
+  const readOnly = isReadOnlyAccount(user.roles);
   const devNav = devNavFor(showDev && canViewDevSchedule(user));
-  const tagline = showBilling && showDev
-    ? "請求・開発進捗の管理"
-    : showDev
-      ? "開発進捗管理"
-      : "請求・入金管理";
+  const tagline = readOnly
+    ? "売上台帳（閲覧のみ）"
+    : showBilling && showDev
+      ? "請求・開発進捗の管理"
+      : showDev
+        ? "開発進捗管理"
+        : "請求・入金管理";
 
   // ヘッダーに出す「いまどこにいるか」(スマホはサイドバーが見えないため)
-  const allNav: NavItem[] = [homeNav, ...billingNav, ...devNav, settingsNav];
-  const currentLabel = allNav.find((n) => isActive(n.href))?.label ?? "ホーム";
+  const allNav: NavItem[] = readOnly
+    ? [accountingNav, settingsNav]
+    : [homeNav, ...billingNav, ...devNav, settingsNav];
+  const currentLabel = allNav.find((n) => isActive(n.href))?.label ?? (readOnly ? "売上台帳" : "ホーム");
 
-  const bottomTabs = bottomTabsFor(showBilling, showDev);
+  const bottomTabs = readOnly ? [accountingNav, settingsNav] : bottomTabsFor(showBilling, showDev);
 
   const renderItem = (item: NavItem) => {
     const Icon = item.icon;
@@ -235,7 +251,7 @@ export function AppShell({
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto scroll-contain px-3 py-2 scrollbar-thin">
-        {renderItem(homeNav)}
+        {readOnly ? renderItem(accountingNav) : renderItem(homeNav)}
         {showBilling && (
           <>
             {billingTopNav.map(renderItem)}
@@ -261,9 +277,13 @@ export function AppShell({
           <Banknote className="h-4 w-4 shrink-0 text-sidebar-accent" />
           <div className="text-[11px] leading-tight text-sidebar-muted">
             <div className="font-medium text-sidebar-foreground">
-              {showBilling ? "NSS 口座振替" : "Salon One 開発"}
+              {readOnly ? "税理士さん向け" : showBilling ? "NSS 口座振替" : "Salon One 開発"}
             </div>
-            {showBilling ? "受注 → 引き落とし → 入金確認" : "依頼・不具合を一元管理"}
+            {readOnly
+              ? "月別の売上・入金・支払（閲覧のみ）"
+              : showBilling
+                ? "受注 → 引き落とし → 入金確認"
+                : "依頼・不具合を一元管理"}
           </div>
         </div>
       </div>

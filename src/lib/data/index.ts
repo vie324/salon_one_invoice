@@ -1,4 +1,5 @@
 import { isDemoMode, isSupabaseConfigured, supabaseServiceKey } from "@/lib/config";
+import { isReadOnlyAccount } from "@/lib/domain/constants";
 import { DemoRepository } from "./demo/repository";
 import type { Repository } from "./repository";
 
@@ -23,6 +24,10 @@ import type { Repository } from "./repository";
  * getJobRepository() を使う。
  */
 export async function getServiceRepository(): Promise<Repository> {
+  return guardReadOnly(await openServiceRepository());
+}
+
+async function openServiceRepository(): Promise<Repository> {
   if (isDemoMode) return new DemoRepository();
   const { SupabaseRepository } = await import("./supabase/repository");
   if (supabaseServiceKey) {
@@ -43,6 +48,39 @@ export async function getServiceRepository(): Promise<Repository> {
     );
   }
   return new SupabaseRepository(supabase);
+}
+
+/**
+ * 閲覧専用のアカウント(税理士の役割だけを持つ社外のアカウント)には、読むだけのリポジトリを渡す。
+ * 画面に出していない操作(サーバーアクションの直接呼び出しなど)も含めて、データの変更をすべて断る。
+ */
+async function guardReadOnly(repo: Repository): Promise<Repository> {
+  const { getCurrentUser } = await import("@/lib/auth");
+  const user = await getCurrentUser();
+  if (!user || !isReadOnlyAccount(user.roles)) return repo;
+  return readOnlyRepository(repo);
+}
+
+/**
+ * 本人のアカウントだけを変える操作(表示名・パスワード)。呼び出すアクション側で
+ * 「本人または管理者」を確かめているので、閲覧専用のアカウントにも許す。
+ */
+const SELF_SERVICE_METHODS = new Set(["updateUserName", "updateAccountPassword"]);
+
+/** 読むだけのメソッド(get / list / count / find で始まるもの)だけを通すリポジトリ */
+export function readOnlyRepository(repo: Repository): Repository {
+  return new Proxy(repo, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (typeof value !== "function") return value;
+      if (typeof prop === "string" && (/^(get|list|count|find)[A-Z]/.test(prop) || SELF_SERVICE_METHODS.has(prop))) {
+        return value.bind(target);
+      }
+      return () => {
+        throw new Error("閲覧専用のアカウントでは、データを変更できません");
+      };
+    },
+  });
 }
 
 /** Supabase 設定済みか(UI からの状態表示・警告用に再エクスポート) */

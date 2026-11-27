@@ -147,6 +147,16 @@ export const DEMO_PROFILES: UserProfile[] = [
     scheduleVisible: true,
     createdAt: "2026-01-01T00:00:00.000Z",
   },
+  {
+    // 社外の税理士さん(売上台帳だけを見られる・閲覧のみ)
+    id: "demo-accountant",
+    name: "森 会計事務所",
+    email: "tax@mori-kaikei.example.jp",
+    role: "accountant",
+    roles: ["accountant"],
+    scheduleVisible: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
 ];
 
 /**
@@ -165,6 +175,7 @@ export function demoProfileIdForRole(role: string | undefined): string {
     dev_manager: "demo-devmgr-1",
     sakai: "demo-sakai",
     wakabayashi: "demo-wakabayashi",
+    accountant: "demo-accountant",
   };
   return map[role ?? "admin"] ?? "demo-admin-1";
 }
@@ -197,6 +208,7 @@ export function buildSeed(): DataStore {
     invoicePrefix: "INV",
     defaultTaxRate: 0.1,
     logoText: "S1",
+    fiscalYearEndMonth: 6,
   };
 
   // 料金プラン(基本料金＋オプション / 月額・年間) — 料金表に準拠

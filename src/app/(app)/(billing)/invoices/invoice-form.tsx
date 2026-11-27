@@ -76,6 +76,9 @@ export function InvoiceForm({
   const [initialStores, setInitialStores] = React.useState(1);
   const [issueDate, setIssueDate] = React.useState(today);
   const [dueDate, setDueDate] = React.useState(computeDueDate(today));
+  // 計上月(売上台帳で数える月)。手で変えるまでは発行月に合わせる
+  const [serviceMonth, setServiceMonth] = React.useState(today.slice(0, 7));
+  const [serviceMonthTouched, setServiceMonthTouched] = React.useState(false);
   const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>(
     paymentMethodFor(
       customers.find((c) => c.id === initialCustomer),
@@ -159,7 +162,7 @@ export function InvoiceForm({
         dueDate,
         paymentMethod,
         billingPeriod: type === "recurring" ? issueDate.slice(0, 7) : null,
-        items: validRows,
+        items: validRows.map((r) => ({ ...r, serviceMonth: /^\d{4}-\d{2}$/.test(serviceMonth) ? serviceMonth : null })),
         notes,
         status: status === "sent" ? (paymentMethod === "direct_debit" ? "awaiting_payment" : "sent") : "draft",
       });
@@ -279,10 +282,34 @@ export function InvoiceForm({
               </Field>
             )}
             <Field label="発行日">
-              <Input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
+              <Input
+                type="date"
+                value={issueDate}
+                onChange={(e) => {
+                  setIssueDate(e.target.value);
+                  if (!serviceMonthTouched && /^\d{4}-\d{2}/.test(e.target.value)) {
+                    setServiceMonth(e.target.value.slice(0, 7));
+                  }
+                }}
+              />
             </Field>
             <Field label="支払期限">
               <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            </Field>
+            <Field
+              label="計上月（売上の月）"
+              hint="売上台帳（税理士さん向け）で、この月の売上として数えます。サービスを提供した月を選んでください。"
+              className="sm:col-span-2"
+            >
+              <Input
+                type="month"
+                value={serviceMonth}
+                onChange={(e) => {
+                  setServiceMonth(e.target.value);
+                  setServiceMonthTouched(true);
+                }}
+                className="sm:w-52"
+              />
             </Field>
           </CardContent>
         </Card>

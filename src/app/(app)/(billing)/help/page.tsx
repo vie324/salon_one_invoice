@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   ArrowRightLeft,
+  BookText,
   CalendarClock,
   ClipboardCheck,
   FileSignature,
@@ -49,6 +50,7 @@ const TOC = [
   { id: "agency", label: "代理店" },
   { id: "referral", label: "紹介制度" },
   { id: "nss", label: "NSS とこのツールの役割分担" },
+  { id: "ledger", label: "売上台帳（税理士さん向け）" },
   { id: "omissions", label: "よくある抜け漏れと防ぎ方" },
   { id: "legacy", label: "旧運用・旧画面からの置き換え" },
   { id: "notes", label: "引き継ぎ時の注意点" },
@@ -406,6 +408,54 @@ export default function HelpPage() {
             一方で「誰が NSS 登録済みか」「今月 NSS にいくら登録するか」「引き落とし結果を請求に反映する」は NSS の外でしか管理できず、
             無いと入金確認の抜け漏れになるため、<StepLink href="/direct-debit">NSS引き落とし</StepLink> として残しています。
           </Callout>
+        </Section>
+
+        {/* 売上台帳 */}
+        <Section
+          id="ledger"
+          icon={BookText}
+          title="売上台帳（税理士さん向け）"
+          description="売上を「サービスを提供した月（計上月）」で並べた台帳です。税理士さんには閲覧だけのアカウントで見てもらえます。"
+        >
+          <Steps
+            steps={[
+              {
+                title: "計上月の決まり",
+                body: (
+                  <>
+                    初期費用は<strong>利用を始めた月</strong>、月額は<strong>その月の分</strong>の売上です。請求書を出した日とは関係なく、
+                    たとえば 11月にまとめて請求した 8〜10月分の月額は、8月・9月・10月の売上になります。
+                  </>
+                ),
+              },
+              {
+                title: "請求書を作るとき",
+                body: (
+                  <>
+                    <StepLink href="/invoices/new">請求書 → 新規作成</StepLink> の「計上月（売上の月）」で選びます（発行日の月が入ります。さかのぼって請求するときは、明細ごとに月を分けて「明細を修正」で直せます）。
+                    受注確定で作る初回請求書は利用開始の月、毎月の請求書はその月の分が自動で入ります。
+                  </>
+                ),
+              },
+              {
+                title: "税理士さんへの共有",
+                body: (
+                  <>
+                    <StepLink href="/settings">設定 → アカウント</StepLink> で、役割を「税理士（閲覧のみ）」だけにしたアカウントを作ってお渡しします。
+                    税理士さんは売上台帳と自分の設定だけを開け、データは変えられません。<StepLink href="/accounting">売上台帳</StepLink> から明細・支払の CSV と、1期ぶんの PDF も保存できます。
+                  </>
+                ),
+              },
+              {
+                title: "1期の区切り",
+                body: (
+                  <>
+                    決算月で区切ります（<StepLink href="/settings">設定 → 自社情報</StepLink> の「決算月」）。売上台帳の「前の期」「次の期」で切り替えます。
+                  </>
+                ),
+              },
+            ]}
+          />
         </Section>
 
         {/* 抜け漏れ */}

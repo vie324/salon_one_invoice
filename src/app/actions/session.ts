@@ -5,8 +5,22 @@ import { revalidatePath } from "next/cache";
 import { DEMO_ROLE_COOKIE } from "@/lib/auth";
 import { isDemoMode } from "@/lib/config";
 
-/** デモで選べるアカウント(admin2 は2人目のプロダクト管理者)。旧ロール値も許容。 */
-const DEMO_PERSONA_VALUES = ["admin", "admin2", "billing", "dev", "owner", "staff"] as const;
+/**
+ * デモで選べるアカウント(admin2 は2人目のプロダクト管理者)。旧ロール値も許容。
+ * ログイン画面・アカウント切替に並べたものはすべて含める(含めないと切り替えられない)。
+ */
+const DEMO_PERSONA_VALUES = [
+  "admin",
+  "admin2",
+  "billing",
+  "dev",
+  "dev_manager",
+  "sakai",
+  "wakabayashi",
+  "accountant",
+  "owner",
+  "staff",
+] as const;
 export type DemoPersona = (typeof DEMO_PERSONA_VALUES)[number];
 
 const THIRTY_DAYS = 60 * 60 * 24 * 30;

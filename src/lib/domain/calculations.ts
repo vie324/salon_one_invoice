@@ -211,6 +211,8 @@ export function subscriptionItems(
 ): Omit<InvoiceItem, "id">[] {
   const qty = normalizeStoreCount(storeCount);
   const perStore = qty > 1 ? `・${qty}店舗` : "";
+  // 計上月 = 対象月(売上台帳で、その月の売上として数える)
+  const serviceMonth = /^\d{4}-(0[1-9]|1[0-2])$/.test(billingPeriod) ? billingPeriod : null;
   // 個別価格は全店舗同じ金額。店舗数による割引があれば、段ごとに明細を分ける
   const groups =
     priceOverride != null
@@ -225,6 +227,7 @@ export function subscriptionItems(
             unitPrice: groups[0].unitPrice,
             taxRate: plan.taxRate,
             amount: groups[0].unitPrice * qty,
+            serviceMonth,
           },
         ]
       : groups.map((g) => {
@@ -235,6 +238,7 @@ export function subscriptionItems(
             unitPrice: g.unitPrice,
             taxRate: plan.taxRate,
             amount: g.unitPrice * q,
+            serviceMonth,
           };
         });
   for (const opt of selectedOptions(plan, optionKeys)) {
@@ -244,6 +248,7 @@ export function subscriptionItems(
       unitPrice: opt.monthly,
       taxRate: plan.taxRate,
       amount: opt.monthly * qty,
+      serviceMonth,
     });
   }
   return items;

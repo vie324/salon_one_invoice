@@ -225,6 +225,8 @@ export interface FeeLine {
   quantity: number;
   unitPrice: number;
   taxRate: number;
+  /** 計上月 'YYYY-MM'(売上台帳で数える月) */
+  serviceMonth?: string | null;
 }
 
 /**
@@ -239,12 +241,23 @@ export function initialFeeLines(
   label: string,
   taxRate: number,
   ref?: string | null,
+  /** 計上月 'YYYY-MM'(利用を始めた月)。未指定は請求書の発行月で数える */
+  serviceMonth?: string | null,
 ): FeeLine[] {
   if (fee.amount <= 0) return [];
   const note = ref ? `（${ref}）` : "";
+  const month = serviceMonth ?? null;
   const groups = fee.storeCount > 1 ? fee.groups : null;
   if (groups && groups.length === 1) {
-    return [{ description: `${label} 1店舗あたり${note}`, quantity: fee.storeCount, unitPrice: groups[0].unitPrice, taxRate }];
+    return [
+      {
+        description: `${label} 1店舗あたり${note}`,
+        quantity: fee.storeCount,
+        unitPrice: groups[0].unitPrice,
+        taxRate,
+        serviceMonth: month,
+      },
+    ];
   }
   if (groups) {
     return groups.map((g) => {
@@ -254,10 +267,11 @@ export function initialFeeLines(
         quantity: q,
         unitPrice: g.unitPrice,
         taxRate,
+        serviceMonth: month,
       };
     });
   }
-  return [{ description: `${label}${note}`, quantity: 1, unitPrice: fee.amount, taxRate }];
+  return [{ description: `${label}${note}`, quantity: 1, unitPrice: fee.amount, taxRate, serviceMonth: month }];
 }
 
 /**

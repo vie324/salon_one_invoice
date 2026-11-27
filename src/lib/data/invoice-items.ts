@@ -1,3 +1,4 @@
+import { normalizeServiceMonth } from "@/lib/domain/revenue";
 import type { InvoiceItem } from "@/lib/domain/types";
 import { genId } from "@/lib/utils";
 import type { InvoiceItemInput } from "./repository";
@@ -24,6 +25,7 @@ export function normalizeItemInputs(inputs: InvoiceItemInput[]): InvoiceItem[] {
       unitPrice: Math.round(unitPrice),
       taxRate,
       amount: Math.round(quantity * Math.round(unitPrice)),
+      serviceMonth: normalizeServiceMonth(it.serviceMonth),
     });
   }
   if (items.length === 0) throw new Error("明細を1行以上入力してください");

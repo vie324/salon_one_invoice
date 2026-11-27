@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { InvoiceDocument } from "@/components/invoices/invoice-document";
+import { hasAccess, requirePageAccess } from "@/lib/access";
 import { getServiceRepository } from "@/lib/data";
+import { canViewAccounting } from "@/lib/domain/constants";
 import { PrintButton } from "./print-button";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +18,7 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
+  if (!(await hasAccess(canViewAccounting))) return { title: "請求書" };
   const repo = await getServiceRepository();
   const invoice = await repo.getInvoice(id);
   if (!invoice) return { title: "請求書" };
@@ -32,6 +35,7 @@ export default async function PrintInvoicePage({
 }) {
   const { id } = await params;
   const { pdf } = await searchParams;
+  await requirePageAccess(canViewAccounting);
   const repo = await getServiceRepository();
   const invoice = await repo.getInvoice(id);
   if (!invoice) notFound();

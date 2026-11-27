@@ -23,6 +23,7 @@ type FormState = {
   bankAccountHolder: string;
   invoicePrefix: string;
   defaultTaxRate: string;
+  fiscalYearEndMonth: string;
 };
 
 const toForm = (org: Organization): FormState => ({
@@ -40,6 +41,7 @@ const toForm = (org: Organization): FormState => ({
   bankAccountHolder: org.bankAccountHolder,
   invoicePrefix: org.invoicePrefix,
   defaultTaxRate: String(Math.round(org.defaultTaxRate * 100)),
+  fiscalYearEndMonth: String(org.fiscalYearEndMonth),
 });
 
 /**
@@ -78,6 +80,7 @@ export function OrganizationForm({ org }: { org: Organization }) {
         bankAccountHolder: form.bankAccountHolder,
         invoicePrefix: form.invoicePrefix,
         defaultTaxRate: Number(form.defaultTaxRate) / 100,
+        fiscalYearEndMonth: Number(form.fiscalYearEndMonth),
       });
       if (!res.ok) {
         setError(res.error);
@@ -197,6 +200,18 @@ export function OrganizationForm({ org }: { org: Organization }) {
             value={form.defaultTaxRate}
             onChange={(e) => set({ defaultTaxRate: e.target.value })}
           />
+        </Field>
+        <Field label="決算月" hint="売上台帳（税理士さん向け）は、決算月の翌月から決算月までを1期として表示します">
+          <Select
+            value={form.fiscalYearEndMonth}
+            onChange={(e) => set({ fiscalYearEndMonth: e.target.value })}
+          >
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+              <option key={m} value={String(m)}>
+                {m}月決算
+              </option>
+            ))}
+          </Select>
         </Field>
       </div>
 

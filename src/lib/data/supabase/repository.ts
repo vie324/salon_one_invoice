@@ -142,6 +142,7 @@ import { mergeMandate } from "../mandate";
 import { mergeMarketingService } from "../marketing";
 import { normalizeItemInputs } from "../invoice-items";
 import { invoiceEditBlockedReason } from "@/lib/domain/invoice-edit";
+import { normalizeFiscalYearEndMonth, normalizeServiceMonth } from "@/lib/domain/revenue";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -167,6 +168,7 @@ function mapOrg(r: any): Organization {
     invoicePrefix: r.invoice_prefix ?? "INV",
     defaultTaxRate: Number(r.default_tax_rate ?? 0.1),
     logoText: r.logo_text ?? "S1",
+    fiscalYearEndMonth: normalizeFiscalYearEndMonth(r.fiscal_year_end_month),
   };
 }
 
@@ -308,6 +310,17 @@ function subscriptionTiers(tiers: unknown): StoreTier[] | null {
 const VOLUME_MIGRATION_NOTICE =
   "店舗数による割引を使うには、DB の更新（supabase/migrations/0025_volume_pricing_invoice_revisions.sql）を適用してください";
 
+const ACCOUNTING_MIGRATION_NOTICE =
+  "決算月を保存するには、DB の更新（supabase/migrations/0026_accounting_ledger.sql）を適用してください";
+
+const ACCOUNTANT_ROLE_MIGRATION_NOTICE =
+  "役割「税理士（閲覧のみ）」を使うには、DB の更新（supabase/migrations/0026_accounting_ledger.sql）を適用してください";
+
+/** 0026 の前の DB では、役割の制約に accountant が無いため保存で弾かれる(check 制約違反) */
+function isAccountantRoleRejected(error: { code?: string } | null, roles: Role[]): boolean {
+  return Boolean(error && error.code === "23514" && roles.includes("accountant"));
+}
+
 const REVISION_MIGRATION_NOTICE =
   "直す前の明細を修正履歴として残すため、DB の更新（supabase/migrations/0025_volume_pricing_invoice_revisions.sql）を適用してから修正してください（請求書は変更していません）";
 
@@ -329,6 +342,7 @@ function mapRevisionItems(raw: unknown): Omit<InvoiceItem, "id">[] {
     unitPrice: Number(it?.unit_price ?? 0),
     taxRate: Number(it?.tax_rate ?? 0),
     amount: Number(it?.amount ?? 0),
+    serviceMonth: it?.service_month ?? null,
   }));
 }
 
@@ -398,6 +412,8 @@ function mapItem(r: any): InvoiceItem {
     unitPrice: Number(r.unit_price),
     taxRate: Number(r.tax_rate),
     amount: Number(r.amount),
+    // 0026 の前の DB には列が無い(計上月は請求書の対象月・発行月から決める)
+    serviceMonth: r.service_month ?? null,
   };
 }
 
@@ -892,27 +908,32 @@ export class SupabaseRepository implements Repository {
   async updateOrganization(input: OrganizationInput): Promise<Organization> {
     // 組織は1件のみ運用のため、既存行を特定してから更新する
     const current = await this.getOrganization();
-    const { data, error } = await this.db
-      .from("organizations")
-      .update({
-        name: input.name,
-        postal_code: input.postalCode,
-        address: input.address,
-        tel: input.tel,
-        email: input.email,
-        registration_number: input.registrationNumber,
-        bank_name: input.bankName,
-        bank_branch: input.bankBranch,
-        bank_branch_code: input.bankBranchCode,
-        bank_account_type: input.bankAccountType,
-        bank_account_number: input.bankAccountNumber,
-        bank_account_holder: input.bankAccountHolder,
-        invoice_prefix: input.invoicePrefix,
-        default_tax_rate: input.defaultTaxRate,
-      })
-      .eq("id", current.id)
-      .select("*")
-      .single();
+    const patch: Record<string, unknown> = {
+      name: input.name,
+      postal_code: input.postalCode,
+      address: input.address,
+      tel: input.tel,
+      email: input.email,
+      registration_number: input.registrationNumber,
+      bank_name: input.bankName,
+      bank_branch: input.bankBranch,
+      bank_branch_code: input.bankBranchCode,
+      bank_account_type: input.bankAccountType,
+      bank_account_number: input.bankAccountNumber,
+      bank_account_holder: input.bankAccountHolder,
+      invoice_prefix: input.invoicePrefix,
+      default_tax_rate: input.defaultTaxRate,
+    };
+    if (input.fiscalYearEndMonth !== undefined) {
+      patch.fiscal_year_end_month = normalizeFiscalYearEndMonth(input.fiscalYearEndMonth);
+    }
+    let { data, error } = await this.db.from("organizations").update(patch).eq("id", current.id).select("*").single();
+    if (isMissingColumn(error, "fiscal_year_end_month")) {
+      // 0026 の前の DB: 決算月を変えないなら、列を書かずにそのほかを保存する
+      if (patch.fiscal_year_end_month !== current.fiscalYearEndMonth) throw new Error(ACCOUNTING_MIGRATION_NOTICE);
+      delete patch.fiscal_year_end_month;
+      ({ data, error } = await this.db.from("organizations").update(patch).eq("id", current.id).select("*").single());
+    }
     if (error) throw error;
     return mapOrg(data);
   }
@@ -1662,6 +1683,7 @@ export class SupabaseRepository implements Repository {
       unitPrice: it.unitPrice,
       taxRate: it.taxRate,
       amount: Math.round(it.quantity * it.unitPrice),
+      serviceMonth: normalizeServiceMonth(it.serviceMonth),
     }));
     const totals = calcInvoiceTotals(items);
     const org = await this.getOrganization();
@@ -1697,17 +1719,23 @@ export class SupabaseRepository implements Repository {
       .select("*")
       .single();
     if (error) throw error;
-    const { error: itemsError } = await this.db.from("invoice_items").insert(
-      items.map((it, idx) => ({
-        invoice_id: invRow.id,
-        description: it.description,
-        quantity: it.quantity,
-        unit_price: it.unitPrice,
-        tax_rate: it.taxRate,
-        amount: it.amount,
-        position: idx,
-      })),
-    );
+    const itemRows = items.map((it, idx) => ({
+      invoice_id: invRow.id,
+      description: it.description,
+      quantity: it.quantity,
+      unit_price: it.unitPrice,
+      tax_rate: it.taxRate,
+      amount: it.amount,
+      position: idx,
+      ...(it.serviceMonth ? { service_month: it.serviceMonth } : {}),
+    }));
+    let { error: itemsError } = await this.db.from("invoice_items").insert(itemRows);
+    if (isMissingColumn(itemsError, "service_month")) {
+      // 0026 の前の DB: 計上月を書かずに保存する(計上月は請求書の対象月・発行月から決める)
+      ({ error: itemsError } = await this.db
+        .from("invoice_items")
+        .insert(itemRows.map(({ service_month: _sm, ...row }: any) => row)));
+    }
     if (itemsError) throw itemsError;
     await this.logActivity({
       kind: status === "draft" ? "invoice_created" : "invoice_sent",
@@ -1747,6 +1775,7 @@ export class SupabaseRepository implements Repository {
         unit_price: it.unitPrice,
         tax_rate: it.taxRate,
         amount: it.amount,
+        service_month: it.serviceMonth ?? null,
       })),
       p_subtotal: totals.subtotal,
       p_tax_total: totals.taxTotal,
@@ -4267,6 +4296,7 @@ export class SupabaseRepository implements Repository {
     const { error } = await this.db
       .from("profiles")
       .upsert({ id: userId, role: roles[0], roles }, { onConflict: "id" });
+    if (isAccountantRoleRejected(error, roles)) throw new Error(ACCOUNTANT_ROLE_MIGRATION_NOTICE);
     if (error) throw error;
   }
 
@@ -4285,7 +4315,13 @@ export class SupabaseRepository implements Repository {
         "アカウント作成には SUPABASE_SERVICE_ROLE_KEY の設定が必要です: " + (e as Error).message,
       );
     }
-    if (created.error) throw new Error(created.error.message);
+    if (created.error) {
+      // 0026 の前の DB では、ユーザー作成時のトリガーが役割 accountant を保存できずに失敗する
+      if (input.roles.includes("accountant") && /database error/i.test(created.error.message)) {
+        throw new Error(ACCOUNTANT_ROLE_MIGRATION_NOTICE);
+      }
+      throw new Error(created.error.message);
+    }
     const user = created.data.user;
     if (!user) throw new Error("アカウントの作成に失敗しました");
     // トリガー(handle_new_user)で profiles は作成されるが、確実に反映する
@@ -4294,6 +4330,7 @@ export class SupabaseRepository implements Repository {
       .upsert({ id: user.id, full_name: input.name, role: input.roles[0], roles: input.roles })
       .select("*")
       .single();
+    if (isAccountantRoleRejected(error, input.roles)) throw new Error(ACCOUNTANT_ROLE_MIGRATION_NOTICE);
     if (error) throw error;
     return mapProfile(data, input.email);
   }

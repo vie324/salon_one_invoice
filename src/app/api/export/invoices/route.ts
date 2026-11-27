@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { forbiddenUnless } from "@/lib/access";
 import { getServiceRepository } from "@/lib/data";
 import { outstandingAmount } from "@/lib/domain/calculations";
 import {
+  canViewAccounting,
   invoiceStatusLabels,
   invoiceTypeLabels,
   paymentMethodLabels,
@@ -24,6 +26,8 @@ function csvField(v: string | number | null | undefined): string {
  */
 export async function GET(req: Request) {
   const url = new URL(req.url);
+  const denied = await forbiddenUnless(canViewAccounting);
+  if (denied) return denied;
   const repo = await getServiceRepository();
   const invoices = await repo.listInvoices({
     status: (url.searchParams.get("status") as InvoiceStatus | null) ?? "all",

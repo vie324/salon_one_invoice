@@ -13,6 +13,7 @@ import {
   Wallet,
 } from "lucide-react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { RevenueChart } from "@/components/charts/revenue-chart";
 import { CompletionBanner } from "@/components/notifications/completion-banner";
 import {
@@ -30,7 +31,7 @@ import { loadOrderBook } from "@/lib/orders/load";
 import { contactDue, isOpenReferral } from "@/lib/domain/referral";
 import { getServiceRepository } from "@/lib/data";
 import type { Repository } from "@/lib/data/repository";
-import { canAccessBilling, canAccessDev, isEngineer, isProductAdmin } from "@/lib/domain/constants";
+import { canAccessBilling, canAccessDev, isEngineer, isProductAdmin, isReadOnlyAccount } from "@/lib/domain/constants";
 import {
   isOpenIssue,
   issueUrgency,
@@ -59,6 +60,8 @@ export const dynamic = "force-dynamic";
  */
 export default async function HomePage() {
   const [user, repo] = await Promise.all([requireUser(), getServiceRepository()]);
+  // 税理士さん(閲覧のみ)のアカウントは売上台帳だけを見る
+  if (isReadOnlyAccount(user.roles)) redirect("/accounting");
   const showBilling = canAccessBilling(user.roles);
   const showDev = canAccessDev(user.roles);
   const month = currentMonth();
